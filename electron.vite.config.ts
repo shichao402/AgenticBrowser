@@ -14,7 +14,14 @@ export default defineConfig({
   preload: {
     build: {
       rollupOptions: {
-        input: resolve('src/preload/index.ts')
+        input: {
+          shell: resolve('src/preload/index.ts'),
+          'strategy-bootstrap': resolve('src/preload/strategy-bootstrap.ts')
+        },
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs'
+        }
       }
     }
   },

@@ -28,26 +28,27 @@
 
 ## 生命周期与恢复
 
-- [ ] 正常导航与加载事件
-- [ ] `did-fail-load`
+- [x] 正常导航与加载事件
+- [x] `did-fail-load`
 - [ ] `unresponsive` / `responsive`
 - [x] `render-process-gone`
 - [x] renderer 崩溃后重建 `WebContentsView`
-- [ ] 重建后 Profile/session 保持
+- [x] 重建后 Profile/session 保持
+- [x] 主动页面心跳检测 renderer 事件循环阻塞与恢复
 - [ ] main process 被杀后 Watchdog 重启
 - [ ] 从持久化检查点恢复
 
 ## 注入与 frame
 
-- [ ] `document_start` 之前/时机验证
-- [ ] top frame 注入
-- [ ] same-origin iframe
-- [ ] cross-origin iframe/OOPIF
-- [ ] renderer 重建后重新安装脚本
+- [x] `document_start` 时机验证
+- [x] top frame 注入
+- [x] same-origin iframe
+- [x] cross-origin iframe/OOPIF
+- [x] renderer 重建后重新安装脚本
 
 ## 录制性能
 
-- [ ] `capturePage` 10 FPS
+- [x] `capturePage` 10 FPS
 - [ ] 环形缓冲内存上限
 - [ ] 页面交互延迟影响
 - [ ] 多 `WebContentsView` 影响
@@ -67,6 +68,9 @@
 - 导航、普通刷新和忽略缓存刷新
 - 生命周期事件流
 - renderer 崩溃后页面重建入口
+- session frame preload 注入探针
+- 主动 renderer 心跳停顿探针
+- `capturePage` 10 FPS 基准
 - URL 安全校验与单元测试
 
 每次勾选项目时，在下方追加命令、环境、版本和观察结果。
@@ -92,11 +96,35 @@
 - `npm run dev`：Electron 成功启动，观察到 5 个 browser/renderer/GPU/utility 进程均为 responding。
 - `npx electron-builder --win --dir`：生成 `release/win-unpacked`；`AgenticBrowser.exe` 启动后主窗口标题正确且 responding。
 - `npx electron-builder --win`：成功生成 x64 NSIS 安装包和 block map。尚未在本机执行安装流程。
-- `npm run smoke:electron`：隐藏模式启动 BrowserShell/page，验证二者 WebContents ID 不同；远程页面无 Node `process`/`require`，配置为 sandbox/context isolation；强制崩溃 renderer 后 page ID 从 2 变为 3、generation 从 1 变为 2，命令正常退出。
+- `npm run smoke:electron`：启动 BrowserShell/page，验证二者 WebContents ID 不同；远程页面无 Node `process`/`require`，配置为 sandbox/context isolation；强制崩溃 renderer 后 page ID 从 2 变为 3、generation 从 1 变为 2，命令正常退出。
 - `npm audit --omit=dev`：生产依赖 0 个已知漏洞。
 - 完整 dev dependency 审计仍有 8 个 moderate，来自 electron-builder 的构建期 `global-agent -> roarr -> sprintf-js` 链；当前上游最新版本没有无风险升级，必须在发布前重新审计，不能将该结论外推为生产运行时安全。
 
 修复记录：
 
 - npm 11 的 install-script allowlist 初次阻止了 Electron binary 安装；已在 `package.json#allowScripts` 精确允许 `electron@44.7.2`。
-- ESM preload 构建产物为 `out/preload/index.mjs`，主进程路径已与产物对齐。
+- session frame preload 不能直接使用 ESM 产物；实测会报告 `Cannot use import statement outside a module`。preload 构建已统一输出 CommonJS：`shell.cjs` 与 `strategy-bootstrap.cjs`。
+
+### 2026-10-15：注入、故障、Profile 与录制探针
+
+命令：
+
+```bash
+npm run smoke:electron
+```
+
+本地探针页面包含 top frame、同源 iframe、以 `localhost` 与 `127.0.0.1` 分离站点的跨域 iframe，以及一个主动断开响应的导航端点。结果：
+
+- smoke 总结果 `passed: true`。
+- top frame、同源 iframe、跨域 OOPIF 均在页面 inline script 执行时看到 preload marker，且两者记录的 `document.readyState` 都是 `loading`。
+- 跨域 frame 使用不同 renderer process，证明覆盖了 OOPIF，而不只是同进程 iframe。
+- renderer 强制崩溃并重建后，三个 frame 均再次看到 preload marker，preload error 为空。
+- Named Profile Cookie 在重建前后均存在。
+- 观察到 `created`、导航开始/完成、加载开始/完成、`did-fail-load`、`renderer-gone` 和 `recreated` 事件。
+- 页面事件循环阻塞 2 秒时，250 ms 主动 ping 能检测停顿；阻塞结束后 ping 恢复。
+- `capturePage` 采集 20 帧，无空帧；帧起始间隔折算 9.92 FPS，平均采集 27.10 ms，p95 35.38 ms，RSS 增量约 31.0 MiB。
+- 随后的 `npm run check` 通过：类型检查、8 项单元测试、生产构建和生产依赖审计均成功；`git diff --check` 无错误。
+
+`webContents` 的 `unresponsive` 事件继续保留为辅助信号，但它不适合作为后台监督主信号：触发延迟通常约 30 秒，并受用户输入与页面可见性影响。Phase 1 的 HealthMonitor 必须以短周期主动心跳和业务断言为主，`unresponsive`/`responsive` 只补充故障时间线。
+
+当前 10 FPS 结果只证明单个可见 `WebContentsView` 的短时采集能力；尚未证明环形缓冲上限、长时间稳定性、多页面并发或交互延迟，因此这些验收项保持未完成。

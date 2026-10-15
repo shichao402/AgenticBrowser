@@ -7,9 +7,11 @@
 已经存在：
 
 - `src/main/index.ts`：`BaseWindow`、BrowserShell `WebContentsView`、远程页面布局和受信 IPC 注册。
-- `src/main/browser-supervisor.ts`：Named Profile session、页面生命周期事件、导航/刷新和 renderer 消失后的重建入口。
+- `src/main/browser-supervisor.ts`：Named Profile session、页面生命周期事件、导航/刷新、主动心跳探针和 renderer 消失后的重建入口。
+- `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
 - `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
 - `src/preload/index.ts`：最小 BrowserShell API。
+- `src/preload/strategy-bootstrap.ts`：session 级 frame preload 的 Phase 0 注入探针。
 - `src/renderer/`：Phase 0 BrowserShell、地址栏、刷新和生命周期事件面板。
 - `src/shared/contracts.ts`：跨进程结构化契约。
 
@@ -72,8 +74,13 @@ flowchart LR
 - `sandbox: true`
 - `contextIsolation: true`
 - `nodeIntegration: false`
+- `nodeIntegrationInSubFrames: true`，仅用于让受沙箱约束的 preload 覆盖所有 frame。
 - 与 BrowserShell renderer 分离。
 - 只能运行经过项目授权的 Strategy 和页面探针。
+
+session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源 iframe 和跨域 OOPIF 中安装 bootstrap。Electron 的 session frame preload 当前按 CommonJS 加载，因此构建产物固定为 `.cjs`；ESM 产物不能作为该注入链路的输入。
+
+`nodeIntegrationInSubFrames` 扩大了 preload 的执行范围，但页面 main world 仍无 Node `process`、`require` 或原始 IPC。所有 frame 都被视为不可信：bootstrap 不得暴露文件、shell、密钥或通用 IPC，只能接受带 Project/Strategy 能力校验的窄接口。正式 Strategy 执行器还未实现，当前 bootstrap 只在 smoke 参数存在时写入无权限 marker。
 
 ### Agent sidecar/utility process
 
@@ -90,6 +97,8 @@ flowchart LR
 ### BrowserSupervisor
 
 负责创建、绑定、销毁和重建 `WebContentsView`；注册加载、无响应、崩溃、导航、权限和下载事件；将底层事件归一化成领域事件。
+
+页面健康不能只依赖 Chromium 的 `unresponsive`/`responsive` 事件。这些事件触发较慢，并可能因页面隐藏或缺少用户输入而不触发。HealthMonitor 以主进程发起的短超时主动 ping、加载状态和业务断言为主信号；原生无响应事件只作为辅助证据。连续失败必须进入有预算的 RecoveryEngine，不能无限 reload。
 
 ### StrategyEngine
 

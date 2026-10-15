@@ -67,4 +67,4 @@ npm run dist
 
 ## 当前状态
 
-项目处于 Phase 0：已建立 Electron/TypeScript/React 工程基线、BrowserShell/远程页面分离、最小导航与生命周期事件流；兼容性、注入、故障恢复、Watchdog 和录制性能仍在验证。证据见 [Phase 0 验证记录](docs/research/phase0-validation.md)。
+项目处于 Phase 0：已建立 Electron/TypeScript/React 工程基线、BrowserShell/远程页面分离、frame/OOPIF 注入探针、最小导航与生命周期事件流、renderer 重建、主动心跳停顿检测和单页面 10 FPS 采集基准。应用外 Watchdog、持久化检查点、长时录制和双平台验证仍待完成。证据见 [Phase 0 验证记录](docs/research/phase0-validation.md)。

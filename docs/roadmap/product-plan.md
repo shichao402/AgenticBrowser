@@ -1,7 +1,7 @@
 # AgenticBrowser 产品总计划
 
 - Last updated: 2026-10-15
-- Status: Phase 0 pending
+- Status: Phase 0 in progress
 
 ## 愿景
 

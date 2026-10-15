@@ -19,7 +19,8 @@ const PROFILE_PARTITION = 'persist:profile-default'
 export const REMOTE_PAGE_SECURITY = {
   sandbox: true,
   contextIsolation: true,
-  nodeIntegration: false
+  nodeIntegration: false,
+  nodeIntegrationInSubFrames: true
 } as const
 
 export interface BrowserDiagnostics {
@@ -30,29 +31,74 @@ export interface BrowserDiagnostics {
     sandbox: boolean
     contextIsolation: boolean
     nodeIntegration: boolean
+    nodeIntegrationInSubFrames: boolean
   }
   pageWorld: {
     hasNodeProcess: boolean
     hasRequire: boolean
   }
+  strategyPreloadRegistered: boolean
+  preloadErrors: string[]
   generation: number
+}
+
+export interface FrameDiagnostics {
+  url: string
+  processId: number
+  routingId: number
+  isMainFrame: boolean
+  observation: {
+    label: string
+    probeVisibleAtInline: boolean
+    preloadReadyState: string | null
+    inlineReadyState: string
+    inlineAt: number
+  } | null
+}
+
+export interface CaptureBenchmark {
+  frameCount: number
+  elapsedMs: number
+  achievedFps: number
+  averageCaptureMs: number
+  p95CaptureMs: number
+  encodedBytes: number
+  emptyFrames: number
+  rssDeltaBytes: number
+}
+
+export interface HeartbeatStallProbe {
+  blockMs: number
+  timeoutMs: number
+  stallDetected: boolean
+  recovered: boolean
+  elapsedMs: number
+}
+
+export interface BrowserSupervisorOptions {
+  initialUrl?: string
+  strategyPreloadPath?: string
+  phaseZeroProbe?: boolean
 }
 
 export class BrowserSupervisor {
   private readonly profileSession: Session
   private pageView: WebContentsView | null = null
   private bounds: Rectangle = { x: 320, y: 72, width: 960, height: 728 }
-  private currentUrl = DEFAULT_URL
+  private currentUrl: string
   private generation = 0
   private sequence = 0
   private responsive = true
   private lastEvent: BrowserEvent | null = null
   private disposed = false
+  private readonly preloadErrors: string[] = []
 
   constructor(
     private readonly window: BaseWindow,
-    private readonly publish: (event: BrowserEvent) => void
+    private readonly publish: (event: BrowserEvent) => void,
+    private readonly options: BrowserSupervisorOptions = {}
   ) {
+    this.currentUrl = options.initialUrl ?? DEFAULT_URL
     this.profileSession = session.fromPartition(PROFILE_PARTITION, {
       cache: true
     })
@@ -120,8 +166,158 @@ export class BrowserSupervisor {
         ...REMOTE_PAGE_SECURITY
       },
       pageWorld,
+      strategyPreloadRegistered:
+        this.options.strategyPreloadPath !== undefined &&
+        this.profileSession
+          .getPreloadScripts()
+          .some((script) => script.filePath === this.options.strategyPreloadPath),
+      preloadErrors: [...this.preloadErrors],
       generation: this.generation
     }
+  }
+
+  async collectFrameDiagnostics(): Promise<FrameDiagnostics[]> {
+    const contents = this.requireContents()
+    const mainFrame = contents.mainFrame
+
+    return Promise.all(
+      mainFrame.framesInSubtree.map(async (frame) => {
+        const observation = (await frame.executeJavaScript(
+          'globalThis.__phaseZeroInlineObservation ?? null'
+        )) as FrameDiagnostics['observation']
+
+        return {
+          url: frame.url,
+          processId: frame.processId,
+          routingId: frame.routingId,
+          isMainFrame: frame === mainFrame,
+          observation
+        }
+      })
+    )
+  }
+
+  async hasProfileCookie(name: string): Promise<boolean> {
+    const url = new URL(this.currentUrl)
+    const cookies = await this.profileSession.cookies.get({
+      url: url.origin,
+      name
+    })
+    return cookies.length > 0
+  }
+
+  async benchmarkCapture(frameCount = 20, intervalMs = 100): Promise<CaptureBenchmark> {
+    const contents = this.requireContents()
+    const durations: number[] = []
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await this.capturePageWithRetry()
+    const startedAt = performance.now()
+    const rssBefore = process.memoryUsage().rss
+    const frameStartedAt: number[] = []
+    let encodedBytes = 0
+    let emptyFrames = 0
+
+    for (let index = 0; index < frameCount; index += 1) {
+      const scheduledAt = startedAt + index * intervalMs
+      const waitMs = scheduledAt - performance.now()
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
+      }
+
+      const captureStartedAt = performance.now()
+      frameStartedAt.push(captureStartedAt)
+      const image = await this.capturePageWithRetry()
+      const encoded = image.toJPEG(70)
+      const captureDuration = performance.now() - captureStartedAt
+      durations.push(captureDuration)
+      encodedBytes += encoded.byteLength
+      if (image.isEmpty() || encoded.byteLength === 0) {
+        emptyFrames += 1
+      }
+    }
+
+    const elapsedMs = performance.now() - startedAt
+    const sortedDurations = [...durations].sort((left, right) => left - right)
+    const p95Index = Math.min(
+      sortedDurations.length - 1,
+      Math.ceil(sortedDurations.length * 0.95) - 1
+    )
+
+    return {
+      frameCount,
+      elapsedMs,
+      achievedFps:
+        frameStartedAt.length > 1
+          ? ((frameStartedAt.length - 1) * 1000) /
+            ((frameStartedAt.at(-1) ?? startedAt) - frameStartedAt[0]!)
+          : 0,
+      averageCaptureMs:
+        durations.reduce((total, duration) => total + duration, 0) / durations.length,
+      p95CaptureMs: sortedDurations[p95Index] ?? 0,
+      encodedBytes,
+      emptyFrames,
+      rssDeltaBytes: process.memoryUsage().rss - rssBefore
+    }
+  }
+
+  async probeHeartbeatStall(
+    blockMs = 2_000,
+    timeoutMs = 250
+  ): Promise<HeartbeatStallProbe> {
+    const contents = this.requireContents()
+    const startedAt = performance.now()
+    const execution = contents.executeJavaScript(`
+      {
+        const blockedUntil = performance.now() + ${blockMs};
+        while (performance.now() < blockedUntil) {
+          // Intentional Phase 0 renderer hang.
+        }
+        true;
+      }
+    `)
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const stallDetected = !(await this.pingRenderer(timeoutMs))
+    await execution
+    const recovered = await this.pingRenderer(timeoutMs)
+
+    return {
+      blockMs,
+      timeoutMs,
+      stallDetected,
+      recovered,
+      elapsedMs: performance.now() - startedAt
+    }
+  }
+
+  private async capturePageWithRetry() {
+    const contents = this.requireContents()
+    let lastError: unknown
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        return await contents.capturePage()
+      } catch (error) {
+        lastError = error
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+    }
+
+    throw lastError
+  }
+
+  private async pingRenderer(timeoutMs: number): Promise<boolean> {
+    const contents = this.requireContents()
+
+    return Promise.race([
+      contents
+        .executeJavaScript('true')
+        .then(() => true)
+        .catch(() => false),
+      new Promise<boolean>((resolve) => {
+        setTimeout(() => resolve(false), timeoutMs)
+      })
+    ])
   }
 
   async forceCrashAndWait(timeoutMs = 10_000): Promise<void> {
@@ -166,6 +362,18 @@ export class BrowserSupervisor {
   }
 
   private configureSession(): void {
+    if (
+      this.options.strategyPreloadPath &&
+      !this.profileSession
+        .getPreloadScripts()
+        .some((script) => script.filePath === this.options.strategyPreloadPath)
+    ) {
+      this.profileSession.registerPreloadScript({
+        type: 'frame',
+        filePath: this.options.strategyPreloadPath
+      })
+    }
+
     this.profileSession.setPermissionCheckHandler(() => false)
     this.profileSession.setPermissionRequestHandler((_contents, _permission, callback) => {
       callback(false)
@@ -179,7 +387,10 @@ export class BrowserSupervisor {
     const view = new WebContentsView({
       webPreferences: {
         ...REMOTE_PAGE_SECURITY,
-        session: this.profileSession
+        session: this.profileSession,
+        ...(this.options.phaseZeroProbe
+          ? { additionalArguments: ['--agentic-phase0-probe'] }
+          : {})
       }
     })
 
@@ -198,6 +409,10 @@ export class BrowserSupervisor {
     const { webContents } = view
 
     webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+
+    webContents.on('preload-error', (_event, preloadPath, error) => {
+      this.preloadErrors.push(`${preloadPath}: ${error.message}`)
+    })
 
     webContents.on('did-start-navigation', (_event, url, _isInPlace, isMainFrame) => {
       if (!isMainFrame) {

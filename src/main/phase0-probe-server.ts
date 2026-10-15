@@ -1,0 +1,120 @@
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+
+const PROBE_QUERY = '__agentic_phase0_probe=1'
+
+export interface PhaseZeroProbeServer {
+  topUrl: string
+  close(): Promise<void>
+}
+
+function frameDocument(label: string): string {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>${label}</title>
+    <script>
+      globalThis.__phaseZeroInlineObservation = {
+        label: ${JSON.stringify(label)},
+        probeVisibleAtInline: Boolean(globalThis.__agenticPhaseZeroProbe),
+        preloadReadyState: globalThis.__agenticPhaseZeroProbe?.readyState ?? null,
+        inlineReadyState: document.readyState,
+        inlineAt: performance.now()
+      };
+    </script>
+  </head>
+  <body><p>${label}</p></body>
+</html>`
+}
+
+function topDocument(crossOriginUrl: string): string {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>AgenticBrowser Phase 0 Probe</title>
+    <script>
+      globalThis.__phaseZeroInlineObservation = {
+        label: 'top',
+        probeVisibleAtInline: Boolean(globalThis.__agenticPhaseZeroProbe),
+        preloadReadyState: globalThis.__agenticPhaseZeroProbe?.readyState ?? null,
+        inlineReadyState: document.readyState,
+        inlineAt: performance.now()
+      };
+      document.cookie = 'agentic_phase0_session=preserved; Path=/; SameSite=Lax';
+      let tick = 0;
+      setInterval(() => {
+        document.documentElement.dataset.tick = String(++tick);
+      }, 50);
+    </script>
+  </head>
+  <body>
+    <h1>Phase 0 Probe</h1>
+    <iframe id="same-origin" src="/same?${PROBE_QUERY}"></iframe>
+    <iframe id="cross-origin" src="${crossOriginUrl}"></iframe>
+  </body>
+</html>`
+}
+
+async function listen(server: Server, host: string): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, host, () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+
+  return (server.address() as AddressInfo).port
+}
+
+async function closeServer(server: Server): Promise<void> {
+  if (!server.listening) {
+    return
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error)
+      } else {
+        resolve()
+      }
+    })
+  })
+}
+
+export async function startPhaseZeroProbeServer(): Promise<PhaseZeroProbeServer> {
+  const crossServer = createServer((_request, response) => {
+    response.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store'
+    })
+    response.end(frameDocument('cross-origin'))
+  })
+  const crossPort = await listen(crossServer, 'localhost')
+  const crossUrl = `http://localhost:${crossPort}/cross?${PROBE_QUERY}`
+
+  const topServer = createServer((request, response) => {
+    if (request.url?.startsWith('/disconnect')) {
+      request.socket.destroy()
+      return
+    }
+
+    const isSameOriginFrame = request.url?.startsWith('/same') === true
+    response.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store'
+    })
+    response.end(isSameOriginFrame ? frameDocument('same-origin') : topDocument(crossUrl))
+  })
+  const topPort = await listen(topServer, '127.0.0.1')
+
+  return {
+    topUrl: `http://127.0.0.1:${topPort}/?${PROBE_QUERY}`,
+    close: async () => {
+      await Promise.all([closeServer(topServer), closeServer(crossServer)])
+    }
+  }
+}
