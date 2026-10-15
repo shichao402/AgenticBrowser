@@ -7,6 +7,7 @@ import {
   type BrowserTab,
   type CapabilitySettings,
   type MonitorSnapshot,
+  type ProfileSummary,
   type ReloadOptions
 } from '../shared/contracts'
 
@@ -26,6 +27,14 @@ const api: BrowserShellApi = {
     ipcRenderer.invoke(IPC_CHANNELS.switchTab, tabId),
   closeTab: (tabId: string): Promise<BrowserTab[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.closeTab, tabId),
+  listProfiles: (): Promise<ProfileSummary[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.listProfiles),
+  createProfile: (name: string): Promise<ProfileSummary[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.createProfile, name),
+  activateProfile: (profileId: string): Promise<ProfileSummary[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.activateProfile, profileId),
+  deleteProfile: (profileId: string): Promise<ProfileSummary[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.deleteProfile, profileId),
   navigate: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, url),
   reload: (options: ReloadOptions) => ipcRenderer.invoke(IPC_CHANNELS.reload, options),
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => {

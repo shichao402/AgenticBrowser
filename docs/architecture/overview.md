@@ -9,6 +9,7 @@
 - `src/main/index.ts`：`BaseWindow`、BrowserShell `WebContentsView`、远程页面布局和受信 IPC 注册。
 - `src/main/browser-supervisor.ts`：Named Profile session、页面生命周期事件、导航/刷新、主动心跳探针和 renderer 消失后的重建入口。
 - `src/main/browser-tab-manager.ts`：最多 8 个独立 WebContents tab、活动 view 切换、全局事件序列和 session handler 所有权转移。
+- `src/main/profile-store.ts`：版本化 Profile 清单、活动 Profile、串行原子更新和删除保护。
 - `src/main/checkpoint-store.ts`：版本化浏览器检查点、串行原子写入、读取校验和损坏文件隔离。
 - `src/main/capture-ring-buffer.ts`：受帧数与字节数双重约束、可冻结的内存截图环。
 - `src/main/main-process-heartbeat.ts`：Electron main 的外部存活心跳。
@@ -120,6 +121,8 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 
 BrowserTabManager 为每个 tab 持有独立 BrowserSupervisor/WebContentsView；非活动 view 保持存活但不可见，仍接受健康监督。所有 tab 共享同一命名 Profile session 和 capability 配置。session 下载 listener 始终只有一个所有者；关闭所有者 tab 时先转移到另一个 tab，避免重复处理或失去下载。浏览器检查点当前只保存最近激活 tab，不保存完整 tab 集合。
 
+BrowserShell 可创建、激活和删除 Profile。激活时主进程销毁旧 BrowserTabManager，在目标命名 session 中以最近活动 URL 重建首个 tab，成功后才持久化活动 Profile；创建失败则重建并恢复原 Profile。Profile 切换、tab、导航、刷新和能力修改通过同一主进程队列串行化，避免操作落到已销毁的 manager。默认 Profile 和活动 Profile 不可删除；删除其他 Profile 时同时清理其 session storage、HTTP cache 和 auth cache。Project 模型尚未落地，因此被 Project 引用的 Profile 删除保护仍属于 Phase 3。
+
 ### StrategyEngine
 
 根据 URL、frame 和 Project allowlist 选择固定版本 Strategy，在指定 `runAt` 执行。默认使用隔离 world；访问 main world 需要显式能力。
@@ -163,6 +166,8 @@ Agent 负责分析新状态、提出恢复动作或生成候选 workflow。Tool 
 - 密钥：只存引用，真实值进入系统钥匙串或本机私密配置。
 
 Profile/Cookie 使用 Electron session partition 存储，不提交仓库，也不进入项目导出包。
+
+Profile 清单保存在 userData 下的版本化 JSON 文件，使用临时文件加 rename 原子替换；并发修改由单进程队列串行化。Profile ID 只用于命名 session partition，显示名称不能直接成为目录或 partition 标识。
 
 当前浏览器检查点 schema v1 只保存 `profileId`、URL、保存原因和时间，使用同目录临时文件加 rename 原子替换。这是 main process 重启恢复的最小切片；workflow 步骤、幂等键、下载事务和业务游标必须由 Phase 3 的 Project Runtime 独立持久化，不能塞入该文件冒充业务恢复。
 

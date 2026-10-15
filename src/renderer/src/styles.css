@@ -112,6 +112,64 @@ button {
   background: #293443;
 }
 
+.profile-panel {
+  margin-top: 12px;
+  padding: 10px;
+  background: #181b21;
+  border: 1px solid #2a2e37;
+  border-radius: 10px;
+}
+
+.profile-panel .panel-heading {
+  padding: 0 0 7px;
+}
+
+.profile-panel select,
+.profile-panel input {
+  min-width: 0;
+  color: #dce3ec;
+  background: #101217;
+  border: 1px solid #303540;
+  border-radius: 6px;
+}
+
+.profile-panel select {
+  width: 100%;
+  padding: 6px;
+  font-size: 11px;
+}
+
+.profile-create {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.profile-create input {
+  flex: 1;
+  padding: 6px;
+  font-size: 10px;
+}
+
+.profile-create button,
+.profile-delete-list button {
+  padding: 5px 7px;
+  background: #232832;
+  border: 1px solid #343a46;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.profile-delete-list {
+  display: flex;
+  max-height: 52px;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+  overflow: auto;
+}
+
 .project-card {
   margin-top: 16px;
   padding: 15px;

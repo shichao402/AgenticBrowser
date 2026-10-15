@@ -205,6 +205,13 @@ export class BrowserTabManager {
     return this.activeSupervisor().hasProfileCookie(name)
   }
 
+  setProfileCookieForDiagnostics(
+    name: string,
+    value: string
+  ): Promise<void> {
+    return this.activeSupervisor().setProfileCookieForDiagnostics(name, value)
+  }
+
   benchmarkCapture(frameCount?: number, intervalMs?: number): Promise<CaptureBenchmark> {
     return this.activeSupervisor().benchmarkCapture(frameCount, intervalMs)
   }

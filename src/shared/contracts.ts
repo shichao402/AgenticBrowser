@@ -8,6 +8,10 @@ export const IPC_CHANNELS = {
   createTab: 'tabs:create',
   switchTab: 'tabs:switch',
   closeTab: 'tabs:close',
+  listProfiles: 'profiles:list',
+  createProfile: 'profiles:create',
+  activateProfile: 'profiles:activate',
+  deleteProfile: 'profiles:delete',
   navigate: 'browser:navigate',
   reload: 'browser:reload'
 } as const
@@ -119,6 +123,13 @@ export interface BrowserTab {
   responsive: boolean
 }
 
+export interface ProfileSummary {
+  id: string
+  name: string
+  createdAt: string
+  active: boolean
+}
+
 export interface CapabilitySettings {
   popups: boolean
   downloads: boolean
@@ -138,6 +149,10 @@ export interface BrowserShellApi {
   createTab(url?: string): Promise<BrowserTab[]>
   switchTab(tabId: string): Promise<BrowserTab[]>
   closeTab(tabId: string): Promise<BrowserTab[]>
+  listProfiles(): Promise<ProfileSummary[]>
+  createProfile(name: string): Promise<ProfileSummary[]>
+  activateProfile(profileId: string): Promise<ProfileSummary[]>
+  deleteProfile(profileId: string): Promise<ProfileSummary[]>
   navigate(url: string): Promise<BrowserSnapshot>
   reload(options: ReloadOptions): Promise<BrowserSnapshot>
   onBrowserEvent(listener: (event: BrowserEvent) => void): () => void

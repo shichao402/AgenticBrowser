@@ -369,6 +369,22 @@ export class BrowserSupervisor {
     return cookies.length > 0
   }
 
+  async setProfileCookieForDiagnostics(
+    name: string,
+    value: string
+  ): Promise<void> {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
+      throw new Error('Cookie 名称格式无效')
+    }
+    const url = new URL(this.currentUrl)
+    await this.profileSession.cookies.set({
+      url: url.origin,
+      name,
+      value,
+      path: '/'
+    })
+  }
+
   requestDownload(url: string): void {
     this.requireContents().downloadURL(normalizeNavigationUrl(url))
   }

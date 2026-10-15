@@ -2,13 +2,14 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { app, BaseWindow, ipcMain, WebContentsView } from 'electron'
+import { app, BaseWindow, ipcMain, session, WebContentsView } from 'electron'
 
 import {
   IPC_CHANNELS,
   type BrowserEvent,
   type CapabilitySettings,
   type MonitorSnapshot,
+  type ProfileSummary,
   type ReloadOptions
 } from '../shared/contracts'
 import { writeJsonAtomic } from './atomic-file'
@@ -27,6 +28,11 @@ import {
   type PhaseZeroProbeServer
 } from './phase0-probe-server'
 import { StructuredEventLog } from './structured-event-log'
+import {
+  DEFAULT_PROFILE_ID,
+  ProfileStore,
+  type ProfileState
+} from './profile-store'
 
 const managedUserDataPath = process.env.AGENTIC_USER_DATA_PATH
 if (managedUserDataPath) {
@@ -95,7 +101,8 @@ interface CreateMainWindowOptions {
   eventLog?: StructuredEventLog
   capabilityStore?: CapabilityStore
   capabilities?: CapabilitySettings
-  downloadDirectory?: string
+  downloadRoot?: string
+  profileStore?: ProfileStore
 }
 
 async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<MainWindowRuntime> {
@@ -108,7 +115,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     eventLog,
     capabilityStore,
     capabilities,
-    downloadDirectory
+    downloadRoot,
+    profileStore
   } = options
   const window = new BaseWindow({
     width: 1440,
@@ -134,29 +142,45 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
 
   const publish = (event: BrowserEvent): void => {
     eventCount += 1
-    events.push(event)
+    const globalEvent = {
+      ...event,
+      sequence: eventCount
+    }
+    events.push(globalEvent)
     if (events.length > 500) {
       events.shift()
     }
-    void eventLog?.append(event).catch((error: unknown) => {
+    void eventLog?.append(globalEvent).catch((error: unknown) => {
       console.error('写入结构化事件日志失败', error)
     })
     if (!shellView.webContents.isDestroyed()) {
-      shellView.webContents.send(IPC_CHANNELS.browserEvent, event)
+      shellView.webContents.send(IPC_CHANNELS.browserEvent, globalEvent)
     }
   }
 
-  const supervisor = new BrowserTabManager(window, publish, {
-    ...(initialUrl ? { initialUrl } : {}),
-    strategyPreloadPath: join(currentDirectory, '../preload/strategy-bootstrap.cjs'),
-    phaseZeroProbe,
-    healthMonitoring: !phaseZeroProbe,
-    recoveryEnabled: !phaseZeroProbe,
-    ...(capabilities ? { capabilities } : {}),
-    ...(downloadDirectory ? { downloadDirectory } : {}),
-    ...(profileId ? { profileId } : {}),
-    ...(checkpointStore ? { checkpointStore } : {})
-  })
+  let activeProfileId = profileId ?? 'profile-default'
+  let activeCapabilities = capabilities
+  const createSupervisor = (
+    nextProfileId: string,
+    nextInitialUrl?: string
+  ): BrowserTabManager =>
+    new BrowserTabManager(window, publish, {
+      ...(nextInitialUrl ? { initialUrl: nextInitialUrl } : {}),
+      strategyPreloadPath: join(
+        currentDirectory,
+        '../preload/strategy-bootstrap.cjs'
+      ),
+      phaseZeroProbe,
+      healthMonitoring: !phaseZeroProbe,
+      recoveryEnabled: !phaseZeroProbe,
+      ...(activeCapabilities ? { capabilities: activeCapabilities } : {}),
+      ...(downloadRoot
+        ? { downloadDirectory: join(downloadRoot, nextProfileId) }
+        : {}),
+      profileId: nextProfileId,
+      ...(checkpointStore ? { checkpointStore } : {})
+    })
+  let supervisor = createSupervisor(activeProfileId, initialUrl)
 
   const layout = (): void => {
     const { width, height } = window.getContentBounds()
@@ -175,19 +199,37 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     }
   }
 
-  ipcMain.handle(IPC_CHANNELS.getSnapshot, (event) => {
+  let supervisorOperationQueue: Promise<void> = Promise.resolve()
+  const enqueueSupervisorOperation = <T>(
+    operation: () => T | Promise<T>
+  ): Promise<T> => {
+    const pending = supervisorOperationQueue.then(operation)
+    supervisorOperationQueue = pending.then(
+      () => undefined,
+      () => undefined
+    )
+    return pending
+  }
+  const readSupervisor = <T>(
+    read: (current: BrowserTabManager) => T
+  ): Promise<T> =>
+    enqueueSupervisorOperation(() => read(supervisor))
+
+  ipcMain.handle(IPC_CHANNELS.getSnapshot, async (event) => {
     assertTrustedSender(event.sender.id)
-    return supervisor.getSnapshot()
+    return readSupervisor((current) => current.getSnapshot())
   })
 
-  ipcMain.handle(IPC_CHANNELS.getMonitorSnapshot, (event) => {
+  ipcMain.handle(IPC_CHANNELS.getMonitorSnapshot, async (event) => {
     assertTrustedSender(event.sender.id)
-    return collectMonitorSnapshot(supervisor, eventCount)
+    return readSupervisor((current) =>
+      collectMonitorSnapshot(current, eventCount)
+    )
   })
 
-  ipcMain.handle(IPC_CHANNELS.getCapabilities, (event) => {
+  ipcMain.handle(IPC_CHANNELS.getCapabilities, async (event) => {
     assertTrustedSender(event.sender.id)
-    return supervisor.getCapabilities()
+    return readSupervisor((current) => current.getCapabilities())
   })
 
   ipcMain.handle(IPC_CHANNELS.setCapabilities, async (event, value: unknown) => {
@@ -195,38 +237,132 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     if (!capabilityStore) {
       throw new Error('Capability Store 当前不可用')
     }
-    const settings = await capabilityStore.write(value)
-    return supervisor.setCapabilities(settings)
+    return enqueueSupervisorOperation(async () => {
+      const settings = await capabilityStore.write(value)
+      activeCapabilities = settings
+      return supervisor.setCapabilities(settings)
+    })
   })
 
-  ipcMain.handle(IPC_CHANNELS.listTabs, (event) => {
+  ipcMain.handle(IPC_CHANNELS.listTabs, async (event) => {
     assertTrustedSender(event.sender.id)
-    return supervisor.listTabs()
+    return readSupervisor((current) => current.listTabs())
   })
 
-  ipcMain.handle(IPC_CHANNELS.createTab, (event, url: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.createTab, async (event, url: unknown) => {
     assertTrustedSender(event.sender.id)
     if (url !== undefined && typeof url !== 'string') {
       throw new TypeError('新标签页 URL 必须是字符串')
     }
-    return supervisor.createTab(url)
+    return enqueueSupervisorOperation(() => supervisor.createTab(url))
   })
 
-  ipcMain.handle(IPC_CHANNELS.switchTab, (event, tabId: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.switchTab, async (event, tabId: unknown) => {
     assertTrustedSender(event.sender.id)
     if (typeof tabId !== 'string') {
       throw new TypeError('标签页 ID 必须是字符串')
     }
-    return supervisor.switchTab(tabId)
+    return enqueueSupervisorOperation(() => supervisor.switchTab(tabId))
   })
 
-  ipcMain.handle(IPC_CHANNELS.closeTab, (event, tabId: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.closeTab, async (event, tabId: unknown) => {
     assertTrustedSender(event.sender.id)
     if (typeof tabId !== 'string') {
       throw new TypeError('标签页 ID 必须是字符串')
     }
-    return supervisor.closeTab(tabId)
+    return enqueueSupervisorOperation(() => supervisor.closeTab(tabId))
   })
+
+  ipcMain.handle(IPC_CHANNELS.listProfiles, async (event) => {
+    assertTrustedSender(event.sender.id)
+    if (!profileStore) {
+      throw new Error('Profile Store 当前不可用')
+    }
+    return toProfileSummaries(await profileStore.read())
+  })
+
+  ipcMain.handle(IPC_CHANNELS.createProfile, async (event, name: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (!profileStore || typeof name !== 'string') {
+      throw new TypeError('Profile 名称必须是字符串')
+    }
+    return toProfileSummaries(await profileStore.create(name))
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.activateProfile,
+    (event, nextProfileId: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (!profileStore || typeof nextProfileId !== 'string') {
+        throw new TypeError('Profile ID 必须是字符串')
+      }
+      return enqueueSupervisorOperation(async () => {
+        const state = await profileStore.read()
+        if (!state.profiles.some((profile) => profile.id === nextProfileId)) {
+          throw new Error(`Profile 不存在：${nextProfileId}`)
+        }
+        if (nextProfileId === activeProfileId) {
+          return toProfileSummaries(state)
+        }
+
+        const previousProfileId = activeProfileId
+        const previousUrl = supervisor.getSnapshot().url
+        supervisor.dispose()
+        activeProfileId = nextProfileId
+        supervisor = createSupervisor(nextProfileId, previousUrl)
+
+        try {
+          await supervisor.start()
+          layout()
+          return toProfileSummaries(
+            await profileStore.setActive(nextProfileId)
+          )
+        } catch (error) {
+          supervisor.dispose()
+          activeProfileId = previousProfileId
+          supervisor = createSupervisor(previousProfileId, previousUrl)
+          await supervisor.start()
+          layout()
+          await profileStore.setActive(previousProfileId)
+          throw error
+        }
+      })
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.deleteProfile,
+    (event, targetProfileId: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (!profileStore || typeof targetProfileId !== 'string') {
+        throw new TypeError('Profile ID 必须是字符串')
+      }
+      return enqueueSupervisorOperation(async () => {
+        const state = await profileStore.read()
+        if (!state.profiles.some((profile) => profile.id === targetProfileId)) {
+          throw new Error(`Profile 不存在：${targetProfileId}`)
+        }
+        if (targetProfileId === DEFAULT_PROFILE_ID) {
+          throw new Error('默认 Profile 不能删除')
+        }
+        if (targetProfileId === state.activeProfileId) {
+          throw new Error('活动 Profile 不能删除')
+        }
+
+        const targetSession = session.fromPartition(
+          `persist:${targetProfileId}`
+        )
+        await Promise.all([
+          targetSession.clearStorageData(),
+          targetSession.clearCache(),
+          targetSession.clearAuthCache()
+        ])
+        return toProfileSummaries(
+          await profileStore.delete(targetProfileId)
+        )
+      })
+    }
+  )
 
   ipcMain.handle(IPC_CHANNELS.navigate, async (event, url: unknown) => {
     assertTrustedSender(event.sender.id)
@@ -234,10 +370,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       throw new TypeError('导航 URL 必须是字符串')
     }
 
-    return supervisor.navigate(url)
+    return enqueueSupervisorOperation(() => supervisor.navigate(url))
   })
 
-  ipcMain.handle(IPC_CHANNELS.reload, (event, options: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.reload, async (event, options: unknown) => {
     assertTrustedSender(event.sender.id)
     const normalized: ReloadOptions = {
       ignoreCache:
@@ -246,7 +382,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         'ignoreCache' in options &&
         options.ignoreCache === true
     }
-    return supervisor.reload(normalized)
+    return enqueueSupervisorOperation(() => supervisor.reload(normalized))
   })
 
   window.on('resize', layout)
@@ -262,6 +398,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ipcMain.removeHandler(IPC_CHANNELS.createTab)
       ipcMain.removeHandler(IPC_CHANNELS.switchTab)
       ipcMain.removeHandler(IPC_CHANNELS.closeTab)
+      ipcMain.removeHandler(IPC_CHANNELS.listProfiles)
+      ipcMain.removeHandler(IPC_CHANNELS.createProfile)
+      ipcMain.removeHandler(IPC_CHANNELS.activateProfile)
+      ipcMain.removeHandler(IPC_CHANNELS.deleteProfile)
       ipcMain.removeHandler(IPC_CHANNELS.navigate)
       ipcMain.removeHandler(IPC_CHANNELS.reload)
     }
@@ -295,10 +435,19 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   return {
     window,
     shellView,
-    supervisor,
+    get supervisor() {
+      return supervisor
+    },
     events,
     getEventCount: () => eventCount
   }
+}
+
+function toProfileSummaries(state: ProfileState): ProfileSummary[] {
+  return state.profiles.map((profile) => ({
+    ...profile,
+    active: profile.id === state.activeProfileId
+  }))
 }
 
 function collectMonitorSnapshot(
@@ -395,6 +544,51 @@ async function runRecoverySmoke(
   probe: PhaseZeroProbeServer
 ): Promise<Record<string, unknown>> {
   const popupUrl = new URL('/popup', probe.topUrl).toString()
+  const profileCookieName = 'agentic_profile_smoke'
+  await runtime.supervisor.setProfileCookieForDiagnostics(
+    profileCookieName,
+    'default-profile'
+  )
+  const createdProfiles = (await runtime.shellView.webContents.executeJavaScript(
+    "window.agenticBrowser.createProfile('Recovery Smoke Profile')"
+  )) as ProfileSummary[]
+  const smokeProfile = createdProfiles.find(
+    (profile) => profile.name === 'Recovery Smoke Profile'
+  )
+  if (!smokeProfile) {
+    throw new Error('恢复冒烟：未能通过 BrowserShell 创建 Profile')
+  }
+
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.activateProfile(${JSON.stringify(smokeProfile.id)})`
+  )
+  if (await runtime.supervisor.hasProfileCookie(profileCookieName)) {
+    throw new Error('恢复冒烟：新 Profile 读取到了默认 Profile Cookie')
+  }
+
+  await runtime.shellView.webContents.executeJavaScript(
+    "window.agenticBrowser.activateProfile('profile-default')"
+  )
+  if (!(await runtime.supervisor.hasProfileCookie(profileCookieName))) {
+    throw new Error('恢复冒烟：切回默认 Profile 后 Cookie 未恢复')
+  }
+
+  const remainingProfiles =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.deleteProfile(${JSON.stringify(smokeProfile.id)})`
+    )) as ProfileSummary[]
+  if (remainingProfiles.some((profile) => profile.id === smokeProfile.id)) {
+    throw new Error('恢复冒烟：非活动 Profile 删除失败')
+  }
+  const deletedProfileCookies = await session
+    .fromPartition(`persist:${smokeProfile.id}`)
+    .cookies.get({})
+  if (deletedProfileCookies.length > 0) {
+    throw new Error('恢复冒烟：删除 Profile 后 session Cookie 未清理')
+  }
+  const profileIsolationPassed = true
+  const profileDeletionClearedSession = true
+
   const initialTabs = runtime.supervisor.listTabs()
   const tabsAfterCreate = await runtime.supervisor.createTab(popupUrl)
   const firstTab = initialTabs[0]
@@ -478,6 +672,8 @@ async function runRecoverySmoke(
     'recreate-view'
   ]
   const passed =
+    profileIsolationPassed &&
+    profileDeletionClearedSession &&
     multiTabPassed &&
     popupBlocked &&
     popupRouted &&
@@ -497,6 +693,8 @@ async function runRecoverySmoke(
   return {
     passed,
     navigationRejected,
+    profileIsolationPassed,
+    profileDeletionClearedSession,
     multiTabPassed,
     tabsAfterCreate,
     tabsAfterOwnerClose,
@@ -553,27 +751,41 @@ app.whenReady().then(async () => {
   const restoredCheckpoint = checkpointStore
     ? await checkpointStore.read()
     : null
-  const profileId = restoredCheckpoint?.profileId ?? 'profile-default'
+  automatedDownloadDirectory =
+    smokeTest || recoverySmokeTest
+      ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
+      : null
+  const profileStore = new ProfileStore(
+    join(
+      automatedDownloadDirectory ?? app.getPath('userData'),
+      'config',
+      'profiles.json'
+    )
+  )
+  const profileState = await profileStore.read()
+  const profileId = profileState.activeProfileId
+  const compatibleCheckpoint =
+    restoredCheckpoint?.profileId === profileId ? restoredCheckpoint : null
   const capabilityStore = new CapabilityStore(
-    join(app.getPath('userData'), 'config', 'capabilities.json')
+    join(
+      automatedDownloadDirectory ?? app.getPath('userData'),
+      'config',
+      'capabilities.json'
+    )
   )
   const capabilities =
     smokeTest || recoverySmokeTest
       ? { ...DEFAULT_CAPABILITIES }
       : await capabilityStore.read()
-  automatedDownloadDirectory =
-    smokeTest || recoverySmokeTest
-      ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
-      : null
   phaseZeroProbe =
     smokeTest || recoverySmokeTest ? await startPhaseZeroProbeServer() : null
   const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
-  if (watchdogSmokeChild && !watchdogSmokeUrl && !restoredCheckpoint) {
+  if (watchdogSmokeChild && !watchdogSmokeUrl && !compatibleCheckpoint) {
     throw new Error('Watchdog smoke 缺少初始 URL')
   }
 
   const initialUrl =
-    phaseZeroProbe?.topUrl ?? restoredCheckpoint?.url ?? watchdogSmokeUrl
+    phaseZeroProbe?.topUrl ?? compatibleCheckpoint?.url ?? watchdogSmokeUrl
   const runtime = await createMainWindow({
     show: !watchdogSmokeChild && !recoverySmokeTest,
     phaseZeroProbe: smokeTest,
@@ -583,9 +795,11 @@ app.whenReady().then(async () => {
     ...(eventLog ? { eventLog } : {}),
     capabilityStore,
     capabilities,
-    downloadDirectory:
-      automatedDownloadDirectory ??
-      join(app.getPath('userData'), 'downloads', profileId)
+    downloadRoot: join(
+      automatedDownloadDirectory ?? app.getPath('userData'),
+      'downloads'
+    ),
+    profileStore
   })
 
   if (smokeTest) {

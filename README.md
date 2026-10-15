@@ -75,4 +75,4 @@ npm run dist
 
 ## 当前状态
 
-项目处于 Phase 1：Phase 0 已完成 Windows 工程、隔离注入、renderer/main 故障恢复、URL/Profile 检查点、受限截图环和安装验证；macOS 与真实站点门禁仍待外部环境。当前已实现多 tab、主动页面健康监测、分级恢复预算与熔断、本地错误页、Capability Center、受控弹窗、基础下载接管、JSONL 事件日志和 CPU/内存/页面/下载监控。完整 Profile 管理和 Phase 3 下载事务仍待完成。证据见 [Phase 0](docs/research/phase0-validation.md) 与 [Phase 1 验证记录](docs/research/phase1-validation.md)。
+项目处于 Phase 1：Phase 0 已完成 Windows 工程、隔离注入、renderer/main 故障恢复、URL/Profile 检查点、受限截图环和安装验证；macOS 与真实站点门禁仍待外部环境。当前已实现多 tab、基础 Profile 管理与 session 隔离、主动页面健康监测、分级恢复预算与熔断、本地错误页、Capability Center、受控弹窗、基础下载接管、JSONL 事件日志和 CPU/内存/页面/下载监控。Profile 的 Project 引用保护和 Phase 3 下载事务仍待完成。证据见 [Phase 0](docs/research/phase0-validation.md) 与 [Phase 1 验证记录](docs/research/phase1-validation.md)。

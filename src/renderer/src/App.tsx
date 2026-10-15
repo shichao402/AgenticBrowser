@@ -5,7 +5,8 @@ import type {
   BrowserSnapshot,
   BrowserTab,
   CapabilitySettings,
-  MonitorSnapshot
+  MonitorSnapshot,
+  ProfileSummary
 } from '../../shared/contracts'
 
 const EVENT_LABELS: Record<BrowserEvent['type'], string> = {
@@ -54,6 +55,8 @@ export function App(): React.JSX.Element {
   const [capabilities, setCapabilities] =
     useState<CapabilitySettings | null>(null)
   const [tabs, setTabs] = useState<BrowserTab[]>([])
+  const [profiles, setProfiles] = useState<ProfileSummary[]>([])
+  const [newProfileName, setNewProfileName] = useState('')
   const [events, setEvents] = useState<BrowserEvent[]>([])
   const [address, setAddress] = useState('https://example.com/')
   const [error, setError] = useState<string | null>(null)
@@ -76,12 +79,17 @@ export function App(): React.JSX.Element {
     setTabs(await window.agenticBrowser.listTabs())
   }, [])
 
+  const refreshProfiles = useCallback(async (): Promise<void> => {
+    setProfiles(await window.agenticBrowser.listProfiles())
+  }, [])
+
   useEffect(() => {
     void Promise.all([
       refreshSnapshot(),
       refreshMonitor(),
       refreshCapabilities(),
-      refreshTabs()
+      refreshTabs(),
+      refreshProfiles()
     ]).catch((cause: unknown) => {
       setError(cause instanceof Error ? cause.message : String(cause))
     })
@@ -101,6 +109,7 @@ export function App(): React.JSX.Element {
   }, [
     refreshCapabilities,
     refreshMonitor,
+    refreshProfiles,
     refreshSnapshot,
     refreshTabs
   ])
@@ -184,6 +193,37 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const createProfile = async (): Promise<void> => {
+    if (newProfileName.trim().length === 0) {
+      return
+    }
+    try {
+      setProfiles(
+        await window.agenticBrowser.createProfile(newProfileName)
+      )
+      setNewProfileName('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const activateProfile = async (profileId: string): Promise<void> => {
+    try {
+      setProfiles(await window.agenticBrowser.activateProfile(profileId))
+      await Promise.all([refreshTabs(), refreshSnapshot(), refreshMonitor()])
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const deleteProfile = async (profileId: string): Promise<void> => {
+    try {
+      setProfiles(await window.agenticBrowser.deleteProfile(profileId))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -206,6 +246,56 @@ export function App(): React.JSX.Element {
             过滤器
           </button>
         </nav>
+
+        <section className="profile-panel">
+          <div className="panel-heading">
+            <h2>Profile</h2>
+            <span>切换会重建 tabs</span>
+          </div>
+          <select
+            aria-label="活动 Profile"
+            value={profiles.find((profile) => profile.active)?.id ?? ''}
+            onChange={(event) => void activateProfile(event.target.value)}
+          >
+            {profiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+          <div className="profile-create">
+            <input
+              aria-label="新 Profile 名称"
+              placeholder="新 Profile"
+              value={newProfileName}
+              onChange={(event) => setNewProfileName(event.target.value)}
+            />
+            <button type="button" onClick={() => void createProfile()}>
+              添加
+            </button>
+          </div>
+          {profiles.some(
+            (profile) => !profile.active && profile.id !== 'profile-default'
+          ) ? (
+            <div className="profile-delete-list">
+              {profiles
+                .filter(
+                  (profile) =>
+                    !profile.active && profile.id !== 'profile-default'
+                )
+                .map((profile) => (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    title={`删除 ${profile.name}`}
+                    onClick={() => void deleteProfile(profile.id)}
+                  >
+                    删除 {profile.name}
+                  </button>
+                ))}
+            </div>
+          ) : null}
+        </section>
 
         <section className="project-card">
           <div className="project-card-heading">
