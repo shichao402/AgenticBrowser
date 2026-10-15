@@ -50,7 +50,7 @@ MVP 的完成标准不是“能打开网页”，而是知识星球项目可以�
 
 ## Phase 2：Strategy MVP
 
-Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy 独立 world、document-start/end/idle、top frame/OOPIF、配置/日志/领域事件/受控网络请求、显式 main-world 能力、心跳/超时/隔离、renderer 重建恢复，以及 Strategy 编辑/启停/临时显式 allowlist UI 已落地。保存或授权变化通过重建受控 view 清理旧实例并重新匹配；真实热重载和同步死循环终止探针均通过。Phase 3 将临时开发 allowlist 迁入 Project 固定版本快照。证据见 [Phase 2 验证记录](../research/phase2-validation.md)。
+Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy 独立 world、document-start/end/idle、top frame/OOPIF、配置/日志/领域事件/受控网络请求、显式 main-world 能力、心跳/超时/隔离、renderer 重建恢复，以及 Strategy 编辑/启停/临时显式 allowlist UI 已落地。保存或授权变化通过重建受控 view 清理旧实例并重新匹配；真实热重载和同步死循环终止探针均通过。Phase 3 已将运行态 allowlist 迁入 Project 固定版本快照，开发态临时 allowlist 仅用于独立调试。证据见 [Phase 2 验证记录](../research/phase2-validation.md)。
 
 ### 交付
 
