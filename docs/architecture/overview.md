@@ -1,6 +1,26 @@
 # 总体架构
 
-> 状态：目标架构，Phase 0 尚未完成实现验证。
+> 状态：目标架构。Phase 0 工程基线已经落地，其余组件按 roadmap 逐步实现。
+
+## 当前代码映射
+
+已经存在：
+
+- `src/main/index.ts`：`BaseWindow`、BrowserShell `WebContentsView`、远程页面布局和受信 IPC 注册。
+- `src/main/browser-supervisor.ts`：Named Profile session、页面生命周期事件、导航/刷新和 renderer 消失后的重建入口。
+- `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
+- `src/preload/index.ts`：最小 BrowserShell API。
+- `src/renderer/`：Phase 0 BrowserShell、地址栏、刷新和生命周期事件面板。
+- `src/shared/contracts.ts`：跨进程结构化契约。
+
+尚未实现：
+
+- 外部 Watchdog 和持久化检查点。
+- Strategy/Workflow/Project Runtime。
+- Content Filter、Download Manager 和完整监控。
+- 示教录制与 Agent sidecar。
+
+目标架构章节描述的是完成后的组件边界；未实现能力不能按现有功能对外宣称。
 
 ## 系统边界
 

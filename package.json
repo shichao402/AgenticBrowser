@@ -1,0 +1,61 @@
+{
+  "name": "agentic-browser",
+  "version": "0.1.0",
+  "description": "Embedded agentic browser for resilient, project-oriented web automation",
+  "author": "shichao402",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "smoke:electron": "npm run build && electron . --smoke-test",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "audit:prod": "npm audit --omit=dev",
+    "check": "npm run typecheck && npm run test && npm run build && npm run audit:prod",
+    "dist": "npm run build && electron-builder"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
+    "electron-vite": "6.0.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.4"
+  },
+  "build": {
+    "appId": "com.firoyang.agenticbrowser",
+    "productName": "AgenticBrowser",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    }
+  },
+  "allowScripts": {
+    "electron@44.7.2": true
+  }
+}

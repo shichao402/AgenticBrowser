@@ -36,6 +36,35 @@ MVP 不包含 Widevine DRM、Chrome Sync、Google 浏览器私有 API或完整 C
 - [知识星球试点](docs/roadmap/knowledge-planet-pilot.md)
 - [架构决策记录](docs/ADR/README.md)
 
+## 开发
+
+要求 Node.js 22 或更高版本。
+
+```bash
+npm install
+npm run dev
+```
+
+验证完整工程基线：
+
+```bash
+npm run check
+```
+
+构建本地安装包：
+
+```bash
+npm run dist
+```
+
+核心源码：
+
+- `src/main/`：Electron 主进程和 Browser Supervisor。
+- `src/preload/`：BrowserShell 的最小 IPC bridge。
+- `src/renderer/`：React BrowserShell。
+- `src/shared/`：跨进程结构化契约。
+- `tests/`：纯逻辑与后续故障回归测试。
+
 ## 当前状态
 
-项目处于 Phase 0：Electron 兼容性与恢复能力验证。开始编码后，架构、ADR 和 roadmap 必须与实现同步更新。
+项目处于 Phase 0：已建立 Electron/TypeScript/React 工程基线、BrowserShell/远程页面分离、最小导航与生命周期事件流；兼容性、注入、故障恢复、Watchdog 和录制性能仍在验证。证据见 [Phase 0 验证记录](docs/research/phase0-validation.md)。

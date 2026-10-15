@@ -1,11 +1,13 @@
 # MVP 路线图
 
-- Status: Not started
+- Status: Phase 0 in progress
 - Scope: Phase 0–3
 
 MVP 的完成标准不是“能打开网页”，而是知识星球项目可以在故障注入下可靠扫描、筛选和下载，并能被监控。
 
 ## Phase 0：Electron Spike
+
+当前切片：建立可编译、可测试的 Electron/TypeScript/React 基线，并实现 BrowserShell 与沙箱远程 `WebContentsView` 的最小分离。验证证据持续记录在 [Phase 0 验证记录](../research/phase0-validation.md)。
 
 ### 交付
 

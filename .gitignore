@@ -4,6 +4,8 @@ dist/
 out/
 release/
 coverage/
+*.tsbuildinfo
+phase0-smoke-result.json
 
 # Runtime state
 .agentic-browser/
