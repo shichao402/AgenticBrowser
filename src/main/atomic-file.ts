@@ -22,9 +22,33 @@ export async function writeJsonAtomic(filePath: string, value: unknown): Promise
       encoding: 'utf8',
       flag: 'wx'
     })
-    await rename(temporaryPath, filePath)
+    await renameWithRetry(temporaryPath, filePath)
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined)
+  }
+}
+
+async function renameWithRetry(
+  source: string,
+  destination: string
+): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(source, destination)
+      return
+    } catch (error) {
+      if (
+        attempt >= 7 ||
+        (!isNodeError(error, 'EPERM') &&
+          !isNodeError(error, 'EACCES') &&
+          !isNodeError(error, 'EBUSY'))
+      ) {
+        throw error
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(100, 5 * 2 ** attempt))
+      )
+    }
   }
 }
 

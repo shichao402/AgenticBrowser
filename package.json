@@ -13,6 +13,7 @@
     "smoke:electron": "npm run build && electron . --smoke-test",
     "smoke:strategy-fault": "npm run build && electron . --strategy-fault-smoke-test",
     "smoke:strategy-workspace": "npm run build && electron . --strategy-workspace-smoke-test",
+    "smoke:project-download": "npm run build && electron . --project-download-smoke-test",
     "smoke:recovery": "npm run build && electron . --recovery-smoke-test",
     "smoke:watchdog": "npm run build && node scripts/watchdog-smoke.mjs",
     "smoke:watchdog:packaged": "npm run build && electron-builder --dir && node scripts/watchdog-smoke.mjs --packaged",

@@ -1,4 +1,10 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import {
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -8,7 +14,13 @@ import {
   IPC_CHANNELS,
   type BrowserEvent,
   type CapabilityPolicy,
+  type ContentFilterDefinition,
+  type JsonValue,
   type MonitorSnapshot,
+  type ProjectDefinition,
+  type ProjectDraft,
+  type ProjectRuntimeSnapshot,
+  type ProjectWorkspaceSnapshot,
   type ProfileSummary,
   type ReloadOptions,
   type StrategyDefinition,
@@ -18,6 +30,10 @@ import {
 } from '../shared/contracts'
 import { writeJsonAtomic } from './atomic-file'
 import { BrowserTabManager } from './browser-tab-manager'
+import type {
+  BrowserDownloadAdapter,
+  BrowserDownloadRequest
+} from './browser-supervisor'
 import {
   CapabilityStore,
   createCapabilityPolicy
@@ -27,6 +43,22 @@ import {
   type BrowserCheckpoint
 } from './checkpoint-store'
 import { MainProcessHeartbeat } from './main-process-heartbeat'
+import {
+  ProjectDownloadManager,
+  type ProjectDownloadReservation
+} from './project-download-manager'
+import { ProjectScheduler } from './project-scheduler'
+import { ProjectRuntimeStore } from './project-runtime-store'
+import {
+  parseProjectDraft,
+  ProjectStore,
+  type ProjectState
+} from './project-store'
+import {
+  requireRunnableProjectStrategies,
+  resolveProjectStrategies
+} from './project-strategy-resolver'
+import { ProjectWorkflowEngine } from './project-workflow-engine'
 import {
   startPhaseZeroProbeServer,
   type PhaseZeroProbeServer
@@ -70,6 +102,9 @@ const strategyFaultSmokeTest = process.argv.includes(
 const strategyWorkspaceSmokeTest = process.argv.includes(
   '--strategy-workspace-smoke-test'
 )
+const projectDownloadSmokeTest = process.argv.includes(
+  '--project-download-smoke-test'
+)
 const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 const recoverySmokeResultPath = join(
@@ -83,6 +118,10 @@ const strategyFaultSmokeResultPath = join(
 const strategyWorkspaceSmokeResultPath = join(
   process.cwd(),
   'phase2-strategy-workspace-smoke-result.json'
+)
+const projectDownloadSmokeResultPath = join(
+  process.cwd(),
+  'phase3-project-download-smoke-result.json'
 )
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
 let automatedDownloadDirectory: string | null = null
@@ -163,6 +202,16 @@ function writeStrategyWorkspaceSmokeResult(result: unknown): void {
   }
 }
 
+function writeProjectDownloadSmokeResult(result: unknown): void {
+  if (projectDownloadSmokeTest) {
+    writeFileSync(
+      projectDownloadSmokeResultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
+  }
+}
+
 interface MainWindowRuntime {
   window: BaseWindow
   shellView: WebContentsView
@@ -185,6 +234,8 @@ interface CreateMainWindowOptions {
   capabilityPolicy?: CapabilityPolicy
   downloadRoot?: string
   profileStore?: ProfileStore
+  projectStore?: ProjectStore
+  projectRuntimeStore?: ProjectRuntimeStore
   strategyStore?: StrategyStore
   strategyPolicyStore?: StrategyPolicyStore
   strategyDefinitions?: StrategyDefinition[]
@@ -244,6 +295,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     capabilityPolicy,
     downloadRoot,
     profileStore,
+    projectStore,
+    projectRuntimeStore,
     strategyStore,
     strategyPolicyStore,
     strategyDefinitions,
@@ -288,6 +341,16 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         `AGENTIC_BROWSER_STRATEGY_SMOKE_EVENT ${JSON.stringify(globalEvent)}`
       )
     }
+    if (
+      projectDownloadSmokeTest &&
+      (event.type.startsWith('strategy-') ||
+        event.type.startsWith('download-') ||
+        event.type.startsWith('project-runtime-'))
+    ) {
+      console.log(
+        `AGENTIC_BROWSER_PROJECT_DOWNLOAD_EVENT ${JSON.stringify(globalEvent)}`
+      )
+    }
     void eventLog?.append(globalEvent).catch((error: unknown) => {
       console.error('写入结构化事件日志失败', error)
     })
@@ -297,9 +360,47 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   }
 
   let activeProfileId = profileId ?? 'profile-default'
-  let activeCapabilityPolicy = capabilityPolicy
-  let activeStrategyDefinitions = [...(strategyDefinitions ?? [])]
-  let activeAllowedStrategyIds = new Set(allowedStrategyIds ?? [])
+  let developmentCapabilityPolicy = capabilityPolicy
+  let activeCapabilityPolicy = developmentCapabilityPolicy
+  const developmentContentFilter: ContentFilterDefinition = {
+    enabled: false,
+    networkRules: [],
+    cssRules: []
+  }
+  let activeContentFilter = structuredClone(
+    developmentContentFilter
+  )
+  let registryStrategyDefinitions = cloneStrategyDefinitions(
+    strategyDefinitions ?? []
+  )
+  let developmentAllowedStrategyIds = new Set(
+    allowedStrategyIds ?? []
+  )
+  let activeStrategyDefinitions = cloneStrategyDefinitions(
+    registryStrategyDefinitions
+  )
+  let activeAllowedStrategyIds = new Set(
+    developmentAllowedStrategyIds
+  )
+  let activeWorkflowEngine: ProjectWorkflowEngine | null = null
+  let activeDownloadManager: ProjectDownloadManager | null = null
+  let activeDownloadAdapter: BrowserDownloadAdapter | undefined
+  let pendingManagedDownloads: Array<
+    Extract<ProjectDownloadReservation, { kind: 'reserved' }>
+  > = []
+  let currentProjectRuntime: ProjectRuntimeSnapshot | null = null
+  let projectScheduler: ProjectScheduler | null = null
+  let handleStrategyDomainEvent:
+    | ((event: {
+        strategyId: string
+        name: string
+        payload?: JsonValue
+        url: string
+      }) => JsonValue | void | Promise<JsonValue | void>)
+    | null = null
+  let workflowTickTimer: NodeJS.Timeout | null = null
+  let workflowTickInFlight = false
+  const finalizedProjectRuntimeIds = new Set<string>()
   const activeQuarantinedStrategyIds = new Set<string>()
   const createSupervisor = (
     nextProfileId: string,
@@ -317,6 +418,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ...(activeCapabilityPolicy
         ? { capabilityPolicy: activeCapabilityPolicy }
         : {}),
+      contentFilter: activeContentFilter,
+      ...(activeDownloadAdapter
+        ? { downloadAdapter: activeDownloadAdapter }
+        : {}),
       ...(downloadRoot
         ? { downloadDirectory: join(downloadRoot, nextProfileId) }
         : {}),
@@ -324,7 +429,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ...(checkpointStore ? { checkpointStore } : {}),
       strategyDefinitions: activeStrategyDefinitions,
       allowedStrategyIds: activeAllowedStrategyIds,
-      quarantinedStrategyIds: activeQuarantinedStrategyIds
+      quarantinedStrategyIds: activeQuarantinedStrategyIds,
+      onStrategyDomainEvent: (event) =>
+        handleStrategyDomainEvent?.(event)
     })
   let supervisor = createSupervisor(activeProfileId, initialUrl)
 
@@ -361,38 +468,678 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   ): Promise<T> =>
     enqueueSupervisorOperation(() => read(supervisor))
   const getStrategyWorkspaceSnapshot = (): StrategyWorkspaceSnapshot => ({
-    strategies: activeStrategyDefinitions.map((definition) => ({
-      ...definition,
-      manifest: {
-        ...definition.manifest,
-        matches: [...definition.manifest.matches],
-        excludes: [...definition.manifest.excludes],
-        permissions: [...definition.manifest.permissions],
-        networkMatches: [...definition.manifest.networkMatches],
-        config: structuredClone(definition.manifest.config),
-        timeouts: { ...definition.manifest.timeouts }
-      }
-    })),
-    developmentAllowedStrategyIds: [...activeAllowedStrategyIds].sort()
+    strategies: cloneStrategyDefinitions(registryStrategyDefinitions),
+    developmentAllowedStrategyIds: [
+      ...developmentAllowedStrategyIds
+    ].sort()
   })
-  const applyStrategyConfiguration = async (
+  const applyDevelopmentStrategyConfiguration = async (
     state: StrategyState,
     policy: StrategyPolicyState
   ): Promise<StrategyWorkspaceSnapshot> => {
     const existingIds = new Set(
       state.strategies.map((definition) => definition.manifest.id)
     )
-    activeStrategyDefinitions = [...state.strategies]
-    activeAllowedStrategyIds = new Set(
+    registryStrategyDefinitions = cloneStrategyDefinitions(state.strategies)
+    developmentAllowedStrategyIds = new Set(
       policy.developmentAllowedStrategyIds.filter((id) =>
         existingIds.has(id)
       )
+    )
+    activeStrategyDefinitions = cloneStrategyDefinitions(
+      registryStrategyDefinitions
+    )
+    activeAllowedStrategyIds = new Set(
+      developmentAllowedStrategyIds
     )
     await supervisor.setStrategyConfiguration(
       activeStrategyDefinitions,
       activeAllowedStrategyIds
     )
     return getStrategyWorkspaceSnapshot()
+  }
+  const buildProjectWorkspaceSnapshot = async (
+    state: ProjectState
+  ): Promise<ProjectWorkspaceSnapshot> => {
+    const activeProject =
+      state.projects.find(
+        (project) => project.id === state.activeProjectId
+      ) ?? null
+    const runtimes = projectRuntimeStore
+      ? (await projectRuntimeStore.read()).runtimes.map(
+          ({ runtime }) => structuredClone(runtime)
+        )
+      : []
+    return {
+      projects: state.projects.map(cloneProjectDefinition),
+      activeProjectId: state.activeProjectId,
+      runtimes,
+      strategyResolutions: activeProject
+        ? resolveProjectStrategies(
+            activeProject,
+            registryStrategyDefinitions
+          ).resolutions
+        : []
+    }
+  }
+  const readProjectWorkspace = async (): Promise<ProjectWorkspaceSnapshot> => {
+    if (!projectStore) {
+      throw new Error('Project Store 当前不可用')
+    }
+    return buildProjectWorkspaceSnapshot(await projectStore.read())
+  }
+  const assertProjectRuntimeInactive = async (
+    operation: string
+  ): Promise<void> => {
+    const state = await projectRuntimeStore?.read()
+    if (
+      state?.runtimes.some(
+        ({ runtime }) => !isTerminalProjectRuntime(runtime)
+      )
+    ) {
+      throw new Error(
+        `Project Runtime 运行期间不能${operation}；请先停止项目`
+      )
+    }
+  }
+  const publishProjectRuntimeEvent = (
+    type:
+      | 'project-runtime-started'
+      | 'project-runtime-stopped'
+      | 'project-runtime-failed',
+    detail: string
+  ): void => {
+    publish({
+      sequence: 0,
+      type,
+      timestamp: new Date().toISOString(),
+      url: supervisor.getSnapshot().url,
+      detail
+    })
+  }
+  const createProjectDownloadAdapter = (
+    manager: ProjectDownloadManager
+  ): BrowserDownloadAdapter => ({
+    reserve: async (request: BrowserDownloadRequest) => {
+      const requestUrl = normalizeComparableUrl(request.sourceUrl)
+      const index = pendingManagedDownloads.findIndex((reservation) => {
+        const record = reservation.record
+        return (
+          normalizeComparableUrl(record.sourceUrl) === requestUrl ||
+          (record.originalFileName === request.originalFileName &&
+            normalizeComparableUrl(record.sourcePage) ===
+              normalizeComparableUrl(request.sourcePage))
+        )
+      })
+      if (index < 0) {
+        throw new Error(
+          `下载没有已授权的 Strategy 意图：${request.sourceUrl}`
+        )
+      }
+      const [reservation] = pendingManagedDownloads.splice(index, 1)
+      if (!reservation) {
+        throw new Error('下载意图队列状态无效')
+      }
+      return {
+        kind: 'reserved',
+        downloadId: reservation.record.downloadId,
+        temporaryPath: reservation.record.temporaryPath,
+        displayName: reservation.record.safeFileName
+      }
+    },
+    markDownloading: async (downloadId) => {
+      await manager.markDownloading(downloadId)
+    },
+    complete: async (downloadId) => {
+      const record = await manager.complete(downloadId)
+      await handleStrategyDomainEvent?.({
+        strategyId: 'host-download-manager',
+        name: 'download.completed',
+        payload: {
+          downloadId: record.downloadId,
+          businessItemId: record.businessItemId,
+          attachmentId: record.attachmentId,
+          finalPath: record.finalPath,
+          sha256: record.sha256,
+          size: record.size
+        },
+        url: record.sourcePage
+      })
+      return { finalPath: record.finalPath, size: record.size }
+    },
+    fail: async (downloadId, category, detail) => {
+      const record = await manager.fail(downloadId, category, detail)
+      await handleStrategyDomainEvent?.({
+        strategyId: 'host-download-manager',
+        name: 'download.failed',
+        payload: {
+          downloadId: record.downloadId,
+          businessItemId: record.businessItemId,
+          attachmentId: record.attachmentId,
+          category,
+          detail
+        },
+        url: record.sourcePage
+      })
+    }
+  })
+  const startProjectRuntime = async (
+    runtimeId: string
+  ): Promise<ProjectWorkspaceSnapshot> => {
+    if (!projectStore || !profileStore || !projectRuntimeStore) {
+      throw new Error('Project Runtime 依赖当前不可用')
+    }
+    const [projectState, profileState, runtimeState] = await Promise.all([
+      projectStore.read(),
+      profileStore.read(),
+      projectRuntimeStore.read()
+    ])
+    const queued = runtimeState.runtimes.find(
+      ({ runtime }) => runtime.runtimeId === runtimeId
+    )
+    if (!queued || queued.runtime.status !== 'queued') {
+      throw new Error(`排队中的 Project Runtime 不存在：${runtimeId}`)
+    }
+    const project = projectState.projects.find(
+      (candidate) => candidate.id === queued.runtime.projectId
+    )
+    if (!project) {
+      throw new Error(`Project 不存在：${queued.runtime.projectId}`)
+    }
+    if (!project.enabled) {
+      throw new Error(`Project 已禁用：${project.name}`)
+    }
+    const executing = runtimeState.runtimes.filter(
+      ({ runtime }) =>
+        runtime.status !== 'queued' &&
+        runtime.status !== 'paused' &&
+        !isTerminalProjectRuntime(runtime)
+    )
+    if (executing.length > 0) {
+      throw new Error(
+        `已有 Project Runtime 占用全局并发槽：${
+          executing[0]!.runtime.projectId
+        }`
+      )
+    }
+    const runtimeProject = queued.projectSnapshot
+    const startupUrl = runtimeProject.startupPages[0]
+    if (!startupUrl) {
+      throw new Error('Project 至少需要一个初始化页面')
+    }
+    if (
+      !profileState.profiles.some(
+        (profile) => profile.id === runtimeProject.profileId
+      )
+    ) {
+      throw new Error(
+        `Project 绑定的 Profile 不存在：${runtimeProject.profileId}`
+      )
+    }
+
+    const resolved = resolveProjectStrategies(
+      runtimeProject,
+      registryStrategyDefinitions
+    )
+    requireRunnableProjectStrategies(resolved)
+    const selectedState = await projectStore.setActive(project.id)
+    const previousProfileId = activeProfileId
+    const previousUrl = supervisor.getSnapshot().url
+    const previousDefinitions = cloneStrategyDefinitions(
+      activeStrategyDefinitions
+    )
+    const previousAllowed = new Set(activeAllowedStrategyIds)
+    const previousCapabilityPolicy = activeCapabilityPolicy
+    const previousContentFilter = activeContentFilter
+    const previousDownloadManager = activeDownloadManager
+    const previousDownloadAdapter = activeDownloadAdapter
+    const previousPendingDownloads = pendingManagedDownloads
+
+    activeStrategyDefinitions = cloneStrategyDefinitions(
+      resolved.definitions
+    )
+    activeAllowedStrategyIds = new Set(resolved.allowedStrategyIds)
+    activeCapabilityPolicy = structuredClone(
+      runtimeProject.capabilities
+    )
+    activeContentFilter = structuredClone(runtimeProject.filter)
+    let startingRuntimeId: string | null = null
+
+    try {
+      const envelope = queued
+      startingRuntimeId = envelope.runtime.runtimeId
+      currentProjectRuntime = structuredClone(envelope.runtime)
+      activeDownloadManager = new ProjectDownloadManager(
+        join(runtimeProject.output.root, 'records', 'downloads.json'),
+        { runtimeStore: projectRuntimeStore }
+      )
+      await activeDownloadManager.recoverInterrupted()
+      pendingManagedDownloads = []
+      activeDownloadAdapter = createProjectDownloadAdapter(
+        activeDownloadManager
+      )
+
+      if (runtimeProject.profileId === activeProfileId) {
+        supervisor.setCapabilityPolicy(activeCapabilityPolicy)
+        supervisor.setContentFilter(activeContentFilter)
+        supervisor.setDownloadAdapter(activeDownloadAdapter)
+        await supervisor.setStrategyConfiguration(
+          activeStrategyDefinitions,
+          activeAllowedStrategyIds
+        )
+        await supervisor.navigate(startupUrl)
+      } else {
+        supervisor.dispose()
+        activeProfileId = runtimeProject.profileId
+        supervisor = createSupervisor(
+          runtimeProject.profileId,
+          startupUrl
+        )
+        await supervisor.start()
+        layout()
+        await profileStore.setActive(runtimeProject.profileId)
+      }
+
+      const engine = new ProjectWorkflowEngine(
+        envelope.runtime.runtimeId,
+        projectRuntimeStore,
+        {
+          navigate: async (url, signal) => {
+            if (signal.aborted) {
+              throw new Error('Workflow 导航已取消')
+            }
+            await supervisor.navigate(url)
+          },
+          onRuntimeChanged: (runtime) => {
+            currentProjectRuntime = structuredClone(runtime)
+          }
+        }
+      )
+      activeWorkflowEngine = engine
+      currentProjectRuntime = structuredClone(envelope.runtime)
+      publishProjectRuntimeEvent(
+        'project-runtime-started',
+        `${runtimeProject.name}; runtimeId=${envelope.runtime.runtimeId}`
+      )
+      const runtime = await engine.start()
+      currentProjectRuntime = structuredClone(runtime)
+      if (isTerminalProjectRuntime(runtime)) {
+        await finalizeProjectRuntime(runtime, runtimeProject.name)
+      } else {
+        startWorkflowTicker(engine)
+      }
+      return buildProjectWorkspaceSnapshot(selectedState)
+    } catch (error) {
+      const reason = formatUnknownError(error)
+      let rollbackFailure: string | null = null
+      if (
+        activeWorkflowEngine &&
+        !isTerminalProjectRuntime(currentProjectRuntime)
+      ) {
+        currentProjectRuntime = await activeWorkflowEngine
+          .fail('unknown', reason)
+          .catch(() => currentProjectRuntime)
+      } else if (startingRuntimeId) {
+        const starting = (await projectRuntimeStore.read()).runtimes.find(
+          ({ runtime }) => runtime.runtimeId === startingRuntimeId
+        )
+        if (
+          starting &&
+          !isTerminalProjectRuntime(starting.runtime)
+        ) {
+          const status =
+            starting.runtime.status === 'queued'
+              ? 'cancelled'
+              : 'failed'
+          currentProjectRuntime = (
+            await projectRuntimeStore.transition(
+              startingRuntimeId,
+              status,
+              {
+                lastError: reason,
+                lastFailureCategory: 'unknown'
+              }
+            )
+          ).runtime
+        }
+      }
+      activeWorkflowEngine = null
+      activeStrategyDefinitions = previousDefinitions
+      activeAllowedStrategyIds = previousAllowed
+      activeCapabilityPolicy = previousCapabilityPolicy
+      activeContentFilter = previousContentFilter
+      activeDownloadManager = previousDownloadManager
+      activeDownloadAdapter = previousDownloadAdapter
+      pendingManagedDownloads = previousPendingDownloads
+      try {
+        if (activeProfileId !== previousProfileId) {
+          supervisor.dispose()
+          activeProfileId = previousProfileId
+          supervisor = createSupervisor(previousProfileId, previousUrl)
+          await supervisor.start()
+          layout()
+          await profileStore.setActive(previousProfileId)
+        } else {
+          if (activeCapabilityPolicy) {
+            supervisor.setCapabilityPolicy(activeCapabilityPolicy)
+          }
+          supervisor.setContentFilter(activeContentFilter)
+          supervisor.setDownloadAdapter(activeDownloadAdapter)
+          await supervisor.setStrategyConfiguration(
+            activeStrategyDefinitions,
+            activeAllowedStrategyIds
+          )
+          if (supervisor.getSnapshot().url !== previousUrl) {
+            await supervisor.navigate(previousUrl)
+          }
+        }
+      } catch (rollbackError) {
+        rollbackFailure = formatUnknownError(rollbackError)
+      }
+      const detail = rollbackFailure
+        ? `${reason}；回滚失败：${rollbackFailure}`
+        : reason
+      publishProjectRuntimeEvent(
+        'project-runtime-failed',
+        `${runtimeProject.name}; ${detail}`
+      )
+      throw new Error(`Project Runtime 启动失败：${detail}`)
+    }
+  }
+  const restoreDevelopmentProjectContext = async (): Promise<void> => {
+    activeStrategyDefinitions = cloneStrategyDefinitions(
+      registryStrategyDefinitions
+    )
+    activeAllowedStrategyIds = new Set(
+      developmentAllowedStrategyIds
+    )
+    activeCapabilityPolicy = developmentCapabilityPolicy
+    activeContentFilter = developmentContentFilter
+    activeDownloadManager = null
+    activeDownloadAdapter = undefined
+    pendingManagedDownloads = []
+    if (activeCapabilityPolicy) {
+      supervisor.setCapabilityPolicy(activeCapabilityPolicy)
+    }
+    supervisor.setContentFilter(activeContentFilter)
+    supervisor.setDownloadAdapter(undefined)
+    await supervisor.setStrategyConfiguration(
+      activeStrategyDefinitions,
+      activeAllowedStrategyIds
+    )
+  }
+  const stopWorkflowTicker = (): void => {
+    if (workflowTickTimer) {
+      clearInterval(workflowTickTimer)
+      workflowTickTimer = null
+    }
+    workflowTickInFlight = false
+  }
+  const finalizeProjectRuntime = async (
+    runtime: ProjectRuntimeSnapshot,
+    projectName?: string
+  ): Promise<void> => {
+    currentProjectRuntime = structuredClone(runtime)
+    if (!isTerminalProjectRuntime(runtime)) {
+      return
+    }
+    if (finalizedProjectRuntimeIds.has(runtime.runtimeId)) {
+      return
+    }
+    stopWorkflowTicker()
+    activeWorkflowEngine = null
+    await restoreDevelopmentProjectContext()
+    finalizedProjectRuntimeIds.add(runtime.runtimeId)
+    const resolvedProjectName =
+      projectName ??
+      (
+        await projectStore?.read()
+      )?.projects.find(
+        (project) => project.id === runtime.projectId
+      )?.name ??
+      runtime.projectId
+    publishProjectRuntimeEvent(
+      runtime.status === 'failed'
+        ? 'project-runtime-failed'
+        : 'project-runtime-stopped',
+      `${resolvedProjectName}; status=${runtime.status}; runtimeId=${runtime.runtimeId}`
+    )
+    projectScheduler?.notifyRuntimeTerminal(runtime)
+  }
+  const handleWorkflowFailure = async (
+    engine: ProjectWorkflowEngine,
+    error: unknown
+  ): Promise<void> => {
+    const reason = formatUnknownError(error)
+    const runtime = await engine
+      .fail('unknown', reason)
+      .catch(() => currentProjectRuntime)
+    if (runtime) {
+      await finalizeProjectRuntime(runtime)
+    }
+  }
+  const startWorkflowTicker = (
+    engine: ProjectWorkflowEngine
+  ): void => {
+    stopWorkflowTicker()
+    workflowTickTimer = setInterval(() => {
+      if (
+        workflowTickInFlight ||
+        activeWorkflowEngine !== engine
+      ) {
+        return
+      }
+      workflowTickInFlight = true
+      void enqueueSupervisorOperation(async () => {
+        if (activeWorkflowEngine !== engine) {
+          return
+        }
+        const runtime = await engine.tick()
+        currentProjectRuntime = structuredClone(runtime)
+        if (isTerminalProjectRuntime(runtime)) {
+          await finalizeProjectRuntime(runtime)
+        }
+      })
+        .catch((error: unknown) =>
+          handleWorkflowFailure(engine, error)
+        )
+        .finally(() => {
+          workflowTickInFlight = false
+        })
+    }, 1_000)
+    workflowTickTimer.unref()
+  }
+  handleStrategyDomainEvent = async (event) => {
+    if (event.name === 'download.intent') {
+      if (
+        !activeDownloadManager ||
+        !projectRuntimeStore ||
+        !currentProjectRuntime
+      ) {
+        throw new Error('当前没有可接收下载意图的 Project Runtime')
+      }
+      const intent = parseDownloadIntentPayload(event.payload)
+      if (!intent) {
+        throw new Error('download.intent payload 格式无效')
+      }
+      const runtimeState = await projectRuntimeStore.read()
+      const envelope = runtimeState.runtimes.find(
+        ({ runtime }) =>
+          runtime.runtimeId === currentProjectRuntime?.runtimeId
+      )
+      if (!envelope) {
+        throw new Error('下载意图对应的 Project Runtime 不存在')
+      }
+      const reservation = await activeDownloadManager.reserve(
+        envelope.projectSnapshot,
+        {
+          runtimeId: envelope.runtime.runtimeId,
+          workflowNodeId: envelope.runtime.currentNodeId,
+          sourcePage: event.url,
+          sourceUrl: intent.sourceUrl,
+          businessItemId: intent.businessItemId,
+          attachmentId: intent.attachmentId,
+          originalFileName: intent.originalFileName,
+          ...(intent.mime ? { mime: intent.mime } : {}),
+          ...(intent.expectedBytes === null
+            ? {}
+            : { expectedBytes: intent.expectedBytes })
+        }
+      )
+      if (reservation.kind === 'reserved') {
+        if (pendingManagedDownloads.length >= 100) {
+          await activeDownloadManager.fail(
+            reservation.record.downloadId,
+            'unknown',
+            '待下载意图队列超过 100'
+          )
+          throw new Error('待下载意图队列已满')
+        }
+        pendingManagedDownloads.push(reservation)
+        return {
+          kind: 'reserved',
+          downloadId: reservation.record.downloadId,
+          safeFileName: reservation.record.safeFileName
+        }
+      }
+      if (reservation.kind === 'in-progress') {
+        return {
+          kind: 'in-progress',
+          downloadId: reservation.record.downloadId
+        }
+      }
+      return {
+        kind: 'duplicate',
+        downloadId: reservation.record.downloadId,
+        finalPath: reservation.record.finalPath,
+        sha256: reservation.record.sha256,
+        size: reservation.record.size
+      }
+    }
+
+    const engine = activeWorkflowEngine
+    if (!engine) {
+      return null
+    }
+    await enqueueSupervisorOperation(async () => {
+      if (activeWorkflowEngine !== engine) {
+        return
+      }
+      const runtime = await engine.handleEvent({
+        name: event.name,
+        ...(event.payload === undefined
+          ? {}
+          : { payload: structuredClone(event.payload) })
+      })
+      currentProjectRuntime = structuredClone(runtime)
+      if (isTerminalProjectRuntime(runtime)) {
+        await finalizeProjectRuntime(runtime)
+      }
+    }).catch(async (error: unknown) => {
+      await handleWorkflowFailure(engine, error)
+      throw error
+    })
+    return null
+  }
+  const timeoutProjectRuntime = async (
+    runtimeId: string,
+    reason: string
+  ): Promise<void> => {
+    if (!projectRuntimeStore) {
+      throw new Error('Project Runtime Store 当前不可用')
+    }
+    const state = await projectRuntimeStore.read()
+    const envelope = state.runtimes.find(
+      ({ runtime }) => runtime.runtimeId === runtimeId
+    )
+    if (!envelope || isTerminalProjectRuntime(envelope.runtime)) {
+      return
+    }
+    const runtime =
+      activeWorkflowEngine?.runtimeId === runtimeId
+        ? await activeWorkflowEngine.fail('timeout', reason)
+        : (
+            await projectRuntimeStore.transition(runtimeId, 'failed', {
+              lastError: reason,
+              lastFailureCategory: 'timeout',
+              counters: { failed: 1 }
+            })
+          ).runtime
+    await finalizeProjectRuntime(runtime, envelope.projectSnapshot.name)
+  }
+  const stopProjectRuntime =
+    async (): Promise<ProjectWorkspaceSnapshot> => {
+      if (!projectStore || !projectRuntimeStore) {
+        throw new Error('Project Runtime 依赖当前不可用')
+      }
+      const runtimeState = await projectRuntimeStore.read()
+      const running =
+        runtimeState.runtimes.find(
+          ({ runtime }) =>
+            runtime.status !== 'queued' &&
+            !isTerminalProjectRuntime(runtime)
+        ) ??
+        runtimeState.runtimes.find(
+          ({ runtime }) => runtime.status === 'queued'
+        )
+      if (!running) {
+        throw new Error('没有正在运行的 Project Runtime')
+      }
+      projectScheduler?.suspend(running.runtime.projectId)
+      const projectName =
+        (await projectStore.read()).projects.find(
+          (project) => project.id === running.runtime.projectId
+        )?.name ?? running.projectSnapshot.name
+      try {
+        const runtime =
+          activeWorkflowEngine?.runtimeId === running.runtime.runtimeId
+            ? await activeWorkflowEngine.cancel()
+            : (
+                await projectRuntimeStore.transition(
+                  running.runtime.runtimeId,
+                  'cancelled',
+                  {
+                    lastError: '用户停止 Project Runtime',
+                    lastFailureCategory: 'cancelled'
+                  }
+                )
+              ).runtime
+        await finalizeProjectRuntime(runtime, projectName)
+        return readProjectWorkspace()
+      } catch (error) {
+        const reason = formatUnknownError(error)
+        activeStrategyDefinitions = []
+        activeAllowedStrategyIds = new Set()
+        await supervisor
+          .setStrategyConfiguration([], new Set())
+          .catch(() => undefined)
+        publishProjectRuntimeEvent(
+          'project-runtime-failed',
+          `${projectName}; 停止失败：${reason}`
+        )
+        throw new Error(`Project Runtime 停止失败：${reason}`)
+      }
+    }
+
+  if (projectStore && projectRuntimeStore) {
+    projectScheduler = new ProjectScheduler(
+      projectStore,
+      projectRuntimeStore,
+      {
+        startRuntime: (envelope) =>
+          enqueueSupervisorOperation(() =>
+            startProjectRuntime(envelope.runtime.runtimeId)
+          ).then(() => undefined),
+        timeoutRuntime: (envelope, reason) =>
+          enqueueSupervisorOperation(() =>
+            timeoutProjectRuntime(envelope.runtime.runtimeId, reason)
+          ),
+        reportError: (operation, error) => {
+          console.error(`Project Scheduler ${operation} 失败`, error)
+        }
+      },
+      { maxConcurrent: 1 }
+    )
   }
 
   ipcMain.handle(IPC_CHANNELS.getSnapshot, async (event) => {
@@ -403,7 +1150,11 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   ipcMain.handle(IPC_CHANNELS.getMonitorSnapshot, async (event) => {
     assertTrustedSender(event.sender.id)
     return readSupervisor((current) =>
-      collectMonitorSnapshot(current, eventCount)
+      collectMonitorSnapshot(
+        current,
+        eventCount,
+        currentProjectRuntime
+      )
     )
   })
 
@@ -422,7 +1173,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         throw new Error('Capability Store 当前不可用')
       }
       return enqueueSupervisorOperation(async () => {
+        await assertProjectRuntimeInactive('修改全局 Capability')
         const policy = await capabilityStore.write(value)
+        developmentCapabilityPolicy = policy
         activeCapabilityPolicy = policy
         return supervisor.setCapabilityPolicy(policy)
       })
@@ -489,6 +1242,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         if (nextProfileId === activeProfileId) {
           return toProfileSummaries(state)
         }
+        await assertProjectRuntimeInactive('切换 Profile')
 
         const previousProfileId = activeProfileId
         const previousUrl = supervisor.getSnapshot().url
@@ -533,6 +1287,18 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         if (targetProfileId === state.activeProfileId) {
           throw new Error('活动 Profile 不能删除')
         }
+        if (projectStore) {
+          const references = (await projectStore.read()).projects.filter(
+            (project) => project.profileId === targetProfileId
+          )
+          if (references.length > 0) {
+            throw new Error(
+              `Profile 正被 Project 引用：${references
+                .map((project) => project.name)
+                .join('、')}`
+            )
+          }
+        }
 
         const targetSession = session.fromPartition(
           `persist:${targetProfileId}`
@@ -548,6 +1314,91 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       })
     }
   )
+
+  ipcMain.handle(IPC_CHANNELS.getProjectWorkspace, (event) => {
+    assertTrustedSender(event.sender.id)
+    return readProjectWorkspace()
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.saveProject,
+    (event, value: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (!projectStore || !profileStore) {
+        throw new Error('Project 或 Profile Store 当前不可用')
+      }
+      const draft: ProjectDraft | null = parseProjectDraft(value)
+      if (!draft) {
+        throw new TypeError('Project 定义格式无效')
+      }
+      return enqueueSupervisorOperation(async () => {
+        await assertProjectRuntimeInactive('修改 Project')
+        const profileState = await profileStore.read()
+        if (
+          !profileState.profiles.some(
+            (profile) => profile.id === draft.profileId
+          )
+        ) {
+          throw new Error(`Profile 不存在：${draft.profileId}`)
+        }
+        await projectStore.save(draft)
+        return buildProjectWorkspaceSnapshot(
+          await projectStore.setActive(draft.id)
+        )
+      })
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.setActiveProject,
+    (event, projectId: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (!projectStore || typeof projectId !== 'string') {
+        throw new TypeError('Project ID 必须是字符串')
+      }
+      return enqueueSupervisorOperation(async () =>
+        buildProjectWorkspaceSnapshot(
+          await projectStore.setActive(projectId)
+        )
+      )
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.deleteProject,
+    (event, projectId: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (!projectStore || typeof projectId !== 'string') {
+        throw new TypeError('Project ID 必须是字符串')
+      }
+      return enqueueSupervisorOperation(async () => {
+        await assertProjectRuntimeInactive('删除 Project')
+        return buildProjectWorkspaceSnapshot(
+          await projectStore.delete(projectId)
+        )
+      })
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.startProjectRuntime,
+    async (event, projectId: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (typeof projectId !== 'string') {
+        throw new TypeError('Project ID 必须是字符串')
+      }
+      if (!projectScheduler) {
+        throw new Error('Project Scheduler 当前不可用')
+      }
+      await projectScheduler.requestManual(projectId)
+      return readProjectWorkspace()
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.stopProjectRuntime, (event) => {
+    assertTrustedSender(event.sender.id)
+    return enqueueSupervisorOperation(stopProjectRuntime)
+  })
 
   ipcMain.handle(IPC_CHANNELS.getStartupSettings, (event) => {
     assertTrustedSender(event.sender.id)
@@ -577,12 +1428,13 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       if (!strategyStore || !strategyPolicyStore) {
         throw new Error('Strategy Store 当前不可用')
       }
-      return enqueueSupervisorOperation(async () =>
-        applyStrategyConfiguration(
+      return enqueueSupervisorOperation(async () => {
+        await assertProjectRuntimeInactive('修改 Strategy')
+        return applyDevelopmentStrategyConfiguration(
           await strategyStore.save(draft),
           await strategyPolicyStore.read()
         )
-      )
+      })
     }
   )
 
@@ -598,12 +1450,13 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ) {
         throw new TypeError('Strategy 启停参数无效')
       }
-      return enqueueSupervisorOperation(async () =>
-        applyStrategyConfiguration(
+      return enqueueSupervisorOperation(async () => {
+        await assertProjectRuntimeInactive('启停 Strategy')
+        return applyDevelopmentStrategyConfiguration(
           await strategyStore.setEnabled(strategyId, enabled),
           await strategyPolicyStore.read()
         )
-      )
+      })
     }
   )
 
@@ -620,6 +1473,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         throw new TypeError('Strategy allowlist 参数无效')
       }
       return enqueueSupervisorOperation(async () => {
+        await assertProjectRuntimeInactive('修改开发 allowlist')
         const state = await strategyStore.read()
         if (
           !state.strategies.some(
@@ -628,7 +1482,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         ) {
           throw new Error(`Strategy 不存在：${strategyId}`)
         }
-        return applyStrategyConfiguration(
+        return applyDevelopmentStrategyConfiguration(
           state,
           await strategyPolicyStore.setAllowed(strategyId, allowed)
         )
@@ -648,9 +1502,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         throw new TypeError('Strategy 删除参数无效')
       }
       return enqueueSupervisorOperation(async () => {
+        await assertProjectRuntimeInactive('删除 Strategy')
         const state = await strategyStore.delete(strategyId)
         const policy = await strategyPolicyStore.remove(strategyId)
-        return applyStrategyConfiguration(state, policy)
+        return applyDevelopmentStrategyConfiguration(state, policy)
       })
     }
   )
@@ -679,6 +1534,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   window.on('resize', layout)
   window.on('closed', () => {
     shellEventsEnabled = false
+    stopWorkflowTicker()
+    projectScheduler?.dispose()
+    projectScheduler = null
+    handleStrategyDomainEvent = null
     supervisor.dispose(true)
     void eventLog?.flush()
     const removeIpcHandlers = (): void => {
@@ -694,6 +1553,12 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ipcMain.removeHandler(IPC_CHANNELS.createProfile)
       ipcMain.removeHandler(IPC_CHANNELS.activateProfile)
       ipcMain.removeHandler(IPC_CHANNELS.deleteProfile)
+      ipcMain.removeHandler(IPC_CHANNELS.getProjectWorkspace)
+      ipcMain.removeHandler(IPC_CHANNELS.saveProject)
+      ipcMain.removeHandler(IPC_CHANNELS.setActiveProject)
+      ipcMain.removeHandler(IPC_CHANNELS.deleteProject)
+      ipcMain.removeHandler(IPC_CHANNELS.startProjectRuntime)
+      ipcMain.removeHandler(IPC_CHANNELS.stopProjectRuntime)
       ipcMain.removeHandler(IPC_CHANNELS.getStartupSettings)
       ipcMain.removeHandler(IPC_CHANNELS.setOpenAtLogin)
       ipcMain.removeHandler(IPC_CHANNELS.getStrategyWorkspace)
@@ -726,6 +1591,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
 
   layout()
   await supervisor.start()
+  await projectScheduler?.start()
   if (show) {
     window.show()
   }
@@ -750,6 +1616,122 @@ function toProfileSummaries(state: ProfileState): ProfileSummary[] {
     ...profile,
     active: profile.id === state.activeProfileId
   }))
+}
+
+function cloneProjectDefinition(
+  project: ProjectDefinition
+): ProjectDefinition {
+  return structuredClone(project)
+}
+
+function cloneStrategyDefinitions(
+  definitions: StrategyDefinition[]
+): StrategyDefinition[] {
+  return definitions.map((definition) => ({
+    ...definition,
+    manifest: {
+      ...definition.manifest,
+      matches: [...definition.manifest.matches],
+      excludes: [...definition.manifest.excludes],
+      permissions: [...definition.manifest.permissions],
+      networkMatches: [...definition.manifest.networkMatches],
+      config: structuredClone(definition.manifest.config),
+      timeouts: { ...definition.manifest.timeouts }
+    }
+  }))
+}
+
+function parseDownloadIntentPayload(value: unknown): {
+  businessItemId: string
+  attachmentId: string
+  sourceUrl: string
+  originalFileName: string
+  mime?: string
+  expectedBytes: number | null
+} | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  const record = value as Record<string, unknown>
+  const allowedKeys = new Set([
+    'businessItemId',
+    'attachmentId',
+    'sourceUrl',
+    'fileName',
+    'mime',
+    'expectedBytes'
+  ])
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    return null
+  }
+  const required = [
+    record.businessItemId,
+    record.attachmentId,
+    record.sourceUrl,
+    record.fileName
+  ]
+  if (
+    required.some(
+      (item) =>
+        typeof item !== 'string' ||
+        item.trim().length === 0
+    ) ||
+    (record.mime !== undefined &&
+      (typeof record.mime !== 'string' ||
+        record.mime.trim().length === 0)) ||
+    (record.expectedBytes !== undefined &&
+      (!Number.isSafeInteger(record.expectedBytes) ||
+        (record.expectedBytes as number) < 0))
+  ) {
+    return null
+  }
+  try {
+    const sourceUrl = new URL(record.sourceUrl as string)
+    if (sourceUrl.protocol !== 'http:' && sourceUrl.protocol !== 'https:') {
+      return null
+    }
+    return {
+      businessItemId: record.businessItemId as string,
+      attachmentId: record.attachmentId as string,
+      sourceUrl: sourceUrl.toString(),
+      originalFileName: record.fileName as string,
+      ...(typeof record.mime === 'string'
+        ? { mime: record.mime }
+        : {}),
+      expectedBytes:
+        record.expectedBytes === undefined
+          ? null
+          : (record.expectedBytes as number)
+    }
+  } catch {
+    return null
+  }
+}
+
+function normalizeComparableUrl(value: string): string {
+  try {
+    const url = new URL(value)
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return value
+  }
+}
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isTerminalProjectRuntime(
+  runtime: ProjectRuntimeSnapshot | null | undefined
+): boolean {
+  return (
+    runtime !== null &&
+    runtime !== undefined &&
+    (runtime.status === 'completed' ||
+      runtime.status === 'failed' ||
+      runtime.status === 'cancelled')
+  )
 }
 
 function createStrategySmokeDefinitions(): StrategyDefinition[] {
@@ -868,6 +1850,65 @@ globalThis.setTimeout(() => {
   }
 }
 
+function createProjectDownloadSmokeDefinition(): StrategyDefinition {
+  return {
+    manifest: {
+      id: 'smoke-project-download',
+      name: 'Smoke Project Download',
+      version: '0.1.0',
+      matches: ['<all_urls>'],
+      excludes: [],
+      runAt: 'document-idle',
+      frames: 'top',
+      permissions: ['dom.write', 'project.emit-event', 'log'],
+      networkMatches: [],
+      config: {},
+      timeouts: {
+        startupMs: 5_000,
+        heartbeatMs: 2_000
+      }
+    },
+    source: `
+if (!new URL(location.href).searchParams.has('project-runtime-smoke')) {
+  return
+}
+const noise = document.createElement('div')
+noise.id = 'project-noise'
+document.body.append(noise)
+const blockedImage = document.createElement('img')
+blockedImage.src = new URL('/blocked.png', location.href).toString()
+document.body.append(blockedImage)
+const sourceUrl = new URL('/sample.mp3', location.href).toString()
+const reservation = await agenticStrategy.emit('download.intent', {
+  businessItemId: 'post-42',
+  attachmentId: 'audio-7',
+  sourceUrl,
+  fileName: 'meeting:sample?.mp3',
+  mime: 'audio/mpeg',
+  expectedBytes: 4096
+})
+document.documentElement.dataset.agenticDownloadIntent = reservation.kind
+if (reservation.kind === 'reserved') {
+  const link = document.createElement('a')
+  link.href = sourceUrl
+  link.download = 'meeting:sample?.mp3'
+  document.body.append(link)
+  link.click()
+  link.remove()
+} else if (reservation.kind === 'duplicate') {
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  await agenticStrategy.emit('download.completed', {
+    downloadId: reservation.downloadId,
+    duplicate: true
+  })
+}
+await agenticStrategy.log('project download intent', reservation)
+`,
+    enabled: true,
+    updatedAt: '2026-10-15T00:00:00.000Z'
+  }
+}
+
 function createStrategyWorkspaceSmokeDraft(
   version: string,
   marker: string
@@ -900,7 +1941,8 @@ await agenticStrategy.log(${JSON.stringify(`workspace ${marker}`)})
 
 function collectMonitorSnapshot(
   supervisor: BrowserTabManager,
-  browserEventCount: number
+  browserEventCount: number,
+  projectRuntime: ProjectRuntimeSnapshot | null = null
 ): MonitorSnapshot {
   const strategies = supervisor.getStrategyRuntimeSnapshot()
   const processes = app.getAppMetrics().map((metric) => ({
@@ -913,6 +1955,7 @@ function collectMonitorSnapshot(
   return {
     generatedAt: new Date().toISOString(),
     browser: supervisor.getSnapshot(),
+    projectRuntime,
     browserEventCount,
     activePageCount: supervisor.listTabs().length,
     activeStrategyCount: strategies.activeCount,
@@ -959,7 +2002,8 @@ function createCheckpointStore(): BrowserCheckpointStore | undefined {
     smokeTest ||
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest
+    strategyWorkspaceSmokeTest ||
+    projectDownloadSmokeTest
   ) {
     return undefined
   }
@@ -1139,6 +2183,263 @@ async function runStrategyWorkspaceSmoke(
       afterEnable,
       afterDelete
     }
+  }
+}
+
+async function runProjectDownloadSmoke(
+  runtime: MainWindowRuntime,
+  probe: PhaseZeroProbeServer,
+  _profileId: string,
+  outputRoot: string
+): Promise<Record<string, unknown>> {
+  const projectId = 'smoke-project-download'
+  const profiles = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.createProfile('Smoke Project Profile')`
+  )) as ProfileSummary[]
+  const projectProfile = profiles.find(
+    (profile) => profile.name === 'Smoke Project Profile'
+  )
+  if (!projectProfile) {
+    throw new Error('Project download smoke 未能创建 Profile')
+  }
+  const projectUrl = new URL(probe.topUrl)
+  projectUrl.searchParams.set('project-runtime-smoke', '1')
+  const projectOrigin = projectUrl.origin
+  const draft: ProjectDraft = {
+    id: projectId,
+    name: 'Smoke Project Download',
+    profileId: projectProfile.id,
+    startupPages: [probe.topUrl],
+    strategies: [
+      { id: 'smoke-project-download', version: '0.1.0' }
+    ],
+    runtime: {
+      mode: 'manual',
+      timezone: 'Asia/Shanghai',
+      priority: 10,
+      maxRunMs: 15_000
+    },
+    workflow: {
+      version: 1,
+      entryNodeId: 'open-download-page',
+      nodes: [
+        {
+          id: 'open-download-page',
+          kind: 'navigate',
+          url: projectUrl.toString(),
+          next: 'wait-download',
+          timeoutMs: 5_000,
+          maxAttempts: 1,
+          checkpoint: true
+        },
+        {
+          id: 'wait-download',
+          kind: 'wait-for-event',
+          eventName: 'download.completed',
+          next: 'finished',
+          timeoutMs: 10_000,
+          maxAttempts: 1,
+          checkpoint: true
+        },
+        {
+          id: 'finished',
+          kind: 'complete',
+          timeoutMs: 1_000,
+          maxAttempts: 1,
+          checkpoint: true
+        }
+      ]
+    },
+    output: {
+      root: outputRoot,
+      maxBytes: 10 * 1024 * 1024,
+      fileNameTemplate: '{postId}-{fileName}'
+    },
+    capabilities: createCapabilityPolicy(),
+    filter: {
+      enabled: true,
+      networkRules: [
+        {
+          id: 'block-smoke-images',
+          action: 'block',
+          urlPattern: `${projectOrigin}/*`,
+          resourceTypes: ['image']
+        }
+      ],
+      cssRules: [
+        {
+          id: 'hide-smoke-noise',
+          urlPattern: `${projectOrigin}/*`,
+          selectors: ['#project-noise']
+        }
+      ]
+    },
+    retry: {
+      maxConsecutiveFailures: 2,
+      baseBackoffMs: 250,
+      maxBackoffMs: 1_000
+    },
+    enabled: true
+  }
+
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.saveProject(${JSON.stringify(draft)})`
+  )
+  const firstStart = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(projectId)})`
+  )) as ProjectWorkspaceSnapshot
+  const firstWorkspace = await waitForProjectRuns(
+    runtime,
+    projectId,
+    1
+  )
+  const downloadManager = new ProjectDownloadManager(
+    join(outputRoot, 'records', 'downloads.json')
+  )
+  const firstDownloads = await waitForCompletedDownloads(
+    downloadManager,
+    1
+  )
+
+  const secondStart = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(projectId)})`
+  )) as ProjectWorkspaceSnapshot
+  const secondWorkspace = await waitForProjectRuns(
+    runtime,
+    projectId,
+    2
+  )
+  const finalDownloadState = await downloadManager.read()
+  const completed = finalDownloadState.records.filter(
+    (record) => record.status === 'completed'
+  )
+  const record = completed[0] ?? null
+  const expectedSha256 = createHash('sha256')
+    .update(Buffer.alloc(4096, 0x5a))
+    .digest('hex')
+  const downloads = readDirectoryNames(join(outputRoot, 'downloads'))
+  const temporary = readDirectoryNames(join(outputRoot, 'tmp'))
+  const projectRuntimes = secondWorkspace.runtimes.filter(
+    (candidate) => candidate.projectId === projectId
+  )
+  const activeProfiles = (await runtime.shellView.webContents.executeJavaScript(
+    'window.agenticBrowser.listProfiles()'
+  )) as ProfileSummary[]
+  const finalStrategies = runtime.supervisor.getStrategyRuntimeSnapshot()
+  const filterHits = runtime.events.filter(
+    (event) => event.type === 'filter-hit'
+  )
+  const cssFilterEvents = runtime.events.filter(
+    (event) => event.type === 'filter-css-applied'
+  )
+  const passed =
+    firstDownloads.records.length === 1 &&
+    finalDownloadState.records.length === 1 &&
+    completed.length === 1 &&
+    record?.size === 4096 &&
+    record.sha256 === expectedSha256 &&
+    record.finalPath.startsWith(join(outputRoot, 'downloads')) &&
+    downloads.length === 1 &&
+    temporary.length === 0 &&
+    projectRuntimes.length >= 2 &&
+    projectRuntimes.every(
+      (candidate) =>
+        candidate.status === 'completed' &&
+        candidate.checkpointData.lastEvent !== undefined
+    ) &&
+    activeProfiles.some(
+      (profile) =>
+        profile.id === projectProfile.id && profile.active
+    ) &&
+    finalStrategies.activeCount === 0 &&
+    filterHits.some((event) =>
+      event.detail?.includes('block-smoke-images')
+    ) &&
+    cssFilterEvents.some((event) =>
+      event.detail?.includes('hide-smoke-noise')
+    ) &&
+    runtime.events.some(
+      (event) => event.type === 'download-completed'
+    )
+
+  return {
+    passed,
+    firstStart,
+    firstWorkspace,
+    secondStart,
+    secondWorkspace,
+    downloadState: finalDownloadState,
+    downloads,
+    temporary,
+    activeProfiles,
+    finalStrategies,
+    filterHits,
+    cssFilterEvents,
+    expectedSha256,
+    observedEventTypes: [
+      ...new Set(runtime.events.map((event) => event.type))
+    ]
+  }
+}
+
+async function waitForProjectRuns(
+  runtime: MainWindowRuntime,
+  projectId: string,
+  minimumRuns: number,
+  timeoutMs = 15_000
+): Promise<ProjectWorkspaceSnapshot> {
+  const deadline = Date.now() + timeoutMs
+  let latest: ProjectWorkspaceSnapshot | null = null
+  while (Date.now() < deadline) {
+    latest = (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getProjectWorkspace()'
+    )) as ProjectWorkspaceSnapshot
+    const projectRuntimes = latest.runtimes.filter(
+      (candidate) => candidate.projectId === projectId
+    )
+    if (
+      projectRuntimes.length >= minimumRuns &&
+      projectRuntimes.every((candidate) =>
+        isTerminalProjectRuntime(candidate)
+      )
+    ) {
+      return latest
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error(
+    `等待 Project Runtime 完成超时：${JSON.stringify(latest)}`
+  )
+}
+
+async function waitForCompletedDownloads(
+  manager: ProjectDownloadManager,
+  minimumCompleted: number,
+  timeoutMs = 15_000
+) {
+  const deadline = Date.now() + timeoutMs
+  let latest = await manager.read()
+  while (Date.now() < deadline) {
+    const state = await manager.read()
+    latest = state
+    if (
+      state.records.filter((record) => record.status === 'completed')
+        .length >= minimumCompleted
+    ) {
+      return state
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error(
+    `等待 Project 下载完成超时：${JSON.stringify(latest)}`
+  )
+}
+
+function readDirectoryNames(path: string): string[] {
+  try {
+    return readdirSync(path).sort()
+  } catch {
+    return []
   }
 }
 
@@ -1514,7 +2815,8 @@ if (runApplication) {
     smokeTest ||
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest
+    strategyWorkspaceSmokeTest ||
+    projectDownloadSmokeTest
       ? undefined
       : new StructuredEventLog(
           join(app.getPath('userData'), 'logs', 'browser-events.jsonl')
@@ -1526,7 +2828,8 @@ if (runApplication) {
     smokeTest ||
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest
+    strategyWorkspaceSmokeTest ||
+    projectDownloadSmokeTest
       ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
       : null
   const profileStore = new ProfileStore(
@@ -1536,6 +2839,21 @@ if (runApplication) {
       'profiles.json'
     )
   )
+  const projectStore = new ProjectStore(
+    join(
+      automatedDownloadDirectory ?? app.getPath('userData'),
+      'config',
+      'projects.json'
+    )
+  )
+  const projectRuntimeStore = new ProjectRuntimeStore(
+    join(
+      automatedDownloadDirectory ?? app.getPath('userData'),
+      'runtime',
+      'project-runtimes.json'
+    )
+  )
+  await projectRuntimeStore.recoverInterrupted()
   const profileState = await profileStore.read()
   const profileId = profileState.activeProfileId
   const compatibleCheckpoint =
@@ -1551,7 +2869,8 @@ if (runApplication) {
     smokeTest ||
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest
+    strategyWorkspaceSmokeTest ||
+    projectDownloadSmokeTest
       ? createCapabilityPolicy()
       : await capabilityStore.read()
   const strategyStore = new StrategyStore(
@@ -1574,7 +2893,8 @@ if (runApplication) {
     smokeTest ||
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest
+    strategyWorkspaceSmokeTest ||
+    projectDownloadSmokeTest
       ? await startPhaseZeroProbeServer()
       : null
   const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
@@ -1588,6 +2908,8 @@ if (runApplication) {
     ? createStrategySmokeDefinitions()
     : strategyFaultSmokeTest
       ? [createStrategyFaultSmokeDefinition()]
+      : projectDownloadSmokeTest
+        ? [createProjectDownloadSmokeDefinition()]
       : strategyState.strategies
   const allowedStrategyIds =
     smokeTest || strategyFaultSmokeTest
@@ -1598,7 +2920,8 @@ if (runApplication) {
       !watchdogSmokeChild &&
       !recoverySmokeTest &&
       !strategyFaultSmokeTest &&
-      !strategyWorkspaceSmokeTest,
+      !strategyWorkspaceSmokeTest &&
+      !projectDownloadSmokeTest,
     phaseZeroProbe: smokeTest,
     healthMonitoring: !smokeTest && !strategyFaultSmokeTest,
     ...(initialUrl ? { initialUrl } : {}),
@@ -1612,6 +2935,8 @@ if (runApplication) {
       'downloads'
     ),
     profileStore,
+    projectStore,
+    projectRuntimeStore,
     strategyStore,
     strategyPolicyStore,
     strategyDefinitions,
@@ -1846,6 +3171,28 @@ if (runApplication) {
     writeStrategyWorkspaceSmokeResult(result)
     console.log(
       `AGENTIC_BROWSER_STRATEGY_WORKSPACE_SMOKE ${JSON.stringify(result)}`
+    )
+    await closeSmokeRuntime(runtime)
+    await phaseZeroProbe.close()
+    phaseZeroProbe = null
+    cleanupAutomatedDownloads()
+    app.exit(result.passed === true ? 0 : 1)
+    return
+  }
+
+  if (projectDownloadSmokeTest) {
+    if (!phaseZeroProbe || !automatedDownloadDirectory) {
+      throw new Error('Project download smoke 环境未初始化')
+    }
+    const result = await runProjectDownloadSmoke(
+      runtime,
+      phaseZeroProbe,
+      profileId,
+      join(automatedDownloadDirectory, 'project-output')
+    )
+    writeProjectDownloadSmokeResult(result)
+    console.log(
+      `AGENTIC_BROWSER_PROJECT_DOWNLOAD_SMOKE ${JSON.stringify(result)}`
     )
     await closeSmokeRuntime(runtime)
     await phaseZeroProbe.close()

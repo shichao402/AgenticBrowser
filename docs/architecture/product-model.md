@@ -1,6 +1,6 @@
 # 产品领域模型
 
-> 状态：目标模型，数据格式将在 Phase 1–3 中通过迁移版本固化。
+> 状态：schema v1 已落地；真实站点字段和后续迁移版本仍会演进。
 
 ## Strategy
 
@@ -36,7 +36,7 @@ timeouts:
 - `matches`、`excludes` 与 `networkMatches` 只接受结构化 HTTP(S) pattern；非 Web URL 默认拒绝。
 - manifest、源码、启停状态与更新时间保存在版本化注册表中；未知字段和未知权限默认拒绝。
 
-schema、校验、存储、匹配、隔离执行、宿主 API、心跳和故障隔离已经实现；Project 固定版本将在 Phase 3 取代临时开发 allowlist。`dom.read/write/click` 是声明与审计信息，不是把同一 DOM 内的任意 JavaScript 强制拆成三种安全权限；文件、特权网络和领域事件等宿主能力由主进程独立校验。页面原生 `fetch`/XHR 仍服从普通 Web 安全规则，`network.request` 只表示允许使用宿主增强请求；同理，`main-world` 只控制宿主执行桥，不是对 DOM 脚本注入的绝对防线。
+schema、校验、存储、匹配、隔离执行、宿主 API、心跳和故障隔离已经实现；Project Runtime 使用固定版本 allowlist，开发态仍保留默认空的临时 allowlist。`dom.read/write/click` 是声明与审计信息，不是把同一 DOM 内的任意 JavaScript 强制拆成三种安全权限；文件、特权网络和领域事件等宿主能力由主进程独立校验。页面原生 `fetch`/XHR 仍服从普通 Web 安全规则，`network.request` 只表示允许使用宿主增强请求；同理，`main-world` 只控制宿主桥，不是对 DOM 脚本注入的绝对防线。
 
 ## Project
 
@@ -104,6 +104,8 @@ Runtime 表示 Project 的一次活跃执行：
 - 资源与下载统计
 
 常驻 Project 可以长期保持同一个 Runtime；定时 Project 每次运行生成新的 Runtime 记录。
+
+当前 Scheduler 的全局并发预算为 1。Runtime 可同时处于 queued，但只有一个可以进入 starting/running/waiting/recovering；这是单浏览器宿主的明确限制，不等于最终的多项目并行目标。
 
 ## Workflow
 

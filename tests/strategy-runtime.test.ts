@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type {
+  JsonValue,
   StrategyDefinition,
   StrategyManifest,
   StrategyNetworkRequest
@@ -123,6 +124,12 @@ describe('StrategyRuntime', () => {
 
   it('enforces host permissions and emits bounded logs and domain events', async () => {
     const events: Array<{ type: string; detail: string }> = []
+    const domainEvents: Array<{
+      strategyId: string
+      name: string
+      payload?: JsonValue
+      url: string
+    }> = []
     const runtime = createRuntime({
       definitions: [
         createDefinition('reporter', {
@@ -132,7 +139,10 @@ describe('StrategyRuntime', () => {
         })
       ],
       allowedStrategyIds: new Set(['reporter']),
-      onEvent: (event) => events.push(event)
+      onEvent: (event) => events.push(event),
+      onDomainEvent: (event) => {
+        domainEvents.push(event)
+      }
     })
     const entry = startStrategy(runtime)
 
@@ -173,6 +183,46 @@ describe('StrategyRuntime', () => {
     ])
     expect(events[2]?.detail).toContain('ready')
     expect(events[3]?.detail).toContain('feed.item-found')
+    expect(domainEvents).toEqual([
+      {
+        strategyId: 'reporter',
+        name: 'feed.item-found',
+        payload: { itemId: '42' },
+        url: MAIN_FRAME.url
+      }
+    ])
+  })
+
+  it('waits for and returns a JSON domain-event acknowledgement', async () => {
+    const runtime = createRuntime({
+      definitions: [
+        createDefinition('downloader', {
+          manifest: {
+            permissions: ['project.emit-event']
+          }
+        })
+      ],
+      allowedStrategyIds: new Set(['downloader']),
+      onDomainEvent: async (event) => ({
+        accepted: event.name === 'download.intent',
+        downloadId: 'download-12345678'
+      })
+    })
+    const entry = startStrategy(runtime)
+
+    await expect(
+      runtime.invoke(MAIN_FRAME, {
+        token: entry.token,
+        method: 'emit-event',
+        payload: {
+          name: 'download.intent',
+          payload: { sourceUrl: 'https://example.com/file.mp3' }
+        }
+      })
+    ).resolves.toEqual({
+      accepted: true,
+      downloadId: 'download-12345678'
+    })
   })
 
   it('restricts privileged network requests to manifest URL patterns', async () => {

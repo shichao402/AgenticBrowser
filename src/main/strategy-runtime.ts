@@ -45,11 +45,21 @@ export interface StrategyRuntimeEvent {
   detail: string
 }
 
+export interface StrategyDomainEvent {
+  strategyId: string
+  name: string
+  payload?: JsonValue
+  url: string
+}
+
 export interface StrategyRuntimeOptions {
   definitions: StrategyDefinition[]
   allowedStrategyIds: ReadonlySet<string>
   quarantinedStrategyIds?: ReadonlySet<string>
   onEvent?: (event: StrategyRuntimeEvent) => void
+  onDomainEvent?: (
+    event: StrategyDomainEvent
+  ) => JsonValue | void | Promise<JsonValue | void>
   onFault?: (strategyId: string, reason: string) => void
   requestNetwork?: (
     definition: StrategyDefinition,
@@ -416,10 +426,10 @@ export class StrategyRuntime {
     return null
   }
 
-  private handleDomainEvent(
+  private async handleDomainEvent(
     lease: StrategyLease,
     payload: JsonValue
-  ): JsonValue {
+  ): Promise<JsonValue> {
     if (
       !isRecord(payload) ||
       typeof payload.name !== 'string' ||
@@ -427,6 +437,14 @@ export class StrategyRuntime {
     ) {
       throw new Error('Strategy 领域事件名称无效')
     }
+    const result = await this.options.onDomainEvent?.({
+      strategyId: lease.definition.manifest.id,
+      name: payload.name,
+      ...(payload.payload === undefined
+        ? {}
+        : { payload: structuredClone(payload.payload) }),
+      url: lease.frame.url
+    })
     this.emit(
       'strategy-event',
       lease,
@@ -434,7 +452,10 @@ export class StrategyRuntime {
         payload.payload === undefined ? '' : ` ${safeJson(payload.payload)}`
       }`
     )
-    return null
+    if (result !== undefined && !isJsonValue(result)) {
+      throw new Error('Strategy 领域事件处理结果不是 JSON 值')
+    }
+    return result ?? null
   }
 
   private async handleNetworkRequest(

@@ -1,6 +1,6 @@
 # 总体架构
 
-> 状态：演进中。Phase 0 Windows 技术基线、Phase 1 监督浏览器和 Phase 2 Strategy 已经落地，Phase 3 Project Runtime 正在实现。
+> 状态：演进中。Phase 0 Windows 技术基线、Phase 1 监督浏览器、Phase 2 Strategy 与 Phase 3 核心 Runtime 已经落地；真实站点试点和外部门禁仍在进行。
 
 ## 当前代码映射
 
@@ -21,19 +21,26 @@
 - `src/main/strategy-store.ts`：schema v1 Strategy manifest、严格校验、串行原子更新和损坏文件隔离。
 - `src/main/strategy-policy-store.ts`：Phase 2 临时显式开发 allowlist；默认空列表并安全失败。
 - `src/main/strategy-runtime.ts`：执行令牌、独立 world 分配、权限、宿主调用、心跳、超时和故障归因。
+- `src/main/project-store.ts`：Project schema v1、固定 Strategy 版本、Profile/调度/workflow/输出/Filter 配置和原子存储。
+- `src/main/project-runtime-store.ts`：持久化 Runtime 状态机、项目单实例、检查点、计数器、恢复和幂等记录。
+- `src/main/project-scheduler.ts`：手动/自启/常驻/定时/恢复队列、时区、优先级、单槽预算和运行时长限制。
+- `src/main/project-workflow-engine.ts`：navigate/delay/wait-for-event/complete 状态机、重试、补偿转移和检查点。
+- `src/main/project-download-manager.ts`：下载意图、临时文件、哈希、配额、原子提交、manifest 和业务去重。
+- `src/main/content-filter.ts`：Project 网络资源规则和 CSS selector 规则。
 - `src/main/structured-event-log.ts`：串行 JSONL 领域事件日志。
 - `src/main/download-path.ts`：跨平台下载文件名清理。
 - `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
 - `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
 - `src/preload/index.ts`：最小 BrowserShell API。
 - `src/preload/strategy-bootstrap.ts`：单文件 session frame preload、run-at 调度和隔离 world bootstrap。
-- `src/renderer/`：BrowserShell、地址栏、tabs、Profile、Capability Center、Strategy 编辑/启停/allowlist、监控和生命周期事件面板。
+- `src/renderer/`：BrowserShell、地址栏、tabs、Profile、Project 工作台、Capability Center、Strategy 编辑/启停/allowlist、Runtime 监控和生命周期事件面板。
 - `src/shared/contracts.ts`：跨进程结构化契约。
 
-尚未实现：
+尚未实现或尚未完成：
 
-- workflow/业务检查点、Workflow/Project Runtime。
-- Content Filter、Download Manager 和完整监控。
+- 真实知识星球与第二站点策略。
+- 多浏览器宿主上的真正多 Project 并行；当前预算固定为 1。
+- 下载中强杀、断网、结构变化和磁盘不足的完整 Electron 故障门禁。
 - 示教录制与 Agent sidecar。
 
 目标架构章节描述的是完成后的组件边界；未实现能力不能按现有功能对外宣称。
@@ -116,6 +123,10 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 
 负责项目清单、命名 Profile、调度、并发上限、前后台切换和资源预算。主进程维护时间与超时，不依赖后台 renderer timer。
 
+Project 与 Runtime 使用独立的 schema v1 注册表。每个 Runtime 持有 Project 完整快照和固定 Strategy 版本；应用启动时把中断状态恢复成 queued，并从最后 workflow 检查点重新进入。Scheduler 支持 manual、autostart、resident、schedule 和 resume，daily 调度使用 IANA 时区，interval 调度从项目更新时间或上次定时运行计算。
+
+当前单个 BrowserTabManager 同时承载 Profile、Capability、Filter 和下载接管，因此全局并发预算固定为 1。多个 Runtime 可以持久化排队并按优先级顺序执行，但不并行。真正并行必须先拆成多个独立浏览器宿主，详见 [ADR-0006](../ADR/0006-persistent-project-runtime-and-download-intent.md)。
+
 ### BrowserSupervisor
 
 负责创建、绑定、销毁和重建 `WebContentsView`；注册加载、无响应、崩溃、导航、权限和下载事件；将底层事件归一化成领域事件。
@@ -128,13 +139,13 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 
 BrowserTabManager 为每个 tab 持有独立 BrowserSupervisor/WebContentsView；非活动 view 保持存活但不可见，仍接受健康监督。所有 tab 共享同一命名 Profile session 和 capability 配置。session 下载 listener 始终只有一个所有者；permission handler 也记录最后注册的所有者。关闭对应所有者 tab 时先把 handler 转移到另一个 tab，避免重复处理、失去下载或继续引用已销毁 supervisor。浏览器检查点当前只保存最近激活 tab，不保存完整 tab 集合。
 
-BrowserShell 可创建、激活和删除 Profile。激活时主进程销毁旧 BrowserTabManager，在目标命名 session 中以最近活动 URL 重建首个 tab，成功后才持久化活动 Profile；创建失败则重建并恢复原 Profile。Profile 切换、tab、导航、刷新和能力修改通过同一主进程队列串行化，避免操作落到已销毁的 manager。默认 Profile 和活动 Profile 不可删除；删除其他 Profile 时同时清理其 session storage、HTTP cache 和 auth cache。Project 模型尚未落地，因此被 Project 引用的 Profile 删除保护仍属于 Phase 3。
+BrowserShell 可创建、激活和删除 Profile。激活时主进程销毁旧 BrowserTabManager，在目标命名 session 中以最近活动 URL 重建首个 tab，成功后才持久化活动 Profile；创建失败则重建并恢复原 Profile。Profile 切换、tab、导航、刷新和能力修改通过同一主进程队列串行化，避免操作落到已销毁的 manager。默认 Profile、活动 Profile 和被 Project 引用的 Profile 均不可删除；删除其他 Profile 时同时清理其 session storage、HTTP cache 和 auth cache。Project Runtime 启动时自动切换到快照绑定的 Profile。
 
 ### StrategyEngine
 
 根据 URL、frame 和 Project allowlist 选择固定版本 Strategy，在指定 `runAt` 执行。默认使用隔离 world；访问 main world 需要显式能力。
 
-schema v1 清单固化 `matches`、`excludes`、`runAt`、`frames`、权限、网络 allowlist、JSON 配置和启动/心跳超时。注册表最多保存 256 个 Strategy，拒绝未知字段、未知权限、重复匹配项、非 JSON 配置和过大的源码；写入使用串行原子替换，损坏文件会隔离。Strategy 必须同时处于启用状态、出现在显式 allowlist 中且命中 HTTP(S) URL 才会执行。Project 实体尚未落地，因此当前使用默认空的 `developmentAllowedStrategyIds`，并在 UI 中明确标注为 Phase 2 临时边界。
+schema v1 清单固化 `matches`、`excludes`、`runAt`、`frames`、权限、网络 allowlist、JSON 配置和启动/心跳超时。注册表最多保存 256 个 Strategy，拒绝未知字段、未知权限、重复匹配项、非 JSON 配置和过大的源码；写入使用串行原子替换，损坏文件会隔离。Strategy 必须同时处于启用状态、出现在当前运行上下文的显式 allowlist 中且命中 HTTP(S) URL 才会执行。开发态仍使用默认空的 `developmentAllowedStrategyIds`；Project Runtime 则从快照解析固定版本并取代开发 allowlist，缺失、版本不符或禁用均拒绝启动。
 
 preload 按 `document-start`、`document-end` 或 `document-idle` 在每个匹配 frame 调度源码；配置只在声明 `config.read` 后注入。日志、领域事件、特权跨域网络请求和宿主 main-world 执行都经过主进程权限检查。宿主请求逐跳检查 `networkMatches`，拒绝敏感请求头、超限 body/response 和重定向逃逸；页面原生 `fetch`/XHR 仍按普通网页的 Origin/CORS/CSP 规则工作。`main-world` 同样只约束宿主桥，不能阻止拥有 DOM 写能力的脚本自行插入页面脚本。保存、启停或 allowlist 变化会重建受控 view，以清除旧监听器和 timer 后重新匹配。
 
@@ -144,7 +155,9 @@ preload 按 `document-start`、`document-end` 或 `document-idle` 在每个匹�
 
 ### WorkflowEngine
 
-执行跨页面显式状态机。步骤包含前置条件、动作、成功断言、超时、幂等键、检查点和失败转移。
+执行跨页面显式状态机。schema v1 节点包括 navigate、delay、wait-for-event 和 complete；每个节点包含超时、最大尝试次数、可选幂等键、检查点和按失败分类的补偿转移。Strategy 领域事件由主进程直接送入当前 Engine，不能从页面任意改写 Runtime。
+
+Runtime 变更在每一步前后持久化。等待和指数退避由主进程 ticker 唤醒；应用退出后从最近 checkpoint 节点恢复。更丰富的页面断言、分支和业务动作仍属于后续 schema。
 
 ### RecoveryEngine
 
@@ -152,15 +165,15 @@ preload 按 `document-start`、`document-end` 或 `document-idle` 在每个匹�
 
 ### ContentFilter
 
-中心化合并网络观测、阻断和下载需求。网络规则与页面 CSS 规则按项目启用，不使用通用 Chrome 扩展作为基础。
+网络规则与页面 CSS 规则按 Project 快照启用，不使用通用 Chrome 扩展作为基础。allow 规则优先于 block；MVP 只阻断声明的子资源类型，不阻断主文档、subframe、WebSocket 或下载。CSS 规则按 URL 注入 selector 隐藏样式，所有命中都发布结构化事件。
 
 ### Capability Center 与 Download Manager
 
 Capability Policy schema v1 保存 popup、download、notification、geolocation、media、clipboard-read 和 fullscreen 的完整默认值，以及最多 256 个精确 HTTP(S) Origin 覆盖。规则不支持通配符或隐式子域继承；非 HTTP(S)、不透明来源和未知权限一律拒绝。Chromium 权限按 requesting/security origin 判断，弹窗按 opener 页面 Origin 判断，下载按发起 WebContents Origin 判断。远程页面不能读取或修改策略；BrowserShell 经受信 IPC 更新完整策略。设计依据见 [ADR-0004](../ADR/0004-exact-origin-capability-policy.md)。
 
-当前策略文件仍属于应用运行上下文。Phase 3 创建 Project 后，Project Runtime 必须提供 Project 自己的默认值和 Origin 规则，不能继续把所有项目合并到这一个文件。
+开发态 Capability 文件仍提供默认运行上下文；Project Runtime 启动后使用 Project 快照自己的默认值和精确 Origin 规则，终态后恢复开发配置。
 
-session 级 `will-download` 统一接管下载。禁止时立即取消；允许时清理路径分隔符、Windows 非法字符与设备保留名，再写入 Profile 下载目录。Phase 1 只维护 active/completed/failed/bytes 汇总；临时目录、原子完成、哈希、业务幂等和 manifest 属于 Phase 3。
+session 级 `will-download` 统一接管下载。Project Strategy 必须先发送包含业务项、附件、来源 URL、文件名和预期大小的 `download.intent`；宿主完成权限、配额、磁盘与幂等检查后才允许对应下载。文件先写入项目 `tmp/`，完成后计算 SHA-256 并无覆盖提交到 `downloads/`，完整记录写入 `records/downloads.json`。相同业务附件再次出现时返回 completed 记录，不生成第二个文件；完成或失败通过领域事件推进 workflow。
 
 ### TeachingRecorder
 
@@ -186,7 +199,7 @@ Profile/Cookie 使用 Electron session partition 存储，不提交仓库，也�
 
 Profile 清单保存在 userData 下的版本化 JSON 文件，使用临时文件加 rename 原子替换；并发修改由单进程队列串行化。Profile ID 只用于命名 session partition，显示名称不能直接成为目录或 partition 标识。
 
-当前浏览器检查点 schema v1 只保存 `profileId`、URL、保存原因和时间，使用同目录临时文件加 rename 原子替换。这是 main process 重启恢复的最小切片；workflow 步骤、幂等键、下载事务和业务游标必须由 Phase 3 的 Project Runtime 独立持久化，不能塞入该文件冒充业务恢复。
+浏览器检查点 schema v1 只保存 `profileId`、URL、保存原因和时间，使用同目录临时文件加 rename 原子替换。业务恢复由独立的 Project Runtime Store 保存 Runtime 快照、workflow 节点、检查点、计数器和幂等记录；下载事务另存项目目录下的 manifest，不塞入浏览器检查点。
 
 ## 可观测性
 
@@ -200,4 +213,4 @@ Profile 清单保存在 userData 下的版本化 JSON 文件，使用临时文�
 
 不能可靠归属到单个 Strategy 的资源消耗必须标记为共享，不能展示虚假的精确值。
 
-当前 BrowserShell 每两秒读取 `app.getAppMetrics()`，展示 Chromium 进程数、总 CPU、总工作集、页面健康、恢复状态和下载汇总。浏览器领域事件同时保留最近 500 条内存窗口，并串行追加到 userData 下的 JSONL 日志；日志轮转和长期保留尚未实现。
+当前 BrowserShell 每两秒读取 `app.getAppMetrics()`，展示 Chromium 进程数、总 CPU、总工作集、页面健康、恢复状态、下载汇总和当前 Project Runtime。Project 工作台另展示持久化 Runtime 历史、当前 workflow 节点、检查点、计数器和 Strategy 版本解析。浏览器领域事件同时保留最近 500 条内存窗口，并串行追加到 userData 下的 JSONL 日志；Scheduler 队列/槽位的独立可视化、日志轮转和长期保留尚未实现。

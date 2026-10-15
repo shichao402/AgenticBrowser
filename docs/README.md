@@ -32,7 +32,8 @@
 8. [Phase 0 验证记录](research/phase0-validation.md)
 9. [Phase 1 验证记录](research/phase1-validation.md)
 10. [Phase 2 验证记录](research/phase2-validation.md)
-11. [架构决策记录](ADR/README.md)
+11. [Phase 3 验证记录](research/phase3-validation.md)
+12. [架构决策记录](ADR/README.md)
 
 ## 同步原则
 

@@ -57,6 +57,7 @@ npm run check
 npm run smoke:electron
 npm run smoke:strategy-fault
 npm run smoke:strategy-workspace
+npm run smoke:project-download
 npm run smoke:recovery
 npm run smoke:watchdog
 npm run smoke:watchdog:packaged
@@ -78,4 +79,4 @@ npm run dist
 
 ## 当前状态
 
-项目进入 Phase 3：Phase 0 已完成 Windows 工程、隔离注入、renderer/main 故障恢复、URL/Profile 检查点、受限截图环和安装验证；macOS 与真实站点门禁仍待外部环境。Phase 1 已实现多 tab、Profile/session、主动健康监测、分级恢复与熔断、精确 Origin Capability Center、基础下载接管、Watchdog/登录启动、事件日志和进程监控。Phase 2 已完成 Strategy manifest、严格存储与 URL/frame/allowlist 匹配、独立 isolated world、run-at/OOPIF、受权限约束的宿主 API、心跳/隔离/重建恢复、编辑/启停 UI，以及真实热重载与同步死循环终止验收。Phase 3 正在把临时 allowlist、Profile 引用和完整下载事务纳入 Project Runtime。证据见 [Phase 0](docs/research/phase0-validation.md)、[Phase 1](docs/research/phase1-validation.md) 与 [Phase 2 验证记录](docs/research/phase2-validation.md)。
+项目进入 Phase 3：Phase 0 已完成 Windows 工程、隔离注入、renderer/main 故障恢复、URL/Profile 检查点、受限截图环和安装验证；macOS 与真实站点门禁仍待外部环境。Phase 1 已实现多 tab、Profile/session、主动健康监测、分级恢复与熔断、精确 Origin Capability Center、基础下载接管、Watchdog/登录启动、事件日志和进程监控。Phase 2 已完成 Strategy manifest、隔离执行、受控宿主 API、心跳/故障隔离和编辑 UI。Phase 3 已落地 Project/Profile/Runtime、固定版本 allowlist、持久化 workflow、单槽调度、项目级 Capability/Content Filter、下载事务与工作台，并通过模拟 MP3 的 Electron 双轮幂等闭环；真实知识星球、下载中强杀恢复、真正多项目并行和 macOS 门禁仍未完成。证据见 [Phase 0](docs/research/phase0-validation.md)、[Phase 1](docs/research/phase1-validation.md)、[Phase 2](docs/research/phase2-validation.md) 与 [Phase 3 验证记录](docs/research/phase3-validation.md)。

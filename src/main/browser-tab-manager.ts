@@ -6,6 +6,7 @@ import type {
   BrowserTab,
   CapabilityPolicy,
   CapabilityPolicySnapshot,
+  ContentFilterDefinition,
   DownloadSummary,
   ReloadOptions,
   StrategyDefinition,
@@ -13,6 +14,7 @@ import type {
 } from '../shared/contracts'
 import {
   BrowserSupervisor,
+  type BrowserDownloadAdapter,
   type BrowserDiagnostics,
   type BrowserSupervisorOptions,
   type CaptureBenchmark,
@@ -195,6 +197,18 @@ export class BrowserTabManager {
       tab.supervisor.setCapabilityPolicy(policy)
     }
     return this.getCapabilityPolicySnapshot()
+  }
+
+  setContentFilter(definition: ContentFilterDefinition): void {
+    for (const tab of this.tabs.values()) {
+      tab.supervisor.setContentFilter(definition)
+    }
+  }
+
+  setDownloadAdapter(adapter: BrowserDownloadAdapter | undefined): void {
+    for (const tab of this.tabs.values()) {
+      tab.supervisor.setDownloadAdapter(adapter)
+    }
   }
 
   getDownloadSummary(): DownloadSummary {

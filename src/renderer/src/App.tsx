@@ -7,6 +7,10 @@ import type {
   CapabilityPolicySnapshot,
   CapabilitySettings,
   MonitorSnapshot,
+  ProjectDefinition,
+  ProjectDraft,
+  ProjectRuntimeRecord,
+  ProjectWorkspaceSnapshot,
   ProfileSummary,
   StrategyDefinition,
   StrategyManifest,
@@ -46,7 +50,12 @@ const EVENT_LABELS: Record<BrowserEvent['type'], string> = {
   'strategy-failed': '策略失败',
   'strategy-heartbeat-missed': '策略心跳超时',
   'strategy-quarantined': '策略已隔离',
-  'strategy-reloaded': '策略已重载'
+  'strategy-reloaded': '策略已重载',
+  'project-runtime-started': '项目运行已启动',
+  'project-runtime-stopped': '项目运行已停止',
+  'project-runtime-failed': '项目运行失败',
+  'filter-hit': '过滤规则命中',
+  'filter-css-applied': '页面隐藏规则已应用'
 }
 
 const CAPABILITY_ITEMS: Array<{
@@ -72,6 +81,13 @@ export function App(): React.JSX.Element {
   const [startup, setStartup] = useState<StartupSettings | null>(null)
   const [strategyWorkspace, setStrategyWorkspace] =
     useState<StrategyWorkspaceSnapshot | null>(null)
+  const [projectWorkspace, setProjectWorkspace] =
+    useState<ProjectWorkspaceSnapshot | null>(null)
+  const [editingProjectId, setEditingProjectId] =
+    useState<string | null>(null)
+  const [projectDraftText, setProjectDraftText] = useState(
+    JSON.stringify(createDefaultProjectDraft('profile-default'), null, 2)
+  )
   const [activeSection, setActiveSection] =
     useState<'projects' | 'strategies' | 'filters'>('projects')
   const [editingStrategyId, setEditingStrategyId] = useState<string | null>(
@@ -120,6 +136,21 @@ export function App(): React.JSX.Element {
     )
   }, [])
 
+  const refreshProjects = useCallback(async (): Promise<void> => {
+    const next = await window.agenticBrowser.getProjectWorkspace()
+    setProjectWorkspace(next)
+    const selected =
+      next.projects.find(
+        (project) => project.id === next.activeProjectId
+      ) ?? null
+    if (selected) {
+      setEditingProjectId(selected.id)
+      setProjectDraftText(
+        JSON.stringify(toProjectDraft(selected), null, 2)
+      )
+    }
+  }, [])
+
   useEffect(() => {
     void Promise.all([
       refreshSnapshot(),
@@ -128,7 +159,8 @@ export function App(): React.JSX.Element {
       refreshTabs(),
       refreshProfiles(),
       refreshStartup(),
-      refreshStrategies()
+      refreshStrategies(),
+      refreshProjects()
     ]).catch((cause: unknown) => {
       setError(cause instanceof Error ? cause.message : String(cause))
     })
@@ -147,6 +179,9 @@ export function App(): React.JSX.Element {
       ) {
         refreshes.push(refreshCapabilityPolicy())
       }
+      if (event.type.startsWith('project-runtime-')) {
+        refreshes.push(refreshProjects(), refreshProfiles())
+      }
       void Promise.all(refreshes).catch(
         (cause: unknown) => {
           setError(cause instanceof Error ? cause.message : String(cause))
@@ -157,6 +192,7 @@ export function App(): React.JSX.Element {
     refreshCapabilityPolicy,
     refreshMonitor,
     refreshProfiles,
+    refreshProjects,
     refreshStrategies,
     refreshStartup,
     refreshSnapshot,
@@ -332,6 +368,118 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const applyProjectWorkspace = (
+    next: ProjectWorkspaceSnapshot,
+    preferredProjectId?: string
+  ): void => {
+    setProjectWorkspace(next)
+    const selected =
+      next.projects.find(
+        (project) =>
+          project.id ===
+          (preferredProjectId ?? next.activeProjectId)
+      ) ?? null
+    if (selected) {
+      setEditingProjectId(selected.id)
+      setProjectDraftText(
+        JSON.stringify(toProjectDraft(selected), null, 2)
+      )
+    } else {
+      setEditingProjectId(null)
+    }
+  }
+
+  const selectProject = async (projectId: string): Promise<void> => {
+    try {
+      applyProjectWorkspace(
+        await window.agenticBrowser.setActiveProject(projectId),
+        projectId
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const newProject = (): void => {
+    const profileId =
+      profiles.find((profile) => profile.active)?.id ??
+      'profile-default'
+    setEditingProjectId(null)
+    setProjectDraftText(
+      JSON.stringify(createDefaultProjectDraft(profileId), null, 2)
+    )
+    setActiveSection('projects')
+  }
+
+  const saveProject = async (): Promise<void> => {
+    setError(null)
+    try {
+      const draft = JSON.parse(projectDraftText) as ProjectDraft
+      if (
+        editingProjectId !== null &&
+        draft.id !== editingProjectId
+      ) {
+        throw new Error('编辑现有 Project 时不能修改 ID；请使用“新建”')
+      }
+      applyProjectWorkspace(
+        await window.agenticBrowser.saveProject(draft),
+        draft.id
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const deleteProject = async (projectId: string): Promise<void> => {
+    if (!window.confirm(`确认删除 Project ${projectId}？`)) {
+      return
+    }
+    try {
+      applyProjectWorkspace(
+        await window.agenticBrowser.deleteProject(projectId)
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const startProject = async (projectId: string): Promise<void> => {
+    setError(null)
+    try {
+      applyProjectWorkspace(
+        await window.agenticBrowser.startProjectRuntime(projectId),
+        projectId
+      )
+      await Promise.all([
+        refreshProfiles(),
+        refreshTabs(),
+        refreshSnapshot(),
+        refreshMonitor(),
+        refreshCapabilityPolicy(),
+        refreshStrategies()
+      ])
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const stopProject = async (): Promise<void> => {
+    setError(null)
+    try {
+      applyProjectWorkspace(
+        await window.agenticBrowser.stopProjectRuntime()
+      )
+      await Promise.all([
+        refreshSnapshot(),
+        refreshMonitor(),
+        refreshCapabilityPolicy(),
+        refreshStrategies()
+      ])
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   const editStrategy = (definition: StrategyDefinition): void => {
     setEditingStrategyId(definition.manifest.id)
     setStrategyManifestText(
@@ -392,22 +540,6 @@ export function App(): React.JSX.Element {
     }
   }
 
-  const toggleStrategyAllowed = async (
-    strategyId: string,
-    allowed: boolean
-  ): Promise<void> => {
-    try {
-      setStrategyWorkspace(
-        await window.agenticBrowser.setStrategyAllowed(
-          strategyId,
-          allowed
-        )
-      )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
   const deleteStrategy = async (strategyId: string): Promise<void> => {
     if (!window.confirm(`确认删除 Strategy ${strategyId}？`)) {
       return
@@ -424,6 +556,23 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const activeProject =
+    projectWorkspace?.projects.find(
+      (project) => project.id === projectWorkspace.activeProjectId
+    ) ?? null
+  const latestProjectRuntime =
+    [...(projectWorkspace?.runtimes ?? [])]
+      .reverse()
+      .find(
+        (runtime) =>
+          runtime.projectId ===
+          (activeProject?.id ?? runtime.projectId)
+      ) ?? null
+  const activeProjectRuntime =
+    [...(projectWorkspace?.runtimes ?? [])]
+      .reverse()
+      .find(isActiveProjectRuntime) ?? null
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -431,7 +580,7 @@ export function App(): React.JSX.Element {
           <span className="brand-mark">AB</span>
           <div>
             <h1>AgenticBrowser</h1>
-            <p>Phase 2 · Strategy Runtime</p>
+            <p>Phase 3 · Project Runtime</p>
           </div>
         </header>
 
@@ -465,25 +614,145 @@ export function App(): React.JSX.Element {
           </button>
         </nav>
 
+        {activeSection === 'projects' ? (
+          <section className="project-panel">
+            <div className="panel-heading">
+              <h2>Project</h2>
+              <button type="button" onClick={newProject}>
+                新建
+              </button>
+            </div>
+            <p className="project-help">
+              Project 固定 Profile、Strategy 版本、能力和 Workflow；
+              运行时配置使用启动快照。
+            </p>
+            <div className="project-list">
+              {projectWorkspace?.projects.length ? (
+                projectWorkspace.projects.map((project) => {
+                  const runtime = [
+                    ...(projectWorkspace.runtimes ?? [])
+                  ]
+                    .reverse()
+                    .find(
+                      (candidate) =>
+                        candidate.projectId === project.id
+                    )
+                  return (
+                    <article
+                      className={`project-list-item ${
+                        project.id === projectWorkspace.activeProjectId
+                          ? 'project-list-item-active'
+                          : ''
+                      }`}
+                      key={project.id}
+                    >
+                      <button
+                        className="project-select"
+                        type="button"
+                        onClick={() => void selectProject(project.id)}
+                      >
+                        <strong>{project.name}</strong>
+                        <small>
+                          r{project.revision} ·{' '}
+                          {runtime?.status ?? '未运行'}
+                        </small>
+                      </button>
+                      <button
+                        className="project-delete"
+                        type="button"
+                        disabled={activeProjectRuntime !== null}
+                        onClick={() => void deleteProject(project.id)}
+                      >
+                        删除
+                      </button>
+                    </article>
+                  )
+                })
+              ) : (
+                <p className="event-empty">尚无 Project</p>
+              )}
+            </div>
+            <div className="project-editor">
+              <label>
+                Project JSON
+                <textarea
+                  aria-label="Project JSON"
+                  spellCheck={false}
+                  value={projectDraftText}
+                  onChange={(event) =>
+                    setProjectDraftText(event.target.value)
+                  }
+                />
+              </label>
+              <div className="project-actions">
+                <button
+                  type="button"
+                  disabled={activeProjectRuntime !== null}
+                  onClick={() => void saveProject()}
+                >
+                  保存
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !activeProject ||
+                    activeProjectRuntime !== null
+                  }
+                  onClick={() =>
+                    activeProject
+                      ? void startProject(activeProject.id)
+                      : undefined
+                  }
+                >
+                  启动
+                </button>
+                <button
+                  type="button"
+                  disabled={activeProjectRuntime === null}
+                  onClick={() => void stopProject()}
+                >
+                  停止
+                </button>
+              </div>
+              {projectWorkspace?.strategyResolutions.length ? (
+                <ul className="project-resolution-list">
+                  {projectWorkspace.strategyResolutions.map(
+                    (resolution) => (
+                      <li key={resolution.strategyId}>
+                        {resolution.strategyId}@{resolution.pinnedVersion}
+                        {' · '}
+                        {resolution.status}
+                      </li>
+                    )
+                  )}
+                </ul>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
         {activeSection === 'strategies' ? (
           <section className="strategy-panel">
             <div className="panel-heading">
               <h2>Strategy</h2>
-              <button type="button" onClick={newStrategy}>
+              <button
+                type="button"
+                disabled={activeProjectRuntime !== null}
+                onClick={newStrategy}
+              >
                 新建
               </button>
             </div>
             <p className="strategy-help">
-              启用只控制定义状态；“当前项目允许”是 Phase 2
-              临时显式 allowlist，Phase 3 将迁移到 Project。
+              启用控制注册表定义；运行时 allowlist 由 Project
+              固定版本生成。项目运行期间定义不可修改。
             </p>
             <div className="strategy-list">
               {strategyWorkspace?.strategies.length ? (
                 strategyWorkspace.strategies.map((definition) => {
-                  const allowed =
-                    strategyWorkspace.developmentAllowedStrategyIds.includes(
-                      definition.manifest.id
-                    )
+                  const projectPin = activeProject?.strategies.find(
+                    (pin) => pin.id === definition.manifest.id
+                  )
                   const runtimeEntries =
                     monitor?.strategies.entries.filter(
                       (entry) =>
@@ -511,11 +780,17 @@ export function App(): React.JSX.Element {
                                 .map((entry) => entry.status)
                                 .join(', ')}
                         </small>
+                        {projectPin ? (
+                          <small>
+                            当前 Project 固定 {projectPin.version}
+                          </small>
+                        ) : null}
                       </button>
                       <label>
                         <input
                           type="checkbox"
                           checked={definition.enabled}
+                          disabled={activeProjectRuntime !== null}
                           onChange={(event) =>
                             void toggleStrategyEnabled(
                               definition.manifest.id,
@@ -525,22 +800,10 @@ export function App(): React.JSX.Element {
                         />
                         启用
                       </label>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={allowed}
-                          onChange={(event) =>
-                            void toggleStrategyAllowed(
-                              definition.manifest.id,
-                              event.target.checked
-                            )
-                          }
-                        />
-                        当前项目允许
-                      </label>
                       <button
                         className="strategy-delete"
                         type="button"
+                        disabled={activeProjectRuntime !== null}
                         onClick={() =>
                           void deleteStrategy(definition.manifest.id)
                         }
@@ -577,7 +840,11 @@ export function App(): React.JSX.Element {
                   }
                 />
               </label>
-              <button type="button" onClick={() => void saveStrategy()}>
+              <button
+                type="button"
+                disabled={activeProjectRuntime !== null}
+                onClick={() => void saveStrategy()}
+              >
                 保存并重载页面
               </button>
             </div>
@@ -592,6 +859,7 @@ export function App(): React.JSX.Element {
           <select
             aria-label="活动 Profile"
             value={profiles.find((profile) => profile.active)?.id ?? ''}
+            disabled={activeProjectRuntime !== null}
             onChange={(event) => void activateProfile(event.target.value)}
           >
             {profiles.map((profile) => (
@@ -625,6 +893,7 @@ export function App(): React.JSX.Element {
                     key={profile.id}
                     type="button"
                     title={`删除 ${profile.name}`}
+                    disabled={activeProjectRuntime !== null}
                     onClick={() => void deleteProfile(profile.id)}
                   >
                     删除 {profile.name}
@@ -656,19 +925,32 @@ export function App(): React.JSX.Element {
           <div className="project-card-heading">
             <div>
               <span className="eyebrow">当前项目</span>
-              <h2>Electron 能力验证</h2>
+              <h2>{activeProject?.name ?? '未选择 Project'}</h2>
             </div>
             <span
               className={`status-dot ${
-                snapshot?.health.status === 'healthy'
+                snapshot?.health.status === 'healthy' &&
+                latestProjectRuntime?.status !== 'failed'
                   ? ''
                   : 'status-dot-warning'
               }`}
-              title={snapshot?.health.status ?? '初始化'}
+              title={
+                latestProjectRuntime?.status ??
+                snapshot?.health.status ??
+                '初始化'
+              }
             />
           </div>
 
           <dl className="metric-grid">
+            <div>
+              <dt>项目状态</dt>
+              <dd>{latestProjectRuntime?.status ?? '未运行'}</dd>
+            </div>
+            <div>
+              <dt>Workflow</dt>
+              <dd>{latestProjectRuntime?.currentNodeId ?? '—'}</dd>
+            </div>
             <div>
               <dt>页面代次</dt>
               <dd>{snapshot?.generation ?? '—'}</dd>
@@ -737,7 +1019,10 @@ export function App(): React.JSX.Element {
                       checked={
                         capabilityPolicy?.policy.defaults[item.key] ?? false
                       }
-                      disabled={!capabilityPolicy}
+                      disabled={
+                        !capabilityPolicy ||
+                        activeProjectRuntime !== null
+                      }
                       onChange={() =>
                         void toggleDefaultCapability(item.key)
                       }
@@ -747,7 +1032,10 @@ export function App(): React.JSX.Element {
                   <select
                     aria-label={`${item.label}的当前 Origin 策略`}
                     value={decision}
-                    disabled={!capabilityPolicy?.currentOrigin}
+                    disabled={
+                      !capabilityPolicy?.currentOrigin ||
+                      activeProjectRuntime !== null
+                    }
                     onChange={(event) =>
                       void setOriginCapability(
                         item.key,
@@ -887,6 +1175,105 @@ function getOriginDecision(
   )
   const value = rule?.overrides[key]
   return value === undefined ? 'inherit' : value ? 'allow' : 'deny'
+}
+
+function isActiveProjectRuntime(runtime: ProjectRuntimeRecord): boolean {
+  return (
+    runtime.status !== 'completed' &&
+    runtime.status !== 'failed' &&
+    runtime.status !== 'cancelled'
+  )
+}
+
+function toProjectDraft(project: ProjectDefinition): ProjectDraft {
+  const {
+    revision: _revision,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...draft
+  } = project
+  return structuredClone(draft)
+}
+
+function createDefaultProjectDraft(profileId: string): ProjectDraft {
+  const outputRoot =
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.includes('Windows')
+      ? 'C:\\AgenticBrowser\\projects\\new-project'
+      : '/Users/Shared/AgenticBrowser/projects/new-project'
+  return {
+    id: 'new-project',
+    name: 'New Project',
+    profileId,
+    startupPages: ['https://example.com/'],
+    strategies: [],
+    runtime: {
+      mode: 'manual',
+      timezone: 'Asia/Shanghai',
+      priority: 0,
+      maxRunMs: 3_600_000
+    },
+    workflow: {
+      version: 1,
+      entryNodeId: 'open-home',
+      nodes: [
+        {
+          id: 'open-home',
+          kind: 'navigate',
+          url: 'https://example.com/',
+          next: 'wait-complete',
+          timeoutMs: 30_000,
+          maxAttempts: 3,
+          checkpoint: true
+        },
+        {
+          id: 'wait-complete',
+          kind: 'wait-for-event',
+          eventName: 'project.complete',
+          next: 'finished',
+          timeoutMs: 600_000,
+          maxAttempts: 1,
+          checkpoint: true
+        },
+        {
+          id: 'finished',
+          kind: 'complete',
+          timeoutMs: 1_000,
+          maxAttempts: 1,
+          checkpoint: true
+        }
+      ]
+    },
+    output: {
+      root: outputRoot,
+      maxBytes: 10 * 1024 * 1024 * 1024,
+      fileNameTemplate: '{postId}-{fileName}'
+    },
+    capabilities: {
+      schemaVersion: 1,
+      defaults: {
+        popups: false,
+        downloads: true,
+        notifications: false,
+        geolocation: false,
+        media: false,
+        clipboardRead: false,
+        fullscreen: false
+      },
+      origins: []
+    },
+    filter: {
+      enabled: false,
+      networkRules: [],
+      cssRules: []
+    },
+    retry: {
+      maxConsecutiveFailures: 5,
+      baseBackoffMs: 1_000,
+      maxBackoffMs: 60_000
+    },
+    enabled: true
+  }
 }
 
 function createDefaultStrategyManifest(): StrategyManifest {

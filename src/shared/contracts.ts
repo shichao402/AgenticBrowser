@@ -12,6 +12,12 @@ export const IPC_CHANNELS = {
   createProfile: 'profiles:create',
   activateProfile: 'profiles:activate',
   deleteProfile: 'profiles:delete',
+  getProjectWorkspace: 'projects:get-workspace',
+  saveProject: 'projects:save',
+  setActiveProject: 'projects:set-active',
+  deleteProject: 'projects:delete',
+  startProjectRuntime: 'projects:start-runtime',
+  stopProjectRuntime: 'projects:stop-runtime',
   getStartupSettings: 'startup:get',
   setOpenAtLogin: 'startup:set-open-at-login',
   getStrategyWorkspace: 'strategies:get-workspace',
@@ -62,6 +68,11 @@ export type BrowserEventType =
   | 'strategy-heartbeat-missed'
   | 'strategy-quarantined'
   | 'strategy-reloaded'
+  | 'project-runtime-started'
+  | 'project-runtime-stopped'
+  | 'project-runtime-failed'
+  | 'filter-hit'
+  | 'filter-css-applied'
 
 export interface BrowserEvent {
   sequence: number
@@ -119,6 +130,7 @@ export interface ProcessMetric {
 export interface MonitorSnapshot {
   generatedAt: string
   browser: BrowserSnapshot
+  projectRuntime: ProjectRuntimeSnapshot | null
   browserEventCount: number
   activePageCount: number
   activeStrategyCount: number
@@ -177,6 +189,249 @@ export interface CapabilityPolicySnapshot {
   policy: CapabilityPolicy
   currentOrigin: string | null
   effective: CapabilitySettings
+}
+
+export type ProjectRuntimeMode =
+  | 'manual'
+  | 'autostart'
+  | 'resident'
+  | 'schedule'
+
+export type ProjectSchedule =
+  | {
+      kind: 'daily'
+      times: string[]
+    }
+  | {
+      kind: 'interval'
+      everyMinutes: number
+    }
+
+export interface ProjectStrategyPin {
+  id: string
+  version: string
+}
+
+export type ContentFilterResourceType =
+  | 'stylesheet'
+  | 'image'
+  | 'media'
+  | 'font'
+  | 'script'
+  | 'xhr'
+  | 'other'
+
+export interface ContentFilterNetworkRule {
+  id: string
+  action: 'allow' | 'block'
+  urlPattern: string
+  resourceTypes: ContentFilterResourceType[]
+}
+
+export interface ContentFilterCssRule {
+  id: string
+  urlPattern: string
+  selectors: string[]
+}
+
+export interface ContentFilterDefinition {
+  enabled: boolean
+  networkRules: ContentFilterNetworkRule[]
+  cssRules: ContentFilterCssRule[]
+}
+
+export type WorkflowFailureCategory =
+  | 'network'
+  | 'timeout'
+  | 'authentication'
+  | 'page-changed'
+  | 'renderer'
+  | 'disk'
+  | 'cancelled'
+  | 'unknown'
+
+export interface WorkflowNodeBase {
+  id: string
+  timeoutMs: number
+  maxAttempts: number
+  checkpoint: boolean
+  idempotencyKey?: string
+  onFailure?: Partial<Record<WorkflowFailureCategory, string>>
+}
+
+export type WorkflowNode =
+  | (WorkflowNodeBase & {
+      kind: 'navigate'
+      url: string
+      next: string
+    })
+  | (WorkflowNodeBase & {
+      kind: 'wait-for-event'
+      eventName: string
+      next: string
+    })
+  | (WorkflowNodeBase & {
+      kind: 'delay'
+      delayMs: number
+      next: string
+    })
+  | (WorkflowNodeBase & {
+      kind: 'complete'
+    })
+
+export interface ProjectWorkflowDefinition {
+  version: number
+  entryNodeId: string
+  nodes: WorkflowNode[]
+}
+
+export interface ProjectRetryPolicy {
+  maxConsecutiveFailures: number
+  baseBackoffMs: number
+  maxBackoffMs: number
+}
+
+export interface ProjectOutputSettings {
+  root: string
+  maxBytes: number
+  fileNameTemplate: string
+}
+
+export interface ProjectRuntimeSettings {
+  mode: ProjectRuntimeMode
+  timezone: string
+  schedule?: ProjectSchedule
+  priority: number
+  maxRunMs: number
+}
+
+export interface ProjectDefinition {
+  id: string
+  name: string
+  revision: number
+  profileId: string
+  startupPages: string[]
+  strategies: ProjectStrategyPin[]
+  runtime: ProjectRuntimeSettings
+  workflow: ProjectWorkflowDefinition
+  output: ProjectOutputSettings
+  capabilities: CapabilityPolicy
+  filter: ContentFilterDefinition
+  retry: ProjectRetryPolicy
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProjectDraft {
+  id: string
+  name: string
+  profileId: string
+  startupPages: string[]
+  strategies: ProjectStrategyPin[]
+  runtime: ProjectRuntimeSettings
+  workflow: ProjectWorkflowDefinition
+  output: ProjectOutputSettings
+  capabilities: CapabilityPolicy
+  filter: ContentFilterDefinition
+  retry: ProjectRetryPolicy
+  enabled: boolean
+}
+
+export type ProjectStrategyResolutionStatus =
+  | 'ready'
+  | 'missing'
+  | 'version-mismatch'
+  | 'disabled'
+
+export interface ProjectStrategyResolution {
+  strategyId: string
+  pinnedVersion: string
+  registryVersion: string | null
+  status: ProjectStrategyResolutionStatus
+  runnable: boolean
+}
+
+export interface ProjectWorkspaceSnapshot {
+  activeProjectId: string | null
+  projects: ProjectDefinition[]
+  runtimes: ProjectRuntimeRecord[]
+  strategyResolutions: ProjectStrategyResolution[]
+}
+
+export type ProjectRuntimeStatus =
+  | 'queued'
+  | 'starting'
+  | 'running'
+  | 'waiting'
+  | 'recovering'
+  | 'paused'
+  | 'failed'
+  | 'completed'
+  | 'cancelled'
+
+export interface ProjectRuntimeCounters {
+  scanned: number
+  matched: number
+  skipped: number
+  downloaded: number
+  failed: number
+  downloadedBytes: number
+}
+
+export interface ProjectRuntimeRecord {
+  runtimeId: string
+  projectId: string
+  projectRevision: number
+  trigger: 'manual' | 'autostart' | 'resident' | 'schedule' | 'resume'
+  status: ProjectRuntimeStatus
+  currentNodeId: string
+  nodeAttempt: number
+  checkpointNodeId: string | null
+  checkpointData: Record<string, JsonValue>
+  lastHeartbeatAt: string
+  nextWakeAt: string | null
+  lastError: string | null
+  lastFailureCategory: WorkflowFailureCategory | null
+  counters: ProjectRuntimeCounters
+  startedAt: string
+  updatedAt: string
+  completedAt: string | null
+}
+
+export type ProjectRuntimeSnapshot = ProjectRuntimeRecord
+
+export type DownloadRecordStatus =
+  | 'reserved'
+  | 'downloading'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export interface ProjectDownloadRecord {
+  downloadId: string
+  idempotencyKey: string
+  projectId: string
+  runtimeId: string
+  workflowNodeId: string
+  sourcePage: string
+  sourceUrl: string
+  businessItemId: string
+  attachmentId: string
+  originalFileName: string
+  safeFileName: string
+  temporaryPath: string
+  finalPath: string
+  mime: string | null
+  size: number
+  sha256: string | null
+  status: DownloadRecordStatus
+  retryCount: number
+  errorCategory: WorkflowFailureCategory | null
+  error: string | null
+  startedAt: string
+  updatedAt: string
+  completedAt: string | null
 }
 
 export interface StartupSettings {
@@ -348,6 +603,12 @@ export interface BrowserShellApi {
   createProfile(name: string): Promise<ProfileSummary[]>
   activateProfile(profileId: string): Promise<ProfileSummary[]>
   deleteProfile(profileId: string): Promise<ProfileSummary[]>
+  getProjectWorkspace(): Promise<ProjectWorkspaceSnapshot>
+  saveProject(draft: ProjectDraft): Promise<ProjectWorkspaceSnapshot>
+  setActiveProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
+  deleteProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
+  startProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
+  stopProjectRuntime(): Promise<ProjectWorkspaceSnapshot>
   getStartupSettings(): Promise<StartupSettings>
   setOpenAtLogin(enabled: boolean): Promise<StartupSettings>
   getStrategyWorkspace(): Promise<StrategyWorkspaceSnapshot>

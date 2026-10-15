@@ -8,6 +8,8 @@ import {
   type CapabilityPolicy,
   type CapabilityPolicySnapshot,
   type MonitorSnapshot,
+  type ProjectDraft,
+  type ProjectWorkspaceSnapshot,
   type ProfileSummary,
   type ReloadOptions,
   type StrategyDraft,
@@ -41,6 +43,26 @@ const api: BrowserShellApi = {
     ipcRenderer.invoke(IPC_CHANNELS.activateProfile, profileId),
   deleteProfile: (profileId: string): Promise<ProfileSummary[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteProfile, profileId),
+  getProjectWorkspace: (): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getProjectWorkspace),
+  saveProject: (
+    draft: ProjectDraft
+  ): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveProject, draft),
+  setActiveProject: (
+    projectId: string
+  ): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setActiveProject, projectId),
+  deleteProject: (
+    projectId: string
+  ): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.deleteProject, projectId),
+  startProjectRuntime: (
+    projectId: string
+  ): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.startProjectRuntime, projectId),
+  stopProjectRuntime: (): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.stopProjectRuntime),
   getStartupSettings: (): Promise<StartupSettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.getStartupSettings),
   setOpenAtLogin: (enabled: boolean): Promise<StartupSettings> =>

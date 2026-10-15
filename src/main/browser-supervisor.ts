@@ -9,6 +9,8 @@ import {
   type Event as ElectronEvent,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type OnBeforeRequestListenerDetails,
+  type CallbackResponse,
   type Rectangle,
   type RenderProcessGoneDetails,
   type Session,
@@ -23,7 +25,9 @@ import type {
   BrowserSnapshot,
   CapabilityPolicy,
   CapabilitySettings,
+  ContentFilterDefinition,
   DownloadSummary,
+  JsonValue,
   PageHealthSnapshot,
   RecoverySnapshot,
   ReloadOptions,
@@ -50,6 +54,7 @@ import {
 import { HealthMonitor } from './health-monitor'
 import { normalizeNavigationUrl } from './navigation'
 import { sanitizeDownloadFileName } from './download-path'
+import { ContentFilter } from './content-filter'
 import {
   RecoveryPolicy,
   type RecoveryAction
@@ -57,6 +62,7 @@ import {
 import { urlMatchesStrategyPattern } from './strategy-match'
 import {
   StrategyRuntime,
+  type StrategyDomainEvent,
   type StrategyFrameContext
 } from './strategy-runtime'
 
@@ -177,6 +183,48 @@ export interface BrowserSupervisorOptions {
   strategyDefinitions?: StrategyDefinition[]
   allowedStrategyIds?: ReadonlySet<string>
   quarantinedStrategyIds?: Set<string>
+  contentFilter?: ContentFilterDefinition
+  onStrategyDomainEvent?: (
+    event: StrategyDomainEvent
+  ) => JsonValue | void | Promise<JsonValue | void>
+  downloadAdapter?: BrowserDownloadAdapter
+}
+
+export interface BrowserDownloadRequest {
+  sourcePage: string
+  sourceUrl: string
+  originalFileName: string
+  mime: string | null
+  expectedBytes: number | null
+}
+
+export type BrowserDownloadReservation =
+  | {
+      kind: 'reserved'
+      downloadId: string
+      temporaryPath: string
+      displayName: string
+    }
+  | {
+      kind: 'duplicate'
+      downloadId: string
+      finalPath: string
+      displayName: string
+    }
+
+export interface BrowserDownloadAdapter {
+  reserve(
+    request: BrowserDownloadRequest
+  ): Promise<BrowserDownloadReservation>
+  markDownloading(downloadId: string): Promise<void>
+  complete(
+    downloadId: string
+  ): Promise<{ finalPath: string; size: number }>
+  fail(
+    downloadId: string,
+    category: 'network' | 'cancelled' | 'unknown',
+    detail: string
+  ): Promise<void>
 }
 
 export class BrowserSupervisor {
@@ -189,6 +237,9 @@ export class BrowserSupervisor {
   private readonly quarantinedStrategyIds: Set<string>
   private strategyRuntime: StrategyRuntime | null = null
   private capabilityPolicy: CapabilityPolicy
+  private readonly contentFilter: ContentFilter
+  private downloadAdapter: BrowserDownloadAdapter | undefined
+  private insertedFilterCssKey: string | null = null
   private readonly downloads: DownloadSummary = {
     active: 0,
     completed: 0,
@@ -202,6 +253,16 @@ export class BrowserSupervisor {
     webContents: WebContents
   ): void => {
     this.handleDownload(item, webContents)
+  }
+  private readonly onBeforeRequest = (
+    details: OnBeforeRequestListenerDetails,
+    callback: (response: CallbackResponse) => void
+  ): void => {
+    const decision = this.contentFilter.decide(
+      details.url,
+      details.resourceType
+    )
+    callback({ cancel: decision.blocked })
   }
   private sessionHandlersEnabled = false
   private pageView: WebContentsView | null = null
@@ -241,6 +302,20 @@ export class BrowserSupervisor {
     this.capabilityPolicy = cloneCapabilityPolicy(
       options.capabilityPolicy ?? createCapabilityPolicy()
     )
+    this.contentFilter = new ContentFilter(
+      options.contentFilter ?? {
+        enabled: false,
+        networkRules: [],
+        cssRules: []
+      },
+      (hit) => {
+        this.emit(
+          'filter-hit',
+          `${hit.action}; ${hit.ruleId}; ${hit.resourceType}; ${hit.url}`
+        )
+      }
+    )
+    this.downloadAdapter = options.downloadAdapter
     this.profileId = options.profileId ?? DEFAULT_PROFILE_ID
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(this.profileId)) {
       throw new Error('Profile ID 格式无效')
@@ -307,6 +382,18 @@ export class BrowserSupervisor {
     return this.getCapabilityPolicy()
   }
 
+  setContentFilter(definition: ContentFilterDefinition): void {
+    this.contentFilter.update(definition)
+    if (this.sessionHandlersEnabled) {
+      this.configureRequestFilter()
+    }
+    void this.applyContentFilterCss()
+  }
+
+  setDownloadAdapter(adapter: BrowserDownloadAdapter | undefined): void {
+    this.downloadAdapter = adapter
+  }
+
   getEffectiveCapabilities(
     requestingUrlOrOrigin: string = this.currentUrl
   ): CapabilitySettings {
@@ -358,8 +445,10 @@ export class BrowserSupervisor {
     this.sessionHandlersEnabled = enabled
     if (enabled) {
       this.profileSession.on('will-download', this.onWillDownload)
+      this.configureRequestFilter()
     } else {
       this.profileSession.removeListener('will-download', this.onWillDownload)
+      this.profileSession.webRequest.onBeforeRequest(null)
     }
   }
 
@@ -885,6 +974,41 @@ export class BrowserSupervisor {
     this.configurePermissionHandlers()
   }
 
+  private configureRequestFilter(): void {
+    this.profileSession.webRequest.onBeforeRequest(
+      {
+        urls: ['http://*/*', 'https://*/*']
+      },
+      this.onBeforeRequest
+    )
+  }
+
+  private async applyContentFilterCss(): Promise<void> {
+    const contents = this.pageView?.webContents
+    if (!contents || contents.isDestroyed()) {
+      return
+    }
+    if (this.insertedFilterCssKey) {
+      await contents
+        .removeInsertedCSS(this.insertedFilterCssKey)
+        .catch(() => undefined)
+      this.insertedFilterCssKey = null
+    }
+    const filter = this.contentFilter.cssForUrl(
+      contents.getURL() || this.currentUrl
+    )
+    if (filter.css.length === 0) {
+      return
+    }
+    this.insertedFilterCssKey = await contents.insertCSS(filter.css, {
+      cssOrigin: 'user'
+    })
+    this.emit(
+      'filter-css-applied',
+      `${filter.ruleIds.join(',')}; ${contents.getURL() || this.currentUrl}`
+    )
+  }
+
   private configurePermissionHandlers(): void {
     this.profileSession.setPermissionCheckHandler(
       (contents, permission, requestingOrigin, details) =>
@@ -923,6 +1047,12 @@ export class BrowserSupervisor {
             `${event.strategyId}; ${event.detail}`
           )
         }
+      },
+      onDomainEvent: (event) => {
+        if (this.strategyRuntime === runtime && !this.disposed) {
+          return this.options.onStrategyDomainEvent?.(event)
+        }
+        return undefined
       },
       onFault: (strategyId, reason) => {
         if (this.strategyRuntime === runtime && !this.disposed) {
@@ -1182,6 +1312,15 @@ export class BrowserSupervisor {
       this.emit('load-finished')
     })
 
+    webContents.on('did-finish-load', () => {
+      void this.applyContentFilterCss().catch((error: unknown) => {
+        this.emit(
+          'filter-css-applied',
+          `failed; ${error instanceof Error ? error.message : String(error)}`
+        )
+      })
+    })
+
     webContents.on(
       'did-fail-load',
       (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
@@ -1256,18 +1395,26 @@ export class BrowserSupervisor {
     const sourceUrl = webContents?.getURL() || item.getURL()
     if (
       !this.getEffectiveCapabilities(sourceUrl).downloads ||
-      !downloadDirectory
+      (!downloadDirectory && !this.downloadAdapter)
     ) {
       item.cancel()
       this.downloads.failed += 1
       this.emit('download-blocked', item.getFilename())
       return
     }
+    if (this.downloadAdapter) {
+      this.handleManagedDownload(
+        item,
+        sourceUrl,
+        this.downloadAdapter
+      )
+      return
+    }
 
-    mkdirSync(downloadDirectory, { recursive: true })
+    mkdirSync(downloadDirectory!, { recursive: true })
     const safeName = sanitizeDownloadFileName(item.getFilename())
     const savePath = join(
-      downloadDirectory,
+      downloadDirectory!,
       `${Date.now()}-${++this.downloadSequence}-${safeName}`
     )
     item.setSavePath(savePath)
@@ -1302,6 +1449,108 @@ export class BrowserSupervisor {
         this.emit('download-failed', `${safeName}; ${state}`)
       }
     })
+  }
+
+  private handleManagedDownload(
+    item: DownloadItem,
+    sourcePage: string,
+    adapter: BrowserDownloadAdapter
+  ): void {
+    item.pause()
+    const totalBytes = item.getTotalBytes()
+    void adapter
+      .reserve({
+        sourcePage,
+        sourceUrl: item.getURL(),
+        originalFileName: item.getFilename(),
+        mime: item.getMimeType() || null,
+        expectedBytes: totalBytes >= 0 ? totalBytes : null
+      })
+      .then(async (reservation) => {
+        if (reservation.kind === 'duplicate') {
+          item.cancel()
+          this.downloads.completed += 1
+          this.emit(
+            'download-completed',
+            `${reservation.displayName}; duplicate -> ${reservation.finalPath}`
+          )
+          return
+        }
+
+        item.setSavePath(reservation.temporaryPath)
+        this.downloads.active += 1
+        this.emit(
+          'download-started',
+          `${reservation.displayName} -> ${reservation.temporaryPath}`
+        )
+        let accountedBytes = 0
+        let lastProgressEventAt = 0
+        item.on('updated', () => {
+          const received = item.getReceivedBytes()
+          this.downloads.receivedBytes += Math.max(
+            0,
+            received - accountedBytes
+          )
+          accountedBytes = received
+          const now = Date.now()
+          if (now - lastProgressEventAt >= 1_000) {
+            lastProgressEventAt = now
+            this.emit(
+              'download-progress',
+              `${reservation.displayName}; ${received}/${item.getTotalBytes()}`
+            )
+          }
+        })
+        item.once('done', (_event, state) => {
+          const received = item.getReceivedBytes()
+          this.downloads.receivedBytes += Math.max(
+            0,
+            received - accountedBytes
+          )
+          this.downloads.active = Math.max(0, this.downloads.active - 1)
+          if (state === 'completed') {
+            void adapter
+              .complete(reservation.downloadId)
+              .then((result) => {
+                this.downloads.completed += 1
+                this.emit(
+                  'download-completed',
+                  `${reservation.displayName}; ${result.size} bytes -> ${result.finalPath}`
+                )
+              })
+              .catch((error: unknown) => {
+                this.downloads.failed += 1
+                this.emit(
+                  'download-failed',
+                  `${reservation.displayName}; ${formatError(error)}`
+                )
+              })
+          } else {
+            const category =
+              state === 'cancelled' ? 'cancelled' : 'network'
+            void adapter
+              .fail(reservation.downloadId, category, state)
+              .finally(() => {
+                this.downloads.failed += 1
+                this.emit(
+                  'download-failed',
+                  `${reservation.displayName}; ${state}`
+                )
+              })
+          }
+        })
+
+        await adapter.markDownloading(reservation.downloadId)
+        item.resume()
+      })
+      .catch((error: unknown) => {
+        item.cancel()
+        this.downloads.failed += 1
+        this.emit(
+          'download-failed',
+          `${item.getFilename()}; ${formatError(error)}`
+        )
+      })
   }
 
   private requestRecovery(
@@ -1493,6 +1742,7 @@ export class BrowserSupervisor {
   private destroyPageView(removeFromWindow = true): void {
     const view = this.pageView
     this.pageView = null
+    this.insertedFilterCssKey = null
     this.strategyRuntime?.dispose()
     this.strategyRuntime = null
 
@@ -1655,4 +1905,8 @@ function selectStrategyResponseHeaders(headers: Headers): Record<string, string>
 
 function isRedirectStatus(status: number): boolean {
   return [301, 302, 303, 307, 308].includes(status)
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
