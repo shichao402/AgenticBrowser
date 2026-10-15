@@ -163,6 +163,8 @@ MVP 明确不做：
 
 ### Phase 3：Project Runtime
 
+当前状态：核心 Runtime、workflow、下载、Filter、工作台和单槽 Scheduler 已实现并通过模拟 MP3 双轮幂等 smoke；真实知识星球和多宿主并行仍待完成。
+
 - Project/Profile 清单。
 - 常驻与定时调度、并发预算。
 - Workflow、检查点、下载和 Content Filter。

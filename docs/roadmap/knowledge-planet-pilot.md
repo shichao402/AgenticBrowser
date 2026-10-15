@@ -1,11 +1,13 @@
 # 知识星球文本与 MP3 采集试点
 
-- Status: Planned
+- Status: Runtime infrastructure ready; real-site pilot pending
 - Target phase: Phase 3
 
 ## 用户目标
 
 用户打开 AgenticBrowser 后，项目复用已有登录状态，监听或定时扫描知识星球首页，筛选指定类型文本，进入匹配内容并点击下载其中的 MP3，将文件放入项目指定目录。
+
+Project/Profile/Strategy/workflow、下载事务、幂等和模拟 MP3 闭环已经具备；本文中的真实知识星球选择器、分类规则、登录处理和故障验收尚未执行，不能视为试点完成。
 
 ## Project 配置
 
