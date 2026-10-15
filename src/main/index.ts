@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   statSync,
@@ -153,6 +154,9 @@ const projectDownloadRecoverySmokeChild = process.argv.includes(
 const projectDownloadFaultSmokeChild = process.argv.includes(
   '--project-download-fault-smoke-child'
 )
+const projectDownloadRendererRecoverySmokeChild = process.argv.includes(
+  '--project-download-renderer-recovery-smoke-child'
+)
 const automatedTestRun =
   smokeTest ||
   recoverySmokeTest ||
@@ -164,7 +168,8 @@ const automatedTestRun =
   automationPlaygroundSmokeTest ||
   watchdogSmokeChild ||
   projectDownloadRecoverySmokeChild ||
-  projectDownloadFaultSmokeChild
+  projectDownloadFaultSmokeChild ||
+  projectDownloadRendererRecoverySmokeChild
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 const recoverySmokeResultPath = join(
   process.cwd(),
@@ -325,6 +330,20 @@ function writeProjectDownloadFaultSmokeChildResult(result: unknown): void {
   }
 }
 
+function writeProjectDownloadRendererSmokeChildResult(
+  result: unknown
+): void {
+  const resultPath =
+    process.env.AGENTIC_PROJECT_DOWNLOAD_RENDERER_RESULT_PATH
+  if (projectDownloadRendererRecoverySmokeChild && resultPath) {
+    writeFileSync(
+      resultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
+  }
+}
+
 interface MainWindowRuntime {
   window: BaseWindow
   shellView: WebContentsView
@@ -459,7 +478,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       (projectDownloadSmokeTest ||
         projectConcurrencySmokeTest ||
         projectTakeoverSmokeTest ||
-        projectDownloadFaultSmokeChild) &&
+        projectDownloadFaultSmokeChild ||
+        projectDownloadRendererRecoverySmokeChild) &&
       (event.type.startsWith('strategy-') ||
         event.type.startsWith('download-') ||
         event.type.startsWith('project-runtime-'))
@@ -799,7 +819,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
                 candidate.status === 'downloading')
           )
           if (!outstanding) {
-            await handleStrategyDomainEvent?.({
+            const completionEvent: StrategyDomainEvent = {
               strategyId: 'host-download-manager',
               name: 'download.completed',
               payload: {
@@ -811,6 +831,13 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
                 size: record.size
               },
               url: record.sourcePage
+            }
+            setImmediate(() => {
+              void Promise.resolve(
+                handleStrategyDomainEvent?.(completionEvent)
+              ).catch((error: unknown) => {
+                console.error('投递下载完成事件失败', error)
+              })
             })
           }
           return { finalPath: record.finalPath, size: record.size }
@@ -3911,6 +3938,172 @@ async function runProjectDownloadFaultSmokeChild(
   app.exit(passed ? 0 : 1)
 }
 
+async function runProjectDownloadRendererRecoverySmokeChild(
+  runtime: MainWindowRuntime,
+  projectRuntimeStore: ProjectRuntimeStore,
+  profileId: string
+): Promise<void> {
+  const pageUrl = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_RENDERER_URL'
+  )
+  const outputRoot = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_RENDERER_OUTPUT_ROOT'
+  )
+  const expectedSha256 = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_SHA256'
+  )
+  const expectedBytes = parsePositiveInteger(
+    requireEnvironmentValue(
+      'AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_BYTES'
+    ),
+    'AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_BYTES'
+  )
+  const downloadManager = new ProjectDownloadManager(
+    join(outputRoot, 'records', 'downloads.json')
+  )
+  const strategyDraft = createProjectDownloadRecoveryStrategyDraft(
+    pageUrl,
+    expectedBytes
+  )
+  const projectDraft = createProjectDownloadRecoveryProjectDraft({
+    profileId,
+    pageUrl,
+    outputRoot,
+    expectedBytes
+  })
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.saveStrategy(${JSON.stringify(strategyDraft)})`
+  )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.saveProject(${JSON.stringify(projectDraft)})`
+  )
+  const started =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+        PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID
+      )})`
+    )) as ProjectWorkspaceSnapshot
+  const interrupted = await waitForPartialProjectDownload(
+    downloadManager,
+    expectedBytes,
+    30_000
+  )
+  const runtimeStateBefore = await projectRuntimeStore.read()
+  const activeRuntime = runtimeStateBefore.runtimes.find(
+    ({ runtime: candidate }) =>
+      candidate.projectId === PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID &&
+      !isTerminalProjectRuntime(candidate)
+  )?.runtime
+  if (!activeRuntime) {
+    throw new Error('下载 renderer 恢复 smoke 在强杀前没有活动 Runtime')
+  }
+
+  const mainPid = process.pid
+  const generationBefore =
+    runtime.supervisor.getSnapshot().generation
+  await runtime.supervisor.forceCrashAndWait(20_000)
+  const generationAfter =
+    runtime.supervisor.getSnapshot().generation
+  const completedDownloads = await waitForCompletedDownloads(
+    downloadManager,
+    1,
+    60_000
+  )
+  const completedWorkspace = await waitForProjectRuns(
+    runtime,
+    PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID,
+    1,
+    60_000
+  )
+  const runtimeStateAfter = await projectRuntimeStore.read()
+  const completedRuntime = runtimeStateAfter.runtimes.find(
+    ({ runtime: candidate }) =>
+      candidate.runtimeId === activeRuntime.runtimeId
+  )?.runtime
+  const completedRecords = completedDownloads.records.filter(
+    (record) => record.status === 'completed'
+  )
+  const failedRecords = completedDownloads.records.filter(
+    (record) => record.status === 'failed'
+  )
+  const completedRecord = completedRecords[0] ?? null
+  const finalPayload = completedRecord
+    ? readFileSync(completedRecord.finalPath)
+    : Buffer.alloc(0)
+  const finalSha256 = createHash('sha256')
+    .update(finalPayload)
+    .digest('hex')
+  const downloads = readDirectoryNames(join(outputRoot, 'downloads'))
+  const temporary = readDirectoryNames(join(outputRoot, 'tmp'))
+  const runtimeEvents = runtime.events.filter(
+    (event) => event.runtimeId === activeRuntime.runtimeId
+  )
+  const eventTypes = runtimeEvents.map((event) => event.type)
+  const strategyStarts = runtimeEvents.filter(
+    (event) => event.type === 'strategy-started'
+  ).length
+  const passed =
+    process.pid === mainPid &&
+    generationAfter > generationBefore &&
+    interrupted.receivedBytes > 0 &&
+    interrupted.receivedBytes < expectedBytes &&
+    completedWorkspace.runtimes.some(
+      (candidate) =>
+        candidate.runtimeId === activeRuntime.runtimeId &&
+        candidate.status === 'completed'
+    ) &&
+    completedDownloads.records.length === 1 &&
+    completedRecords.length === 1 &&
+    failedRecords.length === 0 &&
+    completedRecord?.runtimeId === activeRuntime.runtimeId &&
+    completedRecord.size === expectedBytes &&
+    completedRecord.sha256 === expectedSha256 &&
+    finalPayload.byteLength === expectedBytes &&
+    finalSha256 === expectedSha256 &&
+    downloads.length === 1 &&
+    temporary.length === 0 &&
+    completedRuntime?.status === 'completed' &&
+    completedRuntime.runtimeId === activeRuntime.runtimeId &&
+    completedRuntime.counters.downloaded === 1 &&
+    completedRuntime.counters.failed === 0 &&
+    completedRuntime.counters.downloadedBytes === expectedBytes &&
+    eventTypes.includes('renderer-gone') &&
+    eventTypes.includes('recreated') &&
+    eventTypes.includes('recovery-succeeded') &&
+    eventTypes.includes('download-completed') &&
+    strategyStarts >= 2
+
+  const result = {
+    passed,
+    mainPid,
+    projectId: PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID,
+    runtimeId: activeRuntime.runtimeId,
+    pageUrl,
+    expectedBytes,
+    expectedSha256,
+    generationBefore,
+    generationAfter,
+    interrupted,
+    started,
+    completedWorkspace,
+    downloadState: completedDownloads,
+    completedRuntime,
+    downloads,
+    temporary,
+    finalSha256,
+    eventTypes,
+    strategyStarts
+  }
+  writeProjectDownloadRendererSmokeChildResult(result)
+  console.log(
+    `AGENTIC_BROWSER_PROJECT_DOWNLOAD_RENDERER_RECOVERY_CHILD ${JSON.stringify(
+      result
+    )}`
+  )
+  await closeSmokeRuntime(runtime)
+  app.exit(passed ? 0 : 1)
+}
+
 function getCheckpointFailureCategory(
   runtime: ProjectRuntimeSnapshot
 ): WorkflowFailureCategory | null {
@@ -5353,10 +5546,13 @@ if (runApplication) {
   }
   const projectDownloadFaultSmokeUrl =
     process.env.AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_URL
+  const projectDownloadRendererSmokeUrl =
+    process.env.AGENTIC_PROJECT_DOWNLOAD_RENDERER_URL
 
   const initialUrl =
     phaseZeroProbe?.topUrl ??
     projectDownloadFaultSmokeUrl ??
+    projectDownloadRendererSmokeUrl ??
     compatibleCheckpoint?.url ??
     watchdogSmokeUrl
   const strategyDefinitions = smokeTest
@@ -5379,6 +5575,7 @@ if (runApplication) {
       !watchdogSmokeChild &&
       !projectDownloadRecoverySmokeChild &&
       !projectDownloadFaultSmokeChild &&
+      !projectDownloadRendererRecoverySmokeChild &&
       !recoverySmokeTest &&
       !strategyFaultSmokeTest &&
       !strategyWorkspaceSmokeTest &&
@@ -5752,6 +5949,15 @@ if (runApplication) {
     return
   }
 
+  if (projectDownloadRendererRecoverySmokeChild) {
+    await runProjectDownloadRendererRecoverySmokeChild(
+      runtime,
+      projectRuntimeStore,
+      profileId
+    )
+    return
+  }
+
   app.on('activate', () => {
     if (!mainWindow) {
       void createMainWindow()
@@ -5771,6 +5977,7 @@ if (runApplication) {
     writeProjectTakeoverSmokeResult(result)
     writeAutomationPlaygroundSmokeResult(result)
     writeProjectDownloadFaultSmokeChildResult(result)
+    writeProjectDownloadRendererSmokeChildResult(result)
     void phaseZeroProbe?.close()
     phaseZeroProbe = null
     cleanupAutomatedDownloads()

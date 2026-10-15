@@ -303,7 +303,7 @@ export class BackgroundProjectRuntime {
                 candidate.status === 'downloading')
           )
           if (!outstanding) {
-            await this.handleStrategyDomainEvent({
+            const completionEvent: StrategyDomainEvent = {
               strategyId: 'host-download-manager',
               name: 'download.completed',
               payload: {
@@ -315,6 +315,15 @@ export class BackgroundProjectRuntime {
                 size: record.size
               },
               url: record.sourcePage
+            }
+            setImmediate(() => {
+              void this.handleStrategyDomainEvent(completionEvent).catch(
+                (error: unknown) => {
+                  void this.fail('unknown', formatError(error)).catch(
+                    () => undefined
+                  )
+                }
+              )
             })
           }
           return { finalPath: record.finalPath, size: record.size }

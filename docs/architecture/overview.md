@@ -29,6 +29,7 @@
 - `src/main/project-download-manager.ts`：下载意图、临时文件、哈希、配额、原子提交、manifest 和业务去重。
 - `src/main/project-download-recovery-smoke.ts` 与 `scripts/project-download-recovery-smoke.mjs`：下载部分写入时外部强杀 Electron main，并验证 Watchdog、Runtime 检查点、失败证据和无重复安全重试。
 - `src/main/project-download-fault-smoke.ts` 与 `scripts/project-download-fault-smoke.mjs`：在 Electron session 内注入离线并中止已建立下载，同时验证磁盘配额预检拒绝、manifest、Runtime 计数和分类事件。
+- `scripts/project-download-renderer-recovery-smoke.mjs`：下载部分写入时只强杀页面 renderer，验证 session DownloadItem 跨 view 重建继续传输、Strategy 重入去重和同 Runtime 完成。
 - `src/main/project-item-store.ts`：项目业务项观测、matched/skipped 分类、跨 Runtime 去重和扫描计数。
 - `src/main/automation-playground-pilot.ts`：默认禁用的双站点 Project/Strategy 模板、确定性页面断言、跨域延迟同步与测试文件下载。
 - `src/main/content-filter.ts`：Project 网络资源规则和 CSS selector 规则。
@@ -44,7 +45,6 @@
 尚未实现或尚未完成：
 
 - 两槽以上并发的资源压测与用户可配置预算；当前 Windows 验证预算固定为 2。
-- 下载中单独强杀页面 renderer 的完整 Electron 故障门禁；Electron main 强杀、session 断网和磁盘配额不足门禁已通过。
 - 示教录制与 Agent sidecar。
 
 目标架构章节描述的是完成后的组件边界；未实现能力不能按现有功能对外宣称。

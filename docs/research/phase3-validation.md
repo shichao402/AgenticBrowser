@@ -151,6 +151,23 @@ npm run smoke:project-download-fault
 
 外部服务观测到网络文件请求 1 次、磁盘文件请求 0 次。两个 Runtime 都通过显式失败分支进入 `completed`，而不是超时或无限重试。该门禁证明 Electron session 离线和下载配额不足的宿主分类；它不等同于耗尽真实文件系统后触发 OS `ENOSPC`。
 
+### 下载中只强杀页面 renderer
+
+```text
+npm run smoke:project-download-renderer-recovery
+=> passed
+```
+
+独立父进程提供 2 MiB 慢速下载。Electron 子进程在 manifest 为 `downloading` 且 `.part` 已写入 16 KiB 后，仅调用受控页面 `WebContents.forcefullyCrashRenderer()`：
+
+1. Electron main PID 保持不变，BrowserSupervisor generation 从 4 增至 5，并依次记录 `renderer-gone`、`recreated` 与 `recovery-succeeded`。
+2. session 级 DownloadItem 不依赖已崩溃的页面 renderer，跨 view 重建继续接收同一 HTTP 响应；外部服务只收到 1 次文件请求。
+3. Strategy 在初始重建和崩溃恢复后共启动 3 次，后续 `download.intent` 均识别既有 in-progress 记录，没有触发第二个下载。
+4. 同一 Runtime 最终为 `completed`，manifest 只有一条 completed、没有 failed；下载计数为 1、失败计数为 0。
+5. 最终文件为 2,097,152 bytes，SHA-256 为 `8f3a655ca195e10693aee21a54719ca92ce1322938e8a7a25355aaa569e78189`，最终目录只有一个文件且 `tmp/` 为空。
+
+下载完成领域事件改为在文件事务提交后异步投递，使 BrowserSupervisor 能在 Runtime 终态切换之前发布带 Project/Runtime 归属的 `download-completed` 事件。该门禁与 Electron main 强杀门禁分别覆盖“session 下载仍存活”和“整个应用消失后安全重试”两条不同恢复路径。
+
 ### Electron 双公开真实站点闭环
 
 ```text
@@ -170,7 +187,6 @@ npm run smoke:automation-playground
 
 ## 尚未通过的门禁
 
-- 下载过程中只强杀页面 renderer、但保留 Electron main 时的下载归属与恢复。
 - 登录失效的 Electron 级故障注入；页面变化、session 断网和磁盘配额不足门禁已通过。
 - 真实文件系统 `ENOSPC` 仅由纯逻辑错误映射覆盖，尚未在隔离磁盘/卷上做破坏性注入。
 - 两槽以上的资源预算压测与可配置并发上限。

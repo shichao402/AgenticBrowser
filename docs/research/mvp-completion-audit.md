@@ -1,6 +1,6 @@
 # MVP 完成度审计
 
-- Status: Windows Phase 0–3 core accepted; MVP not complete
+- Status: Windows Phase 0–3 core and download fault matrix accepted; MVP not complete
 - Date: 2026-10-15
 - Audited host: Windows 11 24H2 (`10.0.26100`)
 - Runtime: Electron 44.7.2, Node.js 22+
@@ -9,7 +9,7 @@
 
 当前仓库已经具备可运行的 Windows MVP 核心：内嵌 Chromium、受控 BrowserShell、Profile/session、Strategy、Project workflow、双槽调度、下载事务、监控、人工接管和分级恢复均有实现及自动化证据。Selenium 与 Test Pages 两个无需账号的公开真实站点已在同一 Project 中完成跨域闭环。
 
-整个 MVP 仍不能标记为完成，原因是路线图要求的 macOS 门禁和部分 Electron 级故障矩阵尚未闭合。示教录制与 Agent 操作浏览器属于 Phase 4/5，也尚未实现，因此当前状态不能称为完整产品。
+整个 MVP 仍不能标记为完成，原因是路线图要求的系统登录启动实测与 macOS 门禁尚未闭合。示教录制与 Agent 操作浏览器属于 Phase 4/5，也尚未实现，因此当前状态不能称为完整产品。
 
 ## 已通过的自动化证据
 
@@ -32,6 +32,7 @@ Windows Electron 门禁：
 - `npm run smoke:project-download`：下载预授权、临时文件、SHA-256、原子提交和幂等通过。
 - `npm run smoke:project-download-recovery`：下载部分写入时强杀 Electron main，Watchdog 重启后同一 Runtime 从检查点安全重试并只提交一个完整附件。
 - `npm run smoke:project-download-fault`：Electron session 离线、活动下载中止、`failed/network`，以及下载前配额拒绝、`failed/disk`、Runtime 失败计数和分类 workflow 通过。
+- `npm run smoke:project-download-renderer-recovery`：下载部分写入时只强杀页面 renderer；main 与 session 下载保持存活，重建 view 后同 Runtime 以同一 HTTP 请求完成唯一文件。
 - `npm run smoke:project-concurrency`：双执行槽、不同 Profile 并行、共享 Profile 互斥和输出隔离通过。
 - `npm run smoke:project-takeover`：人工接管、等待预算冻结、Strategy 暂停和同 Runtime 恢复通过。
 - `npm run smoke:automation-playground`：双公开真实站点三轮流程通过。
@@ -76,13 +77,13 @@ Strategy manifest、URL/frame/run-at 匹配、隔离 world、受控宿主 API、
 
 Project/Profile/Runtime、固定 Strategy 版本、workflow/checkpoint、Scheduler、双槽与 Profile 互斥、下载事务、Content Filter、监控和人工接管已闭合。双公开站点验收已通过。
 
-已闭合：下载过程中强杀 Electron main 后的 Watchdog、Project Runtime、manifest、幂等和安全重试，以及 session 断网和磁盘配额不足的分类门禁。
+已闭合：下载过程中强杀 Electron main 后的安全重试、只强杀页面 renderer 时的 session 下载续传，以及 session 断网和磁盘配额不足的分类门禁。
 
-未闭合：下载过程中只强杀页面 renderer、保留 Electron main 的端到端故障门禁。
+Windows Phase 3 路线图列出的断网、页面变化、renderer 崩溃和磁盘不足分类条件均已有 Electron 证据。
 
 ## 阻止 MVP 完成的门禁
 
-1. 在真实下载过程中只强杀页面 renderer、保留 Electron main，确认下载归属、事件和 Runtime 状态仍然一致。Electron main 强杀及安全重试已经通过。
+1. 在 Windows 打包应用实际写入登录项并经过系统重启验证 Watchdog 委托、自启动与常驻 Project 恢复。
 2. 在 macOS 实机或可信 runner 验证 DMG、签名、公证、Watchdog、login item 和基本真实站点闭环。
 
 ## 不阻止当前 Windows 核心验收，但发布前必须处理

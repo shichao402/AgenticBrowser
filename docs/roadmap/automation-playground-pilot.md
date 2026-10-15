@@ -55,6 +55,8 @@ npm run smoke:automation-playground
 - 页面变化暂停原因归类为 `page-changed`，paused/resumed 事件各一条。
 - 每轮最终检查点均为 `playground.second-site.completed`，payload 为 `All Buttons Clicked` 和四个按钮。
 
+独立本地慢速下载门禁还覆盖了两条恢复路径：`npm run smoke:project-download-recovery` 在下载部分写入时强杀 Electron main，由 Watchdog 重启后安全重试；`npm run smoke:project-download-renderer-recovery` 只强杀页面 renderer，由保持存活的 session DownloadItem 继续同一 HTTP 请求，重建 view 后 Strategy 重入但不重复下载。断网与磁盘配额不足分类由 `npm run smoke:project-download-fault` 覆盖。
+
 ## 结论边界
 
 本试点证明跨两个真实 HTTPS 域名的确定性页面操作、跨页面 workflow、多阶段延迟 DOM、下载事务、幂等、renderer 恢复和人工接管可以协同工作。它不证明任意生产网站都兼容，也未覆盖：
@@ -62,6 +64,6 @@ npm run smoke:automation-playground
 - 登录、MFA、验证码与账号风控。
 - 文件上传、系统文件选择器和客户端证书。
 - 跨域 frame、Shadow DOM、Canvas 和 WebAuthn 的完整流程。
-- 在真实公网文件下载过程中强杀进程；独立本地慢速下载门禁已经验证 Electron main 强杀后的安全重试。
+- 在真实公网文件下载过程中强杀进程；独立本地慢速下载门禁已经验证 Electron main 强杀后的安全重试，以及只强杀页面 renderer 时由存活 session 继续下载。
 - 真实公网断网、隔离卷 `ENOSPC` 和长时间资源预算；独立本地门禁已经验证 Electron session 离线与项目配额不足分类。
 - macOS 打包、签名、公证和运行。

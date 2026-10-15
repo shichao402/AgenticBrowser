@@ -1,6 +1,6 @@
 # MVP 路线图
 
-- Status: Phase 0–3 core and two public real-site gates implemented; failure-matrix and macOS gates pending
+- Status: Windows Phase 0–3 core, two public real-site gates and download fault matrix implemented; startup E2E and macOS gates pending
 - Scope: Phase 0–3
 
 MVP 的完成标准不是“能打开网页”，而是公开真实站点上的多页面项目可以在故障注入下可靠操作、下载、恢复并被监控。
@@ -71,7 +71,7 @@ Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy �
 
 ## Phase 3：Project Runtime 与试点
 
-当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽、人工接管和 Project 工作台已经落地。Selenium 与 Test Pages 两个真实测试站点上的表单、延迟 DOM、跨域 workflow、固定文件下载/去重、renderer 崩溃恢复，以及页面变化自动暂停与恢复已经通过；下载进行中强杀 Electron main 后的安全重试、Electron session 断网和磁盘配额不足分类也已通过。单独只杀下载页面 renderer 的门禁仍待完成。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
+当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽、人工接管和 Project 工作台已经落地。Selenium 与 Test Pages 两个真实测试站点上的表单、延迟 DOM、跨域 workflow、固定文件下载/去重、renderer 崩溃恢复，以及页面变化自动暂停与恢复已经通过；下载进行中强杀 Electron main 后的安全重试、只强杀页面 renderer 时的 session 下载续传、Electron session 断网和磁盘配额不足分类也已通过。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
 
 ### 交付
 

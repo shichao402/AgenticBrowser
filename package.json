@@ -16,6 +16,7 @@
     "smoke:project-download": "npm run build && electron . --project-download-smoke-test",
     "smoke:project-download-recovery": "npm run build && node scripts/project-download-recovery-smoke.mjs",
     "smoke:project-download-fault": "npm run build && node scripts/project-download-fault-smoke.mjs",
+    "smoke:project-download-renderer-recovery": "npm run build && node scripts/project-download-renderer-recovery-smoke.mjs",
     "smoke:project-concurrency": "npm run build && electron . --project-concurrency-smoke-test",
     "smoke:project-takeover": "npm run build && electron . --project-takeover-smoke-test",
     "smoke:automation-playground": "npm run build && electron . --automation-playground-smoke-test",

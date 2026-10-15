@@ -1,7 +1,7 @@
 # AgenticBrowser 产品总计划
 
 - Last updated: 2026-10-15
-- Status: Phase 0–3 core and two public real-site gates implemented; failure-matrix and macOS gates pending
+- Status: Windows Phase 0–3 core, two public real-site gates and download fault matrix implemented; startup E2E and macOS gates pending
 
 ## 愿景
 
@@ -163,7 +163,7 @@ MVP 明确不做：
 
 ### Phase 3：Project Runtime
 
-当前状态：核心 Runtime、workflow、下载、Filter、工作台、双槽 Scheduler 和人工接管已实现；Selenium 与 Test Pages 两个真实测试站点上的表单、动态 DOM、跨域 workflow、固定文件下载、三轮业务项计数、下载幂等、renderer 崩溃恢复，以及页面变化自动暂停与人工恢复均已通过 smoke。下载中强杀 Electron main 后的 Watchdog 重启、同 Runtime 续跑与安全重试，以及 Electron session 断网和磁盘配额不足分类也已通过；单独强杀下载 renderer 的故障门禁仍待完成。
+当前状态：核心 Runtime、workflow、下载、Filter、工作台、双槽 Scheduler 和人工接管已实现；Selenium 与 Test Pages 两个真实测试站点上的表单、动态 DOM、跨域 workflow、固定文件下载、三轮业务项计数、下载幂等、renderer 崩溃恢复，以及页面变化自动暂停与人工恢复均已通过 smoke。下载中强杀 Electron main 后的 Watchdog 重启、同 Runtime 续跑与安全重试，只强杀页面 renderer 时由存活 session 继续同一次下载，以及 Electron session 断网和磁盘配额不足分类也已通过。
 
 - Project/Profile 清单。
 - 常驻与定时调度、并发预算。
