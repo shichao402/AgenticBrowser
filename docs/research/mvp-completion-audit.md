@@ -36,6 +36,11 @@ Windows Electron 门禁：
 - `npm run smoke:watchdog`：Electron main 强杀后外部 Watchdog 重启及 URL/Profile 检查点恢复通过。
 - `npm run smoke:watchdog:packaged`：Windows packaged 入口、重复启动锁、Watchdog 恢复和 login item 能力探测通过。
 
+持续集成：
+
+- `.github/workflows/ci.yml` 在 `main` push、Pull Request 和手动触发时使用 Node.js 22 的 `windows-latest` 执行 `npm ci` 与 `npm run check`。
+- 该 CI 是快速工程基线，不包含 Electron GUI、打包 Watchdog或外部真实站点 smoke；这些门禁当前仍需本地或发布前显式执行，不能把 `CI passed` 等同于完整 MVP 验收。
+
 ## 双公开站点验收
 
 同一固定版本 Project/Strategy 跨以下站点运行：
@@ -59,7 +64,7 @@ Windows 工程、页面隔离、frame/OOPIF 注入、主动心跳、renderer/mai
 
 BrowserShell、多 tab、Named Profile、精确 Origin Capability、健康监测、恢复预算、熔断、下载接管、结构化日志、全局监控和 Windows Watchdog 已闭合。Profile 的 Project 引用保护及完整下载事务已由 Phase 3 补齐。
 
-未闭合：macOS Watchdog 与 login item 实机证据。
+未闭合：Windows 登录项实际写入及重启自启 E2E，以及 macOS Watchdog 与 login item 实机证据。
 
 ### Phase 2
 
@@ -81,6 +86,7 @@ Project/Profile/Runtime、固定 Strategy 版本、workflow/checkpoint、Schedul
 ## 不阻止当前 Windows 核心验收，但发布前必须处理
 
 - 当前并发预算固定为 2；两槽以上压测和用户可配置预算尚未实现。
+- Pull Request CI 当前只执行 `npm run check`；Electron smoke、打包产物断言和真实站点结果尚未纳入自动归档门禁。
 - Windows 构建仍使用默认 Electron 图标，正式代码签名、SmartScreen、自动升级和回滚未闭合。
 - 长时间常驻压力、资源泄漏、代理/证书、WebAuthn、音视频和企业登录需要按实际业务环境验证。
 - 真实业务项目、登录失效、MFA、验证码、数据规则和高风险操作审批尚未确定。

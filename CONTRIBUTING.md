@@ -34,3 +34,9 @@ AgenticBrowser 采用文档随实现同步演进的方式开发。
 2. 实现最小垂直切片。
 3. 加入故障注入和回归验证。
 4. 更新 roadmap 状态和验收记录。
+
+## 验证门禁
+
+- Pull Request 与 `main` push 的 Windows CI 执行 `npm ci` 和 `npm run check`。
+- `npm run check` 只覆盖类型检查、Vitest、生产构建和生产依赖审计，不包含 Electron smoke。
+- 改动浏览器生命周期、Strategy、Project、下载、Watchdog 或打包入口时，必须额外运行 README 中对应的 smoke，并在验证文档记录结果。

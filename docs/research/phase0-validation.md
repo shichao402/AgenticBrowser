@@ -153,7 +153,7 @@ npm run smoke:watchdog
 - 原有 `npm run smoke:electron` 回归继续 `passed: true`，本轮采集达到 9.99 FPS。
 - `npx electron-builder --win --dir` 重新打包成功；`app.asar` 已包含 `out/main/watchdog.js` 及其共享原子文件 chunk。
 
-这证明了开发环境中的独立进程重启和最小浏览器状态恢复。当前检查点只包含 URL 与 Profile ID，不等同于 Phase 3 的 workflow 步骤、幂等键和业务记录。后续 Phase 1 已补齐 Windows 打包应用入口与登录启动开关，证据记录在 [Phase 1 验证](phase1-validation.md)；macOS 集成仍不能按已验证能力宣称。
+这证明了开发环境中的独立进程重启和最小浏览器状态恢复。当前检查点只包含 URL 与 Profile ID，不等同于 Phase 3 的 workflow 步骤、幂等键和业务记录。后续 Phase 1 已补齐 Windows 打包应用入口与登录启动 API/UI；packaged 探针只读验证登录项能力，实际修改及重启自启 E2E 仍待补，证据记录在 [Phase 1 验证](phase1-validation.md)。macOS 集成仍不能按已验证能力宣称。
 
 ### 2026-10-15：环形缓冲、交互影响、多页面与挂死证据
 

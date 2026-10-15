@@ -22,7 +22,7 @@
 - [x] Profile 删除的 Project 引用保护（由 Phase 3 Project Store 补齐）
 - [x] 默认策略 + 精确 HTTP(S) Origin 的能力规则
 - [x] 下载元数据、哈希、临时目录和原子完成（由 Phase 3 Download Manager 补齐）
-- [x] 打包应用 Watchdog launcher、重复启动锁与登录启动开关（Windows 验证）
+- [x] 打包应用 Watchdog launcher、重复启动锁、登录启动 API/UI 与 packaged 能力探针（Windows；实际写入及重启自启 E2E 待补）
 
 ## 2026-10-15：监督恢复、能力和下载故障探针
 
@@ -92,6 +92,6 @@ npm run smoke:watchdog:packaged
 - Phase 1 首先实现应用级 origin + permission；Phase 3 已把同一策略结构纳入 Project 快照，形成 Project + origin + permission 授权模型。
 - Profile 切换会销毁当前 tab 集合，在新命名 session 中以最近活动 URL 创建首个 tab；切回后 Cookie/session 数据保留，但完整 tab 集合恢复属于 Phase 3。
 - 当前禁止删除默认、活动或被 Project 引用的 Profile；Profile 共享仍必须由 Project 显式声明。
-- Windows 打包 Watchdog 与系统登录项接入已验证；macOS 的 login item、DMG、签名、公证和实际启动必须在 macOS 环境闭合。
+- Windows 打包 Watchdog 与重复启动锁已验证；登录启动已实现 API/UI，packaged smoke 只读验证了能力状态，尚未修改系统登录项或执行重启自启 E2E。macOS 的 login item、DMG、签名、公证和实际启动必须在 macOS 环境闭合。
 - 浏览器检查点仍只保存最近激活 tab 的 URL/Profile，不保存完整 tab 集合；Phase 3 另行持久化 Project Runtime/workflow 检查点，但不承诺恢复任意 tab 集合。
 - 进程 CPU/工作集来自 Electron `app.getAppMetrics()`；无法可靠归属到单个 Strategy 的共享消耗没有伪造拆分。

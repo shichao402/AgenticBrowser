@@ -30,7 +30,7 @@ MVP 的完成标准不是“能打开网页”，而是公开真实站点上的�
 
 ## Phase 1：BrowserShell 与监督
 
-当前切片：多 tab、基础 Profile 管理与 session 隔离、主动 HealthMonitor、分级 RecoveryPolicy、恢复预算与熔断、本地错误页、默认策略 + 精确 Origin 的 Capability Center、弹窗路由、基础 Download Manager、JSONL 事件日志、进程/页面/下载监控，以及打包应用 Watchdog launcher 和登录启动开关已经落地并在 Windows 验证。Profile 的 Project 引用保护与完整下载事务随 Phase 3 Project Runtime 落地；macOS launcher/login item 仍需外部环境验证。证据见 [Phase 1 验证记录](../research/phase1-validation.md)。
+当前切片：多 tab、基础 Profile 管理与 session 隔离、主动 HealthMonitor、分级 RecoveryPolicy、恢复预算与熔断、本地错误页、默认策略 + 精确 Origin 的 Capability Center、弹窗路由、基础 Download Manager、JSONL 事件日志、进程/页面/下载监控，以及打包应用 Watchdog launcher 和登录启动 API/UI 已经落地。Windows 已验证 Watchdog、重复启动锁和 packaged 登录项能力读取；实际修改登录项及重启自启 E2E 尚未执行。Profile 的 Project 引用保护与完整下载事务随 Phase 3 Project Runtime 落地；macOS launcher/login item 仍需外部环境验证。证据见 [Phase 1 验证记录](../research/phase1-validation.md)。
 
 ### 交付
 
