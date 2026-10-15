@@ -49,7 +49,7 @@ npm run smoke:electron
 
 结果：
 
-- 14 个测试文件、62 项测试通过；新增覆盖生命周期令牌、frame 身份、独立 world 分配、权限拒绝、网络 allowlist、run-at 等待、启动超时、心跳故障、main-world 审计和显式开发 allowlist。
+- 14 个测试文件、63 项测试通过；新增覆盖生命周期令牌、frame 身份、独立 world 分配、权限拒绝、网络 allowlist、run-at 等待、启动超时、心跳故障、停止时丢弃迟到探针、main-world 审计和显式开发 allowlist。
 - 每个匹配 Strategy 获得独立 Chromium isolated world；页面和 Strategy 都无法看到对方的私有全局，DOM 变更仍按预期共享。
 - `document-start` 在页面首个 inline script 前完成监听器安装，覆盖 top frame、同源 iframe 和跨域 OOPIF；`document-idle` 的配置、日志、领域事件、受控网络请求与显式 main-world 执行均通过真实 Electron 链路。
 - renderer 被强制终止并重建后，4 个匹配执行实例全部恢复为 `running`，没有丢失 frame scope 或 allowlist。
