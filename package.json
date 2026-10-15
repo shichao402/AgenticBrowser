@@ -15,6 +15,7 @@
     "smoke:strategy-workspace": "npm run build && electron . --strategy-workspace-smoke-test",
     "smoke:project-download": "npm run build && electron . --project-download-smoke-test",
     "smoke:project-concurrency": "npm run build && electron . --project-concurrency-smoke-test",
+    "smoke:project-takeover": "npm run build && electron . --project-takeover-smoke-test",
     "smoke:recovery": "npm run build && electron . --recovery-smoke-test",
     "smoke:watchdog": "npm run build && node scripts/watchdog-smoke.mjs",
     "smoke:watchdog:packaged": "npm run build && electron-builder --dir && node scripts/watchdog-smoke.mjs --packaged",

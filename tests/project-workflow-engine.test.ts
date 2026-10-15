@@ -144,6 +144,79 @@ describe('ProjectWorkflowEngine', () => {
     expect((await engine.tick()).status).toBe('completed')
   })
 
+  it('freezes workflow deadlines during manual takeover', async () => {
+    const project = await createProject([
+      node({
+        id: 'pause',
+        kind: 'delay',
+        delayMs: 5_000,
+        next: 'finished'
+      }),
+      node({ id: 'finished', kind: 'complete' })
+    ], temporaryRoot)
+    const envelope = await runtimeStore.create(project, 'manual')
+    const engine = new ProjectWorkflowEngine(
+      envelope.runtime.runtimeId,
+      runtimeStore,
+      host(),
+      () => now
+    )
+
+    await engine.start()
+    now += 2_000
+    expect(await engine.pause()).toMatchObject({
+      status: 'paused',
+      nextWakeAt: null
+    })
+    now += 60_000
+    expect((await engine.tick()).status).toBe('paused')
+    expect(await engine.resume()).toMatchObject({
+      status: 'waiting',
+      nextWakeAt: '2026-10-15T00:01:05.000Z'
+    })
+    now += 2_999
+    expect((await engine.tick()).status).toBe('waiting')
+    now += 1
+    expect((await engine.tick()).status).toBe('completed')
+  })
+
+  it('does not consume domain events while paused', async () => {
+    const project = await createProject([
+      node({
+        id: 'approval',
+        kind: 'wait-for-event',
+        eventName: 'human.approved',
+        next: 'finished'
+      }),
+      node({ id: 'finished', kind: 'complete' })
+    ], temporaryRoot)
+    const envelope = await runtimeStore.create(project, 'manual')
+    const engine = new ProjectWorkflowEngine(
+      envelope.runtime.runtimeId,
+      runtimeStore,
+      host(),
+      () => now
+    )
+
+    await engine.start()
+    await engine.pause()
+    expect(
+      (
+        await engine.handleEvent({
+          name: 'human.approved'
+        })
+      ).status
+    ).toBe('paused')
+    await engine.resume()
+    expect(
+      (
+        await engine.handleEvent({
+          name: 'human.approved'
+        })
+      ).status
+    ).toBe('completed')
+  })
+
   it('retries classified failures with exponential backoff then opens the workflow circuit', async () => {
     const project = await createProject([
       node({

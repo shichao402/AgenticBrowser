@@ -13,6 +13,7 @@ import { app, BaseWindow, ipcMain, session, WebContentsView } from 'electron'
 import {
   IPC_CHANNELS,
   type BrowserEvent,
+  type BrowserSnapshot,
   type CapabilityPolicy,
   type ContentFilterDefinition,
   type JsonValue,
@@ -112,6 +113,9 @@ const projectDownloadSmokeTest = process.argv.includes(
 const projectConcurrencySmokeTest = process.argv.includes(
   '--project-concurrency-smoke-test'
 )
+const projectTakeoverSmokeTest = process.argv.includes(
+  '--project-takeover-smoke-test'
+)
 const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 const recoverySmokeResultPath = join(
@@ -133,6 +137,10 @@ const projectDownloadSmokeResultPath = join(
 const projectConcurrencySmokeResultPath = join(
   process.cwd(),
   'phase3-project-concurrency-smoke-result.json'
+)
+const projectTakeoverSmokeResultPath = join(
+  process.cwd(),
+  'phase3-project-takeover-smoke-result.json'
 )
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
 let automatedDownloadDirectory: string | null = null
@@ -227,6 +235,16 @@ function writeProjectConcurrencySmokeResult(result: unknown): void {
   if (projectConcurrencySmokeTest) {
     writeFileSync(
       projectConcurrencySmokeResultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
+  }
+}
+
+function writeProjectTakeoverSmokeResult(result: unknown): void {
+  if (projectTakeoverSmokeTest) {
+    writeFileSync(
+      projectTakeoverSmokeResultPath,
       `${JSON.stringify(result, null, 2)}\n`,
       'utf8'
     )
@@ -363,7 +381,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       )
     }
     if (
-      (projectDownloadSmokeTest || projectConcurrencySmokeTest) &&
+      (projectDownloadSmokeTest ||
+        projectConcurrencySmokeTest ||
+        projectTakeoverSmokeTest) &&
       (event.type.startsWith('strategy-') ||
         event.type.startsWith('download-') ||
         event.type.startsWith('project-runtime-'))
@@ -626,6 +646,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   const publishProjectRuntimeEvent = (
     type:
       | 'project-runtime-started'
+      | 'project-runtime-paused'
+      | 'project-runtime-resumed'
       | 'project-runtime-stopped'
       | 'project-runtime-failed',
     detail: string
@@ -948,6 +970,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     }
     supervisor.setContentFilter(activeContentFilter)
     supervisor.setDownloadAdapter(undefined)
+    await supervisor.setStrategyPaused(false)
     await supervisor.setStrategyConfiguration(
       activeStrategyDefinitions,
       activeAllowedStrategyIds
@@ -1152,6 +1175,175 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           ).runtime
     await finalizeProjectRuntime(runtime, envelope.projectSnapshot.name)
   }
+  const pauseProjectRuntime =
+    async (projectId: string): Promise<ProjectWorkspaceSnapshot> => {
+      if (!projectStore || !projectRuntimeStore) {
+        throw new Error('Project Runtime 依赖当前不可用')
+      }
+      const state = await projectRuntimeStore.read()
+      const envelope = [...state.runtimes]
+        .reverse()
+        .find(
+          ({ runtime }) =>
+            runtime.projectId === projectId &&
+            !isTerminalProjectRuntime(runtime)
+        )
+      if (!envelope) {
+        throw new Error('没有可暂停的 Project Runtime')
+      }
+      if (envelope.runtime.status === 'paused') {
+        showProjectSupervisor(projectId)
+        return readProjectWorkspace()
+      }
+      const { runtimeId } = envelope.runtime
+      const projectName =
+        (await projectStore.read()).projects.find(
+          (project) => project.id === projectId
+        )?.name ?? envelope.projectSnapshot.name
+      projectScheduler?.suspend(projectId)
+
+      if (envelope.runtime.status === 'queued') {
+        const paused = (
+          await projectRuntimeStore.transition(runtimeId, 'paused', {
+            nextWakeAt: null,
+            lastError: '等待人工恢复',
+            lastFailureCategory: null
+          })
+        ).runtime
+        publish({
+          sequence: 0,
+          type: 'project-runtime-paused',
+          timestamp: new Date().toISOString(),
+          url: envelope.projectSnapshot.startupPages[0]!,
+          detail:
+            `${projectName}; runtimeId=${runtimeId}; queued=true`,
+          projectId: paused.projectId,
+          runtimeId
+        })
+        return readProjectWorkspace()
+      }
+
+      projectScheduler?.holdPausedRuntime(runtimeId)
+      try {
+        const background = backgroundProjectRuntimes.get(runtimeId)
+        if (background) {
+          const paused = await background.pause()
+          if (isTerminalProjectRuntime(paused)) {
+            projectScheduler?.releasePausedRuntime(runtimeId)
+            await finalizeBackgroundProjectRuntime(paused, projectName)
+            return readProjectWorkspace()
+          }
+          showProjectSupervisor(projectId)
+          publish({
+            sequence: 0,
+            type: 'project-runtime-paused',
+            timestamp: new Date().toISOString(),
+            url: background.supervisor.getSnapshot().url,
+            detail:
+              `${projectName}; runtimeId=${runtimeId}; ` +
+              'manual-takeover=true',
+            projectId,
+            runtimeId
+          })
+          return readProjectWorkspace()
+        }
+
+        if (activeWorkflowEngine?.runtimeId !== runtimeId) {
+          throw new Error('Project Runtime 的浏览器执行上下文不可用')
+        }
+        const paused = await activeWorkflowEngine.pause()
+        currentProjectRuntime = structuredClone(paused)
+        if (isTerminalProjectRuntime(paused)) {
+          projectScheduler?.releasePausedRuntime(runtimeId)
+          await finalizeProjectRuntime(paused, projectName)
+          return readProjectWorkspace()
+        }
+        stopWorkflowTicker()
+        await supervisor.setStrategyPaused(true)
+        showProjectSupervisor(projectId)
+        publishProjectRuntimeEvent(
+          'project-runtime-paused',
+          `${projectName}; runtimeId=${runtimeId}; manual-takeover=true`
+        )
+        return readProjectWorkspace()
+      } catch (error) {
+        const latest = (await projectRuntimeStore.read()).runtimes.find(
+          ({ runtime }) => runtime.runtimeId === runtimeId
+        )
+        if (latest?.runtime.status !== 'paused') {
+          projectScheduler?.releasePausedRuntime(runtimeId)
+          projectScheduler?.resume(projectId)
+        }
+        throw error
+      }
+    }
+  const resumeProjectRuntime =
+    async (projectId: string): Promise<ProjectWorkspaceSnapshot> => {
+      if (!projectStore || !projectRuntimeStore || !projectScheduler) {
+        throw new Error('Project Runtime 依赖当前不可用')
+      }
+      const state = await projectRuntimeStore.read()
+      const envelope = [...state.runtimes]
+        .reverse()
+        .find(
+          ({ runtime }) =>
+            runtime.projectId === projectId &&
+            runtime.status === 'paused'
+        )
+      if (!envelope) {
+        throw new Error('没有可恢复的 paused Project Runtime')
+      }
+      const { runtimeId } = envelope.runtime
+      const projectName =
+        (await projectStore.read()).projects.find(
+          (project) => project.id === projectId
+        )?.name ?? envelope.projectSnapshot.name
+      const background = backgroundProjectRuntimes.get(runtimeId)
+      if (background) {
+        const resumed = await background.resume()
+        projectScheduler.releasePausedRuntime(runtimeId, true)
+        projectScheduler.resume(projectId)
+        showProjectSupervisor(projectId)
+        publish({
+          sequence: 0,
+          type: 'project-runtime-resumed',
+          timestamp: new Date().toISOString(),
+          url: background.supervisor.getSnapshot().url,
+          detail: `${projectName}; runtimeId=${runtimeId}`,
+          projectId: resumed.projectId,
+          runtimeId
+        })
+        return readProjectWorkspace()
+      }
+
+      if (activeWorkflowEngine?.runtimeId === runtimeId) {
+        const engine = activeWorkflowEngine
+        const resumed = await engine.resume()
+        currentProjectRuntime = structuredClone(resumed)
+        try {
+          await supervisor.setStrategyPaused(false)
+        } catch (error) {
+          currentProjectRuntime = await engine
+            .pause()
+            .catch(() => currentProjectRuntime)
+          await supervisor.setStrategyPaused(true).catch(() => undefined)
+          throw error
+        }
+        startWorkflowTicker(engine)
+        projectScheduler.releasePausedRuntime(runtimeId, true)
+        projectScheduler.resume(projectId)
+        showProjectSupervisor(projectId)
+        publishProjectRuntimeEvent(
+          'project-runtime-resumed',
+          `${projectName}; runtimeId=${runtimeId}`
+        )
+        return readProjectWorkspace()
+      }
+
+      await projectScheduler.requestResume(projectId)
+      showProjectSupervisor(projectId)
+      return readProjectWorkspace()
+    }
   const stopProjectRuntime =
     async (projectId: string): Promise<ProjectWorkspaceSnapshot> => {
       if (!projectStore || !projectRuntimeStore) {
@@ -1652,6 +1844,40 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   )
 
   ipcMain.handle(
+    IPC_CHANNELS.pauseProjectRuntime,
+    (event, projectId: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (typeof projectId !== 'string') {
+        throw new TypeError('Project ID 必须是字符串')
+      }
+      return enqueueSupervisorOperation(async () => {
+        if (!projectStore) {
+          throw new Error('Project Store 当前不可用')
+        }
+        await projectStore.setActive(projectId)
+        return pauseProjectRuntime(projectId)
+      })
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.resumeProjectRuntime,
+    (event, projectId: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (typeof projectId !== 'string') {
+        throw new TypeError('Project ID 必须是字符串')
+      }
+      return enqueueSupervisorOperation(async () => {
+        if (!projectStore) {
+          throw new Error('Project Store 当前不可用')
+        }
+        await projectStore.setActive(projectId)
+        return resumeProjectRuntime(projectId)
+      })
+    }
+  )
+
+  ipcMain.handle(
     IPC_CHANNELS.stopProjectRuntime,
     (event, projectId: unknown) => {
     assertTrustedSender(event.sender.id)
@@ -1825,6 +2051,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ipcMain.removeHandler(IPC_CHANNELS.setActiveProject)
       ipcMain.removeHandler(IPC_CHANNELS.deleteProject)
       ipcMain.removeHandler(IPC_CHANNELS.startProjectRuntime)
+      ipcMain.removeHandler(IPC_CHANNELS.pauseProjectRuntime)
+      ipcMain.removeHandler(IPC_CHANNELS.resumeProjectRuntime)
       ipcMain.removeHandler(IPC_CHANNELS.stopProjectRuntime)
       ipcMain.removeHandler(IPC_CHANNELS.getStartupSettings)
       ipcMain.removeHandler(IPC_CHANNELS.setOpenAtLogin)
@@ -2254,6 +2482,39 @@ await agenticStrategy.log('concurrency runtime ready', { projectId })
   }
 }
 
+function createProjectTakeoverSmokeDefinition(): StrategyDefinition {
+  return {
+    manifest: {
+      id: 'smoke-project-takeover',
+      name: 'Smoke Project Takeover',
+      version: '0.1.0',
+      matches: ['<all_urls>'],
+      excludes: [],
+      runAt: 'document-idle',
+      frames: 'top',
+      permissions: ['dom.write', 'project.emit-event', 'log'],
+      networkMatches: [],
+      config: {},
+      timeouts: {
+        startupMs: 5_000,
+        heartbeatMs: 2_000
+      }
+    },
+    source: `
+const mode = new URL(location.href).searchParams.get('takeover')
+document.documentElement.dataset.agenticTakeoverStrategy = mode || 'initial'
+if (mode === 'manual-complete') {
+  await agenticStrategy.emit('takeover.completed', {
+    href: location.href
+  })
+}
+await agenticStrategy.log('takeover strategy ready', { mode })
+`,
+    enabled: true,
+    updatedAt: '2026-10-15T00:00:00.000Z'
+  }
+}
+
 function createStrategyWorkspaceSmokeDraft(
   version: string,
   marker: string
@@ -2345,6 +2606,9 @@ function collectMonitorSnapshot(
         runtime.status !== 'paused' &&
         !isTerminalProjectRuntime(runtime)
     ).length,
+    pausedProjectCount: projectRuntimes.filter(
+      (runtime) => runtime.status === 'paused'
+    ).length,
     queuedProjectCount: projectRuntimes.filter(
       (runtime) => runtime.status === 'queued'
     ).length,
@@ -2399,7 +2663,8 @@ function createCheckpointStore(): BrowserCheckpointStore | undefined {
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest
+    projectConcurrencySmokeTest ||
+    projectTakeoverSmokeTest
   ) {
     return undefined
   }
@@ -3011,6 +3276,245 @@ async function runProjectConcurrencySmoke(
   }
 }
 
+async function runProjectTakeoverSmoke(
+  runtime: MainWindowRuntime,
+  probe: PhaseZeroProbeServer,
+  profileId: string,
+  outputRoot: string
+): Promise<Record<string, unknown>> {
+  const profiles =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.createProfile('Takeover Background')`
+    )) as ProfileSummary[]
+  const takeoverProfile = profiles.find(
+    (profile) => profile.name === 'Takeover Background'
+  )
+  if (!takeoverProfile) {
+    throw new Error('Project takeover smoke 未能创建后台 Profile')
+  }
+  const blockerDraft: ProjectDraft = {
+    id: 'smoke-project-takeover-blocker',
+    name: 'Smoke Project Takeover Blocker',
+    profileId,
+    startupPages: [probe.topUrl],
+    strategies: [],
+    runtime: {
+      mode: 'manual',
+      timezone: 'Asia/Shanghai',
+      priority: 20,
+      maxRunMs: 30_000
+    },
+    workflow: {
+      version: 1,
+      entryNodeId: 'hold',
+      nodes: [
+        {
+          id: 'hold',
+          kind: 'delay',
+          delayMs: 15_000,
+          next: 'finished',
+          timeoutMs: 20_000,
+          maxAttempts: 1,
+          checkpoint: true
+        },
+        {
+          id: 'finished',
+          kind: 'complete',
+          timeoutMs: 1_000,
+          maxAttempts: 1,
+          checkpoint: true
+        }
+      ]
+    },
+    output: {
+      root: join(outputRoot, 'blocker'),
+      maxBytes: 1024 * 1024,
+      fileNameTemplate: '{postId}-{fileName}'
+    },
+    capabilities: createCapabilityPolicy(),
+    filter: {
+      enabled: false,
+      networkRules: [],
+      cssRules: []
+    },
+    retry: {
+      maxConsecutiveFailures: 1,
+      baseBackoffMs: 250,
+      maxBackoffMs: 1_000
+    },
+    enabled: true
+  }
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.saveProject(${JSON.stringify(blockerDraft)})`
+  )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(blockerDraft.id)})`
+  )
+  await waitForProjectRuntimeStatus(runtime, blockerDraft.id, 'waiting')
+
+  const initialUrl = new URL(probe.topUrl)
+  initialUrl.searchParams.set('takeover', 'initial')
+  const manualUrl = new URL(probe.topUrl)
+  manualUrl.searchParams.set('takeover', 'manual-complete')
+  const draft: ProjectDraft = {
+    id: 'smoke-project-takeover',
+    name: 'Smoke Project Takeover',
+    profileId: takeoverProfile.id,
+    startupPages: [initialUrl.toString()],
+    strategies: [
+      { id: 'smoke-project-takeover', version: '0.1.0' }
+    ],
+    runtime: {
+      mode: 'manual',
+      timezone: 'Asia/Shanghai',
+      priority: 10,
+      maxRunMs: 30_000
+    },
+    workflow: {
+      version: 1,
+      entryNodeId: 'open',
+      nodes: [
+        {
+          id: 'open',
+          kind: 'navigate',
+          url: initialUrl.toString(),
+          next: 'human-complete',
+          timeoutMs: 5_000,
+          maxAttempts: 1,
+          checkpoint: true
+        },
+        {
+          id: 'human-complete',
+          kind: 'wait-for-event',
+          eventName: 'takeover.completed',
+          next: 'finished',
+          timeoutMs: 20_000,
+          maxAttempts: 1,
+          checkpoint: true
+        },
+        {
+          id: 'finished',
+          kind: 'complete',
+          timeoutMs: 1_000,
+          maxAttempts: 1,
+          checkpoint: true
+        }
+      ]
+    },
+    output: {
+      root: outputRoot,
+      maxBytes: 1024 * 1024,
+      fileNameTemplate: '{postId}-{fileName}'
+    },
+    capabilities: createCapabilityPolicy(),
+    filter: {
+      enabled: false,
+      networkRules: [],
+      cssRules: []
+    },
+    retry: {
+      maxConsecutiveFailures: 2,
+      baseBackoffMs: 250,
+      maxBackoffMs: 1_000
+    },
+    enabled: true
+  }
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.saveProject(${JSON.stringify(draft)})`
+  )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(draft.id)})`
+  )
+  const beforePause = await waitForProjectRuntimeStatus(
+    runtime,
+    draft.id,
+    'waiting'
+  )
+  const beforeMonitor =
+    (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getMonitorSnapshot()'
+    )) as MonitorSnapshot
+
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.pauseProjectRuntime(${JSON.stringify(draft.id)})`
+  )
+  const paused = await waitForProjectRuntimeStatus(
+    runtime,
+    draft.id,
+    'paused'
+  )
+  const pausedMonitor =
+    (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getMonitorSnapshot()'
+    )) as MonitorSnapshot
+  const manualSnapshot =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.navigate(${JSON.stringify(manualUrl.toString())})`
+    )) as BrowserSnapshot
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  const duringManual = await waitForProjectRuntimeStatus(
+    runtime,
+    draft.id,
+    'paused'
+  )
+  const manualMonitor =
+    (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getMonitorSnapshot()'
+    )) as MonitorSnapshot
+
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.resumeProjectRuntime(${JSON.stringify(draft.id)})`
+  )
+  const completed = await waitForProjectSet(runtime, [draft.id])
+  const finalRuntime = [...completed.runtimes]
+    .reverse()
+    .find((candidate) => candidate.projectId === draft.id)
+  const finalMonitor =
+    (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getMonitorSnapshot()'
+    )) as MonitorSnapshot
+  const eventTypes = runtime.events
+    .filter((event) => event.projectId === draft.id)
+    .map((event) => event.type)
+  const passed =
+    beforePause.status === 'waiting' &&
+    beforeMonitor.activeProjectCount === 2 &&
+    beforeMonitor.activePageCount >= 2 &&
+    beforeMonitor.activeStrategyCount === 1 &&
+    paused.status === 'paused' &&
+    pausedMonitor.pausedProjectCount === 1 &&
+    pausedMonitor.activeStrategyCount === 0 &&
+    pausedMonitor.browser.generation > beforeMonitor.browser.generation &&
+    manualSnapshot.url === manualUrl.toString() &&
+    duringManual.status === 'paused' &&
+    manualMonitor.activeStrategyCount === 0 &&
+    finalRuntime?.status === 'completed' &&
+    finalRuntime.checkpointData.lastEvent !== undefined &&
+    finalMonitor.pausedProjectCount === 0 &&
+    eventTypes.includes('project-runtime-paused') &&
+    eventTypes.includes('project-runtime-resumed')
+
+  const stoppedBlocker =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.stopProjectRuntime(${JSON.stringify(blockerDraft.id)})`
+    )) as ProjectWorkspaceSnapshot
+
+  return {
+    passed,
+    stoppedBlocker,
+    beforePause,
+    beforeMonitor,
+    paused,
+    pausedMonitor,
+    manualSnapshot,
+    duringManual,
+    manualMonitor,
+    completed,
+    finalMonitor,
+    eventTypes
+  }
+}
+
 async function waitForProjectConcurrency(
   runtime: MainWindowRuntime,
   timeoutMs = 15_000,
@@ -3033,6 +3537,35 @@ async function waitForProjectConcurrency(
   }
   throw new Error(
     `等待 Project 并发执行超时：${JSON.stringify(latest)}`
+  )
+}
+
+async function waitForProjectRuntimeStatus(
+  runtime: MainWindowRuntime,
+  projectId: string,
+  expectedStatus: ProjectRuntimeSnapshot['status'],
+  timeoutMs = 15_000
+): Promise<ProjectRuntimeSnapshot> {
+  const deadline = Date.now() + timeoutMs
+  let latest: ProjectRuntimeSnapshot | null = null
+  while (Date.now() < deadline) {
+    const workspace =
+      (await runtime.shellView.webContents.executeJavaScript(
+        'window.agenticBrowser.getProjectWorkspace()'
+      )) as ProjectWorkspaceSnapshot
+    latest =
+      [...workspace.runtimes]
+        .reverse()
+        .find((candidate) => candidate.projectId === projectId) ??
+      null
+    if (latest?.status === expectedStatus) {
+      return latest
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(
+    `等待 Project Runtime 状态 ${expectedStatus} 超时：` +
+      JSON.stringify(latest)
   )
 }
 
@@ -3532,7 +4065,8 @@ if (runApplication) {
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest
+    projectConcurrencySmokeTest ||
+    projectTakeoverSmokeTest
       ? undefined
       : new StructuredEventLog(
           join(app.getPath('userData'), 'logs', 'browser-events.jsonl')
@@ -3546,7 +4080,8 @@ if (runApplication) {
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest
+    projectConcurrencySmokeTest ||
+    projectTakeoverSmokeTest
       ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
       : null
   const profileStore = new ProfileStore(
@@ -3588,7 +4123,8 @@ if (runApplication) {
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest
+    projectConcurrencySmokeTest ||
+    projectTakeoverSmokeTest
       ? createCapabilityPolicy()
       : await capabilityStore.read()
   const strategyStore = new StrategyStore(
@@ -3613,7 +4149,8 @@ if (runApplication) {
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest
+    projectConcurrencySmokeTest ||
+    projectTakeoverSmokeTest
       ? await startPhaseZeroProbeServer()
       : null
   const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
@@ -3631,7 +4168,9 @@ if (runApplication) {
         ? [createProjectDownloadSmokeDefinition()]
         : projectConcurrencySmokeTest
           ? [createProjectConcurrencySmokeDefinition()]
-          : strategyState.strategies
+          : projectTakeoverSmokeTest
+            ? [createProjectTakeoverSmokeDefinition()]
+            : strategyState.strategies
   const allowedStrategyIds =
     smokeTest || strategyFaultSmokeTest
       ? new Set(strategyDefinitions.map((item) => item.manifest.id))
@@ -3643,7 +4182,8 @@ if (runApplication) {
       !strategyFaultSmokeTest &&
       !strategyWorkspaceSmokeTest &&
       !projectDownloadSmokeTest &&
-      !projectConcurrencySmokeTest,
+      !projectConcurrencySmokeTest &&
+      !projectTakeoverSmokeTest,
     phaseZeroProbe: smokeTest,
     healthMonitoring: !smokeTest && !strategyFaultSmokeTest,
     ...(initialUrl ? { initialUrl } : {}),
@@ -3875,6 +4415,28 @@ if (runApplication) {
     return
   }
 
+  if (projectTakeoverSmokeTest) {
+    if (!phaseZeroProbe || !automatedDownloadDirectory) {
+      throw new Error('Project takeover smoke 环境未初始化')
+    }
+    const result = await runProjectTakeoverSmoke(
+      runtime,
+      phaseZeroProbe,
+      profileId,
+      join(automatedDownloadDirectory, 'takeover-output')
+    )
+    writeProjectTakeoverSmokeResult(result)
+    console.log(
+      `AGENTIC_BROWSER_PROJECT_TAKEOVER_SMOKE ${JSON.stringify(result)}`
+    )
+    await closeSmokeRuntime(runtime)
+    await phaseZeroProbe.close()
+    phaseZeroProbe = null
+    cleanupAutomatedDownloads()
+    app.exit(result.passed === true ? 0 : 1)
+    return
+  }
+
   if (recoverySmokeTest) {
     if (!phaseZeroProbe) {
       throw new Error('Recovery smoke probe server 未启动')
@@ -3967,6 +4529,7 @@ if (runApplication) {
     writeStrategyWorkspaceSmokeResult(result)
     writeProjectDownloadSmokeResult(result)
     writeProjectConcurrencySmokeResult(result)
+    writeProjectTakeoverSmokeResult(result)
     void phaseZeroProbe?.close()
     phaseZeroProbe = null
     cleanupAutomatedDownloads()

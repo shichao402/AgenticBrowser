@@ -45,6 +45,7 @@ export class BrowserTabManager {
   private allowedStrategyIds: ReadonlySet<string>
   private readonly quarantinedStrategyIds: Set<string>
   private visible: boolean
+  private strategyPaused: boolean
   private bounds: Rectangle = { x: 320, y: 104, width: 960, height: 696 }
 
   constructor(
@@ -57,6 +58,7 @@ export class BrowserTabManager {
     this.quarantinedStrategyIds =
       options.quarantinedStrategyIds ?? new Set<string>()
     this.visible = options.visible ?? true
+    this.strategyPaused = options.strategyPaused ?? false
   }
 
   async start(): Promise<void> {
@@ -276,6 +278,15 @@ export class BrowserTabManager {
     )
   }
 
+  async setStrategyPaused(paused: boolean): Promise<void> {
+    this.strategyPaused = paused
+    await Promise.all(
+      [...this.tabs.values()].map((tab) =>
+        tab.supervisor.setStrategyPaused(paused)
+      )
+    )
+  }
+
   navigate(input: string): Promise<BrowserSnapshot> {
     return this.activeSupervisor().navigate(input)
   }
@@ -389,6 +400,7 @@ export class BrowserTabManager {
         ...sharedOptions,
         strategyDefinitions: this.strategyDefinitions,
         allowedStrategyIds: this.allowedStrategyIds,
+        strategyPaused: this.strategyPaused,
         quarantinedStrategyIds: this.quarantinedStrategyIds,
         ...(initialUrl ?? _initialUrl
           ? { initialUrl: initialUrl ?? _initialUrl }

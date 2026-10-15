@@ -8,6 +8,7 @@
 | [0004](0004-exact-origin-capability-policy.md) | Accepted | 使用默认策略与精确 Origin 覆盖控制页面能力 |
 | [0005](0005-isolated-strategy-runtime.md) | Accepted | Strategy 使用独立 world、宿主能力门与 renderer 级故障终止 |
 | [0006](0006-persistent-project-runtime-and-download-intent.md) | Accepted | 持久化 Project Runtime、双槽/Profile 互斥调度与下载意图协议 |
+| [0007](0007-manual-takeover-pauses-automation.md) | Accepted | 人工接管时暂停自动化并保留 Runtime、Profile 与执行槽 |
 
 ## 模板
 

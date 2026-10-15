@@ -23,6 +23,10 @@ export interface ProjectWorkflowEvent {
 export class ProjectWorkflowEngine {
   private queue = Promise.resolve()
   private disposed = false
+  private pausedState: {
+    status: 'waiting'
+    remainingWakeMs: number | null
+  } | null = null
 
   constructor(
     readonly runtimeId: string,
@@ -106,6 +110,64 @@ export class ProjectWorkflowEngine {
     })
   }
 
+  pause(): Promise<ProjectRuntimeRecord> {
+    return this.enqueue(async () => {
+      const envelope = await this.requireEnvelope()
+      if (
+        envelope.runtime.status === 'failed' ||
+        envelope.runtime.status === 'completed' ||
+        envelope.runtime.status === 'cancelled' ||
+        envelope.runtime.status === 'paused'
+      ) {
+        return envelope.runtime
+      }
+      if (envelope.runtime.status !== 'waiting') {
+        throw new Error(
+          `Workflow 只能在稳定等待态暂停，实际为 ${envelope.runtime.status}`
+        )
+      }
+      this.pausedState = {
+        status: 'waiting',
+        remainingWakeMs:
+          envelope.runtime.nextWakeAt === null
+            ? null
+            : Math.max(
+                0,
+                Date.parse(envelope.runtime.nextWakeAt) - this.now()
+              )
+      }
+      const paused = await this.transition('paused', {
+        nextWakeAt: null
+      })
+      return paused.runtime
+    })
+  }
+
+  resume(): Promise<ProjectRuntimeRecord> {
+    return this.enqueue(async () => {
+      const envelope = await this.requireEnvelope()
+      if (envelope.runtime.status !== 'paused') {
+        throw new Error(
+          `Workflow 只能从 paused 恢复，实际为 ${envelope.runtime.status}`
+        )
+      }
+      if (!this.pausedState) {
+        throw new Error('Workflow 的进程内暂停状态不可用')
+      }
+      const pausedState = this.pausedState
+      const resumed = await this.transition(pausedState.status, {
+        nextWakeAt:
+          pausedState.remainingWakeMs === null
+            ? null
+            : new Date(
+                this.now() + pausedState.remainingWakeMs
+              ).toISOString()
+      })
+      this.pausedState = null
+      return resumed.runtime
+    })
+  }
+
   cancel(reason = '用户停止 Project Runtime'): Promise<ProjectRuntimeRecord> {
     return this.enqueue(async () => {
       const envelope = await this.requireEnvelope()
@@ -121,6 +183,7 @@ export class ProjectWorkflowEngine {
         lastFailureCategory: 'cancelled',
         nextWakeAt: null
       })
+      this.pausedState = null
       this.disposed = true
       return next.runtime
     })
@@ -145,6 +208,7 @@ export class ProjectWorkflowEngine {
         counters: { failed: 1 },
         nextWakeAt: null
       })
+      this.pausedState = null
       this.disposed = true
       return next.runtime
     })

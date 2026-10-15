@@ -108,6 +108,30 @@ describe('ProjectRuntimeStore', () => {
     })
   })
 
+  it('queues a persisted paused runtime from its checkpoint on resume', async () => {
+    const created = await store.create(project, 'manual')
+    await store.transition(created.runtime.runtimeId, 'starting')
+    await store.transition(created.runtime.runtimeId, 'waiting', {
+      currentNodeId: 'finished',
+      checkpointNodeId: 'finished',
+      checkpointData: { postId: 'post-2' }
+    })
+    await store.transition(created.runtime.runtimeId, 'paused', {
+      nextWakeAt: null
+    })
+
+    now += 5_000
+    const resumed = await store.resumePaused(created.runtime.runtimeId)
+    expect(resumed.runtime).toMatchObject({
+      trigger: 'resume',
+      status: 'queued',
+      currentNodeId: 'finished',
+      nodeAttempt: 0,
+      checkpointData: { postId: 'post-2' },
+      lastFailureCategory: null
+    })
+  })
+
   it('commits idempotency keys once across retries and restarts', async () => {
     const created = await store.create(project, 'manual')
     const record = {

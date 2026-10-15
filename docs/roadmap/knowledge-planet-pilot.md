@@ -1,6 +1,6 @@
 # 知识星球文本与 MP3 采集试点
 
-- Status: Runtime infrastructure ready; real-site pilot pending
+- Status: Runtime and manual-takeover infrastructure ready; authenticated real-site pilot pending
 - Target phase: Phase 3
 
 ## 用户目标
@@ -8,6 +8,8 @@
 用户打开 AgenticBrowser 后，项目复用已有登录状态，监听或定时扫描知识星球首页，筛选指定类型文本，进入匹配内容并点击下载其中的 MP3，将文件放入项目指定目录。
 
 Project/Profile/Strategy/workflow、下载事务、幂等和模拟 MP3 闭环已经具备；本文中的真实知识星球选择器、分类规则、登录处理和故障验收尚未执行，不能视为试点完成。
+
+2026-10-15 已确认官方网页入口为 `https://wx.zsxq.com/dweb`，未登录时会跳转到 `https://wx.zsxq.com/login`。页面可识别“登录知识星球”“获取登录二维码”和手机号登录入口，但尚未使用用户 Profile 完成认证后的 Feed 结构采样。
 
 ## Project 配置
 
@@ -60,7 +62,7 @@ projectId + postId + attachmentId
 
 ### 登录失效
 
-暂停 Runtime，保留当前 URL 和帖子检查点，显示人工登录入口。登录成功后重新验证首页再续跑。
+Runtime 已支持显式“暂停并接管”：冻结 workflow 等待预算、停止 Project Strategy、保留当前 URL/Profile/浏览器槽，用户完成登录后可恢复原 Runtime。真实站点仍需补充登录失效自动识别、接管提示和登录恢复断言。
 
 ### 导航或网络失败
 
@@ -117,7 +119,7 @@ project-root/
 
 ## 待用户确认
 
-- 知识星球实际首页 URL。
+- 用户要监听的具体星球/Feed URL（官方网页入口已经确认）。
 - “指定类型文本”的规则和样本。
 - 首次扫描的历史范围。
 - 常驻监听还是每日具体时刻。

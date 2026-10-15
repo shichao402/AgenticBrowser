@@ -52,6 +52,8 @@ const EVENT_LABELS: Record<BrowserEvent['type'], string> = {
   'strategy-quarantined': '策略已隔离',
   'strategy-reloaded': '策略已重载',
   'project-runtime-started': '项目运行已启动',
+  'project-runtime-paused': '项目已暂停并进入人工接管',
+  'project-runtime-resumed': '项目自动化已恢复',
   'project-runtime-stopped': '项目运行已停止',
   'project-runtime-failed': '项目运行失败',
   'filter-hit': '过滤规则命中',
@@ -488,6 +490,42 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const pauseProject = async (projectId: string): Promise<void> => {
+    setError(null)
+    try {
+      applyProjectWorkspace(
+        await window.agenticBrowser.pauseProjectRuntime(projectId),
+        projectId
+      )
+      await Promise.all([
+        refreshTabs(),
+        refreshSnapshot(),
+        refreshMonitor(),
+        refreshStrategies()
+      ])
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const resumeProject = async (projectId: string): Promise<void> => {
+    setError(null)
+    try {
+      applyProjectWorkspace(
+        await window.agenticBrowser.resumeProjectRuntime(projectId),
+        projectId
+      )
+      await Promise.all([
+        refreshTabs(),
+        refreshSnapshot(),
+        refreshMonitor(),
+        refreshStrategies()
+      ])
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   const editStrategy = (definition: StrategyDefinition): void => {
     setEditingStrategyId(definition.manifest.id)
     setStrategyManifestText(
@@ -580,6 +618,14 @@ export function App(): React.JSX.Element {
     [...(projectWorkspace?.runtimes ?? [])]
       .reverse()
       .find(isActiveProjectRuntime) ?? null
+  const selectedActiveProjectRuntime =
+    [...(projectWorkspace?.runtimes ?? [])]
+      .reverse()
+      .find(
+        (runtime) =>
+          runtime.projectId === activeProject?.id &&
+          isActiveProjectRuntime(runtime)
+      ) ?? null
 
   return (
     <main className="app-shell">
@@ -704,7 +750,7 @@ export function App(): React.JSX.Element {
                   type="button"
                   disabled={
                     !activeProject ||
-                    activeProjectRuntime !== null
+                    selectedActiveProjectRuntime !== null
                   }
                   onClick={() =>
                     activeProject
@@ -716,7 +762,36 @@ export function App(): React.JSX.Element {
                 </button>
                 <button
                   type="button"
-                  disabled={activeProjectRuntime === null}
+                  disabled={
+                    selectedActiveProjectRuntime === null ||
+                    selectedActiveProjectRuntime.status === 'paused'
+                  }
+                  onClick={() =>
+                    activeProject
+                      ? void pauseProject(activeProject.id)
+                      : undefined
+                  }
+                >
+                  {selectedActiveProjectRuntime?.status === 'queued'
+                    ? '暂停排队'
+                    : '暂停并接管'}
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    selectedActiveProjectRuntime?.status !== 'paused'
+                  }
+                  onClick={() =>
+                    activeProject
+                      ? void resumeProject(activeProject.id)
+                      : undefined
+                  }
+                >
+                  恢复自动化
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedActiveProjectRuntime === null}
                   onClick={() =>
                     activeProject
                       ? void stopProject(activeProject.id)
@@ -982,6 +1057,10 @@ export function App(): React.JSX.Element {
             <div>
               <dt>运行项目</dt>
               <dd>{monitor?.activeProjectCount ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>人工接管</dt>
+              <dd>{monitor?.pausedProjectCount ?? '—'}</dd>
             </div>
             <div>
               <dt>排队项目</dt>

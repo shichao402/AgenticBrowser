@@ -146,6 +146,104 @@ describe('ProjectScheduler', () => {
     scheduler.dispose()
   })
 
+  it('keeps a manual-takeover browser in the slot and Profile lock', async () => {
+    const first = createDraft('takeover', 'manual', 10)
+    first.profileId = 'shared-profile'
+    const queued = createDraft('queued-shared', 'manual', 8)
+    queued.profileId = 'shared-profile'
+    await projectStore.save(first)
+    await projectStore.save(createDraft('independent', 'manual', 9))
+    await projectStore.save(queued)
+    for (const project of (await projectStore.read()).projects) {
+      await runtimeStore.create(project, 'manual')
+    }
+    const starts: string[] = []
+    const scheduler = new ProjectScheduler(
+      projectStore,
+      runtimeStore,
+      {
+        startRuntime: async (envelope) => {
+          starts.push(envelope.runtime.projectId)
+          await runtimeStore.transition(
+            envelope.runtime.runtimeId,
+            'starting'
+          )
+          await runtimeStore.transition(
+            envelope.runtime.runtimeId,
+            'waiting'
+          )
+        },
+        timeoutRuntime: async () => undefined
+      },
+      { maxConcurrent: 2, tickIntervalMs: null, now: () => now }
+    )
+
+    await scheduler.start()
+    const takeover = (await runtimeStore.read()).runtimes.find(
+      ({ runtime }) => runtime.projectId === 'takeover'
+    )!
+    scheduler.holdPausedRuntime(takeover.runtime.runtimeId)
+    await runtimeStore.transition(takeover.runtime.runtimeId, 'paused')
+    await scheduler.tick()
+
+    expect(starts).toEqual(['takeover', 'independent'])
+    expect(await scheduler.getSnapshot()).toMatchObject({
+      executing: 2,
+      queued: 1
+    })
+
+    const stopped = (
+      await runtimeStore.transition(
+        takeover.runtime.runtimeId,
+        'cancelled'
+      )
+    ).runtime
+    scheduler.notifyRuntimeTerminal(stopped)
+    await scheduler.tick()
+    expect(starts).toEqual([
+      'takeover',
+      'independent',
+      'queued-shared'
+    ])
+    scheduler.dispose()
+  })
+
+  it('requeues a cold paused runtime with the resume trigger', async () => {
+    await projectStore.save(createDraft('paused-project', 'manual'))
+    const project = (await projectStore.read()).projects[0]!
+    const created = await runtimeStore.create(project, 'manual')
+    await runtimeStore.transition(created.runtime.runtimeId, 'starting')
+    await runtimeStore.transition(created.runtime.runtimeId, 'waiting')
+    await runtimeStore.transition(created.runtime.runtimeId, 'paused')
+    const starts: ProjectRuntimeEnvelope[] = []
+    const scheduler = new ProjectScheduler(
+      projectStore,
+      runtimeStore,
+      {
+        startRuntime: async (envelope) => {
+          starts.push(envelope)
+          await runtimeStore.transition(
+            envelope.runtime.runtimeId,
+            'starting'
+          )
+          await runtimeStore.transition(
+            envelope.runtime.runtimeId,
+            'running'
+          )
+        },
+        timeoutRuntime: async () => undefined
+      },
+      { tickIntervalMs: null, now: () => now }
+    )
+
+    await scheduler.start()
+    expect(starts).toHaveLength(0)
+    await scheduler.requestResume(project.id)
+    expect(starts).toHaveLength(1)
+    expect(starts[0]?.runtime.trigger).toBe('resume')
+    scheduler.dispose()
+  })
+
   it('creates autostart, resident, and due scheduled runtimes', async () => {
     await projectStore.save(createDraft('autostart-project', 'autostart'))
     await projectStore.save(createDraft('resident-project', 'resident'))

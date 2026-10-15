@@ -91,7 +91,7 @@ const TRANSITIONS: Record<ProjectRuntimeStatus, ReadonlySet<ProjectRuntimeStatus
     'failed',
     'cancelled'
   ]),
-  paused: new Set(['queued', 'cancelled']),
+  paused: new Set(['queued', 'waiting', 'failed', 'cancelled']),
   failed: new Set(),
   completed: new Set(),
   cancelled: new Set()
@@ -288,6 +288,44 @@ export class ProjectRuntimeStore {
         state: { ...state, runtimes },
         result: recovered
       }
+    })
+  }
+
+  async resumePaused(runtimeId: string): Promise<ProjectRuntimeEnvelope> {
+    return this.update((state) => {
+      const index = state.runtimes.findIndex(
+        ({ runtime }) => runtime.runtimeId === runtimeId
+      )
+      if (index < 0) {
+        throw new Error(`Project Runtime 不存在：${runtimeId}`)
+      }
+      const current = state.runtimes[index]!
+      if (current.runtime.status !== 'paused') {
+        throw new Error(
+          `只有 paused Runtime 可以恢复，实际为 ${current.runtime.status}`
+        )
+      }
+      const now = new Date(this.now()).toISOString()
+      const envelope: ProjectRuntimeEnvelope = {
+        runtime: {
+          ...current.runtime,
+          trigger: 'resume',
+          status: 'queued',
+          nodeAttempt: 0,
+          currentNodeId:
+            current.runtime.checkpointNodeId ??
+            current.projectSnapshot.workflow.entryNodeId,
+          lastHeartbeatAt: now,
+          updatedAt: now,
+          nextWakeAt: null,
+          lastError: '人工接管已结束，已从最近检查点排队恢复',
+          lastFailureCategory: null
+        },
+        projectSnapshot: structuredClone(current.projectSnapshot)
+      }
+      const runtimes = [...state.runtimes]
+      runtimes[index] = envelope
+      return { state: { ...state, runtimes }, result: envelope }
     })
   }
 

@@ -7,7 +7,7 @@
 已经存在：
 
 - `src/main/index.ts`：`BaseWindow`、BrowserShell `WebContentsView`、远程页面布局和受信 IPC 注册。
-- `src/main/browser-supervisor.ts`：Named Profile session、页面生命周期事件、导航/刷新、主动心跳探针和 renderer 消失后的重建入口。
+- `src/main/browser-supervisor.ts`：Named Profile session、页面生命周期事件、导航/刷新、主动心跳探针、人工接管时的 Strategy 暂停和 renderer 消失后的重建入口。
 - `src/main/browser-tab-manager.ts`：最多 8 个独立 WebContents tab、活动 view 切换、全局事件序列和 session handler 所有权转移。
 - `src/main/profile-store.ts`：版本化 Profile 清单、活动 Profile、串行原子更新和删除保护。
 - `src/main/checkpoint-store.ts`：版本化浏览器检查点、串行原子写入、读取校验和损坏文件隔离。
@@ -24,8 +24,8 @@
 - `src/main/project-store.ts`：Project schema v1、固定 Strategy 版本、Profile/调度/workflow/输出/Filter 配置和原子存储。
 - `src/main/project-runtime-store.ts`：持久化 Runtime 状态机、项目单实例、检查点、计数器、恢复和幂等记录。
 - `src/main/project-scheduler.ts`：手动/自启/常驻/定时/恢复队列、时区、优先级、双槽预算、Profile 互斥和运行时长限制。
-- `src/main/background-project-runtime.ts`：独立后台 BrowserTabManager、workflow、Strategy、下载事务与终态生命周期。
-- `src/main/project-workflow-engine.ts`：navigate/delay/wait-for-event/complete 状态机、重试、补偿转移和检查点。
+- `src/main/background-project-runtime.ts`：独立后台 BrowserTabManager、workflow、Strategy、下载事务、人工接管与终态生命周期。
+- `src/main/project-workflow-engine.ts`：navigate/delay/wait-for-event/complete 状态机、重试、补偿转移、检查点和等待预算冻结/恢复。
 - `src/main/project-download-manager.ts`：下载意图、临时文件、哈希、配额、原子提交、manifest 和业务去重。
 - `src/main/content-filter.ts`：Project 网络资源规则和 CSS selector 规则。
 - `src/main/structured-event-log.ts`：串行 JSONL 领域事件日志。
@@ -129,6 +129,8 @@ Project 与 Runtime 使用独立的 schema v1 注册表。每个 Runtime 持有 
 
 全局并发预算当前固定为 2。前台槽与隐藏后台槽分别拥有独立 BrowserTabManager、Capability、Filter、Strategy 和下载上下文；不同 Profile 可并行，共享 Profile 由 Scheduler 互斥排队。事件带 Project/Runtime 归属，全局监控聚合两个槽。详见 [ADR-0006](../ADR/0006-persistent-project-runtime-and-download-intent.md)。
 
+用户可在 workflow 稳定等待时执行“暂停并接管”。Runtime 进入 `paused`，等待预算冻结，当前 view 以相同 Profile 和 URL 重建为无 Strategy 页面；该 Runtime 仍占用执行槽和 Profile 锁。恢复时先还原等待态，再重建并注入固定版本 Strategy。Cookie、LocalStorage 与登录态保留，未持久化 DOM 状态不保证保留；进程重启后的 paused Runtime 由用户显式恢复并从最近检查点重新排队。详见 [ADR-0007](../ADR/0007-manual-takeover-pauses-automation.md)。
+
 ### BrowserSupervisor
 
 负责创建、绑定、销毁和重建 `WebContentsView`；注册加载、无响应、崩溃、导航、权限和下载事件；将底层事件归一化成领域事件。
@@ -159,7 +161,7 @@ preload 按 `document-start`、`document-end` 或 `document-idle` 在每个匹�
 
 执行跨页面显式状态机。schema v1 节点包括 navigate、delay、wait-for-event 和 complete；每个节点包含超时、最大尝试次数、可选幂等键、检查点和按失败分类的补偿转移。Strategy 领域事件由主进程直接送入当前 Engine，不能从页面任意改写 Runtime。
 
-Runtime 变更在每一步前后持久化。等待和指数退避由主进程 ticker 唤醒；应用退出后从最近 checkpoint 节点恢复。更丰富的页面断言、分支和业务动作仍属于后续 schema。
+Runtime 变更在每一步前后持久化。等待和指数退避由主进程 ticker 唤醒；人工接管会冻结剩余等待时间，恢复后继续计时；应用退出后从最近 checkpoint 节点恢复。更丰富的页面断言、分支和业务动作仍属于后续 schema。
 
 ### RecoveryEngine
 
@@ -215,4 +217,4 @@ Profile 清单保存在 userData 下的版本化 JSON 文件，使用临时文�
 
 不能可靠归属到单个 Strategy 的资源消耗必须标记为共享，不能展示虚假的精确值。
 
-当前 BrowserShell 每两秒读取 `app.getAppMetrics()`，展示 Chromium 进程数、总 CPU、总工作集、页面健康、恢复状态、下载汇总和当前 Project Runtime。Project 工作台另展示持久化 Runtime 历史、当前 workflow 节点、检查点、计数器和 Strategy 版本解析。浏览器领域事件同时保留最近 500 条内存窗口，并串行追加到 userData 下的 JSONL 日志；Scheduler 队列/槽位的独立可视化、日志轮转和长期保留尚未实现。
+当前 BrowserShell 每两秒读取 `app.getAppMetrics()`，展示 Chromium 进程数、总 CPU、总工作集、页面健康、恢复状态、下载汇总、活跃/暂停/排队项目数和当前 Project Runtime。Project 工作台另展示持久化 Runtime 历史、当前 workflow 节点、检查点、计数器、Strategy 版本解析以及暂停/恢复操作。浏览器领域事件同时保留最近 500 条内存窗口，并串行追加到 userData 下的 JSONL 日志；Scheduler 队列/槽位的独立可视化、日志轮转和长期保留尚未实现。

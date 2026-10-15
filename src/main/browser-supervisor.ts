@@ -180,6 +180,7 @@ export interface BrowserSupervisorOptions {
   healthMonitoring?: boolean
   recoveryEnabled?: boolean
   visible?: boolean
+  strategyPaused?: boolean
   capabilityPolicy?: CapabilityPolicy
   downloadDirectory?: string
   manageSessionHandlers?: boolean
@@ -271,6 +272,7 @@ export class BrowserSupervisor {
   private sessionHandlersEnabled = false
   private pageView: WebContentsView | null = null
   private visible = true
+  private strategyPaused = false
   private bounds: Rectangle = { x: 320, y: 72, width: 960, height: 728 }
   private currentUrl: string
   private generation = 0
@@ -321,6 +323,7 @@ export class BrowserSupervisor {
     )
     this.downloadAdapter = options.downloadAdapter
     this.visible = options.visible ?? true
+    this.strategyPaused = options.strategyPaused ?? false
     this.profileId = options.profileId ?? DEFAULT_PROFILE_ID
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(this.profileId)) {
       throw new Error('Profile ID 格式无效')
@@ -434,6 +437,22 @@ export class BrowserSupervisor {
       this.emit(
         'strategy-reloaded',
         `${definitions.length} definitions; ${allowedStrategyIds.size} allowed`
+      )
+    }
+  }
+
+  async setStrategyPaused(paused: boolean): Promise<void> {
+    if (this.strategyPaused === paused) {
+      return
+    }
+    this.strategyPaused = paused
+    if (this.pageView && !this.disposed) {
+      await this.recreate(
+        paused ? 'strategy-manual-takeover' : 'strategy-automation-resumed'
+      )
+      this.emit(
+        'strategy-reloaded',
+        paused ? 'manual takeover; 0 allowed' : 'automation resumed'
       )
     }
   }
@@ -1042,7 +1061,7 @@ export class BrowserSupervisor {
 
   private installStrategyRuntime(webContents: WebContents): void {
     const runtime = new StrategyRuntime({
-      definitions: this.strategyDefinitions,
+      definitions: this.strategyPaused ? [] : this.strategyDefinitions,
       allowedStrategyIds: this.allowedStrategyIds,
       quarantinedStrategyIds: this.quarantinedStrategyIds,
       onEvent: (event) => {

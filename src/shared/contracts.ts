@@ -17,6 +17,8 @@ export const IPC_CHANNELS = {
   setActiveProject: 'projects:set-active',
   deleteProject: 'projects:delete',
   startProjectRuntime: 'projects:start-runtime',
+  pauseProjectRuntime: 'projects:pause-runtime',
+  resumeProjectRuntime: 'projects:resume-runtime',
   stopProjectRuntime: 'projects:stop-runtime',
   getStartupSettings: 'startup:get',
   setOpenAtLogin: 'startup:set-open-at-login',
@@ -69,6 +71,8 @@ export type BrowserEventType =
   | 'strategy-quarantined'
   | 'strategy-reloaded'
   | 'project-runtime-started'
+  | 'project-runtime-paused'
+  | 'project-runtime-resumed'
   | 'project-runtime-stopped'
   | 'project-runtime-failed'
   | 'filter-hit'
@@ -135,6 +139,7 @@ export interface MonitorSnapshot {
   projectRuntime: ProjectRuntimeSnapshot | null
   projectRuntimes: ProjectRuntimeSnapshot[]
   activeProjectCount: number
+  pausedProjectCount: number
   queuedProjectCount: number
   browserEventCount: number
   activePageCount: number
@@ -613,6 +618,8 @@ export interface BrowserShellApi {
   setActiveProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
   deleteProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
   startProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
+  pauseProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
+  resumeProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
   stopProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
   getStartupSettings(): Promise<StartupSettings>
   setOpenAtLogin(enabled: boolean): Promise<StartupSettings>

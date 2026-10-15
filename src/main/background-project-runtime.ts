@@ -62,6 +62,7 @@ export class BackgroundProjectRuntime {
   private tickInFlight = false
   private started = false
   private starting = false
+  private lifecycleTransition = false
   private disposed = false
   private terminalNotified = false
 
@@ -191,6 +192,45 @@ export class BackgroundProjectRuntime {
     const runtime = await this.engine.cancel(reason)
     this.setRuntime(runtime)
     return this.getRuntime()
+  }
+
+  async pause(): Promise<ProjectRuntimeRecord> {
+    this.assertAvailable()
+    this.lifecycleTransition = true
+    try {
+      const runtime = await this.engine.pause()
+      this.setRuntime(runtime)
+      if (runtime.status !== 'paused') {
+        return this.getRuntime()
+      }
+      this.stopTicker()
+      await this.supervisor.setStrategyPaused(true)
+      return this.getRuntime()
+    } finally {
+      this.lifecycleTransition = false
+      this.notifyTerminalIfNeeded(true)
+    }
+  }
+
+  async resume(): Promise<ProjectRuntimeRecord> {
+    this.assertAvailable()
+    this.lifecycleTransition = true
+    try {
+      const runtime = await this.engine.resume()
+      this.setRuntime(runtime)
+      await this.supervisor.setStrategyPaused(false)
+      if (!isTerminalRuntime(this.runtime)) {
+        this.startTicker()
+      }
+      return this.getRuntime()
+    } catch (error) {
+      await this.engine.pause().catch(() => undefined)
+      await this.supervisor.setStrategyPaused(true).catch(() => undefined)
+      throw error
+    } finally {
+      this.lifecycleTransition = false
+      this.notifyTerminalIfNeeded(true)
+    }
   }
 
   async fail(
@@ -433,7 +473,7 @@ export class BackgroundProjectRuntime {
     if (!isTerminalRuntime(this.runtime) || this.terminalNotified) {
       return
     }
-    if (this.starting) {
+    if (this.starting || this.lifecycleTransition) {
       return
     }
     this.terminalNotified = true

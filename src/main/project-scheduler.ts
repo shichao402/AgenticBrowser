@@ -59,6 +59,7 @@ export class ProjectScheduler {
   private disposed = false
   private readonly dispatchingRuntimeIds = new Set<string>()
   private readonly timingOutRuntimeIds = new Set<string>()
+  private readonly heldPausedRuntimeIds = new Set<string>()
   private readonly executionStartedAt = new Map<string, number>()
   private readonly suspendedProjectIds = new Set<string>()
   private readonly autostartAttemptedProjectIds = new Set<string>()
@@ -125,6 +126,30 @@ export class ProjectScheduler {
     })
   }
 
+  async requestResume(projectId: string): Promise<ProjectRuntimeEnvelope> {
+    return this.enqueue(async () => {
+      this.assertAvailable()
+      const state = await this.runtimeStore.read()
+      const paused = [...state.runtimes]
+        .reverse()
+        .find(
+          ({ runtime }) =>
+            runtime.projectId === projectId &&
+            runtime.status === 'paused'
+        )
+      if (!paused) {
+        throw new Error(`没有可恢复的 paused Runtime：${projectId}`)
+      }
+      this.suspendedProjectIds.delete(projectId)
+      this.heldPausedRuntimeIds.delete(paused.runtime.runtimeId)
+      const envelope = await this.runtimeStore.resumePaused(
+        paused.runtime.runtimeId
+      )
+      await this.dispatchQueuedRuntimes()
+      return envelope
+    })
+  }
+
   suspend(projectId: string): void {
     this.suspendedProjectIds.add(projectId)
     this.residentRetryAt.delete(projectId)
@@ -137,9 +162,22 @@ export class ProjectScheduler {
     })
   }
 
+  holdPausedRuntime(runtimeId: string): void {
+    this.heldPausedRuntimeIds.add(runtimeId)
+    this.executionStartedAt.delete(runtimeId)
+  }
+
+  releasePausedRuntime(runtimeId: string, resumed = false): void {
+    this.heldPausedRuntimeIds.delete(runtimeId)
+    if (resumed) {
+      this.executionStartedAt.set(runtimeId, this.now())
+    }
+  }
+
   notifyRuntimeTerminal(runtime: ProjectRuntimeRecord): void {
     this.dispatchingRuntimeIds.delete(runtime.runtimeId)
     this.timingOutRuntimeIds.delete(runtime.runtimeId)
+    this.heldPausedRuntimeIds.delete(runtime.runtimeId)
     this.executionStartedAt.delete(runtime.runtimeId)
     void this.enqueue(async () => {
       const state = await this.runtimeStore.read()
@@ -172,6 +210,9 @@ export class ProjectScheduler {
         .map(({ runtime }) => runtime.runtimeId)
     )
     for (const runtimeId of this.dispatchingRuntimeIds) {
+      executingRuntimeIds.add(runtimeId)
+    }
+    for (const runtimeId of this.heldPausedRuntimeIds) {
       executingRuntimeIds.add(runtimeId)
     }
     return {
@@ -261,6 +302,7 @@ export class ProjectScheduler {
       const { runtime, projectSnapshot } = envelope
       if (
         !EXECUTING_STATUSES.has(runtime.status) ||
+        this.heldPausedRuntimeIds.has(runtime.runtimeId) ||
         this.timingOutRuntimeIds.has(runtime.runtimeId)
       ) {
         continue
@@ -291,9 +333,18 @@ export class ProjectScheduler {
       const executingRuntimes = state.runtimes.filter(({ runtime }) =>
         EXECUTING_STATUSES.has(runtime.status)
       )
-      const executing = executingRuntimes.length
+      const executingRuntimeIds = new Set(
+        executingRuntimes.map(({ runtime }) => runtime.runtimeId)
+      )
+      const heldPausedRuntimes = state.runtimes.filter(
+        ({ runtime }) =>
+          this.heldPausedRuntimeIds.has(runtime.runtimeId) &&
+          !executingRuntimeIds.has(runtime.runtimeId)
+      )
+      const executing =
+        executingRuntimes.length + heldPausedRuntimes.length
       const occupiedProfileIds = new Set(
-        executingRuntimes.map(
+        [...executingRuntimes, ...heldPausedRuntimes].map(
           ({ projectSnapshot }) => projectSnapshot.profileId
         )
       )

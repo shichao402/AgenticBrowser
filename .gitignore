@@ -11,6 +11,7 @@ phase2-strategy-fault-smoke-result.json
 phase2-strategy-workspace-smoke-result.json
 phase3-project-download-smoke-result.json
 phase3-project-concurrency-smoke-result.json
+phase3-project-takeover-smoke-result.json
 watchdog-smoke-result.json
 
 # Runtime state

@@ -107,6 +107,8 @@ Runtime 表示 Project 的一次活跃执行：
 
 当前 Scheduler 的全局并发预算为 2。前台槽与隐藏后台槽可让不同 Profile 的 Runtime 同时进入 starting/running/waiting/recovering；共享 Profile 的 Runtime 保持 queued，避免 session handler 和身份状态争用。
 
+`paused` 表示用户正在人工接管页面。它冻结 workflow 的剩余等待时间并停止 Project Strategy，但保留当前 URL、Profile、浏览器执行槽和 Profile 互斥。接管页面使用同一 Profile 干净重建，因此登录态与 Web Storage 保留，纯 DOM 临时状态不保留；进程内恢复继续原 Runtime，跨应用重启则从最近检查点以 `resume` 触发重新排队。
+
 ## Workflow
 
 Workflow 是跨页面状态机，不是录制动作列表。

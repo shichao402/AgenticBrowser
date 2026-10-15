@@ -61,6 +61,14 @@ const api: BrowserShellApi = {
     projectId: string
   ): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.startProjectRuntime, projectId),
+  pauseProjectRuntime: (
+    projectId: string
+  ): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.pauseProjectRuntime, projectId),
+  resumeProjectRuntime: (
+    projectId: string
+  ): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.resumeProjectRuntime, projectId),
   stopProjectRuntime: (
     projectId: string
   ): Promise<ProjectWorkspaceSnapshot> =>
