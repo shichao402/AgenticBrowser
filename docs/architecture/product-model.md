@@ -149,3 +149,14 @@ MVP Filter 不允许默认阻断主文档、认证、业务 API 和下载。
 - 错误分类与重试次数。
 
 业务项 ID 与附件 ID/URL 组成幂等键，防止补跑时重复下载。
+
+## Business Item Record
+
+页面 Strategy 通过 `project.item-observed` 报告扫描项，宿主保存：
+
+- Project、最近 Runtime、来源 URL 和稳定业务 ID。
+- 截断后的文本、matched/skipped 分类和附件数量。
+- 可选发布时间与 JSON 元数据。
+- 首次/最近观察时间、最近 Runtime 和跨 Runtime seen count。
+
+记录按 Project + 业务 ID 合并到项目输出目录的 `records/items.json`。同一 Runtime 重复报告不会重复增加扫描计数；不同 Runtime 的复扫会更新 seen count，但不会绕过 Download Record 的附件幂等。

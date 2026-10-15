@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   activateProfile: 'profiles:activate',
   deleteProfile: 'profiles:delete',
   getProjectWorkspace: 'projects:get-workspace',
+  installKnowledgePlanetPilot: 'projects:install-knowledge-planet-pilot',
   saveProject: 'projects:save',
   setActiveProject: 'projects:set-active',
   deleteProject: 'projects:delete',
@@ -502,6 +503,11 @@ export interface StrategyWorkspaceSnapshot {
   developmentAllowedStrategyIds: string[]
 }
 
+export interface KnowledgePlanetPilotInstallResult {
+  projectWorkspace: ProjectWorkspaceSnapshot
+  strategyWorkspace: StrategyWorkspaceSnapshot
+}
+
 export type StrategyRuntimeStatus =
   | 'issued'
   | 'scheduled'
@@ -614,6 +620,9 @@ export interface BrowserShellApi {
   activateProfile(profileId: string): Promise<ProfileSummary[]>
   deleteProfile(profileId: string): Promise<ProfileSummary[]>
   getProjectWorkspace(): Promise<ProjectWorkspaceSnapshot>
+  installKnowledgePlanetPilot(
+    profileId: string
+  ): Promise<KnowledgePlanetPilotInstallResult>
   saveProject(draft: ProjectDraft): Promise<ProjectWorkspaceSnapshot>
   setActiveProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
   deleteProject(projectId: string): Promise<ProjectWorkspaceSnapshot>

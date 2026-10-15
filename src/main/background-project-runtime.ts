@@ -18,6 +18,7 @@ import {
   ProjectDownloadManager,
   type ProjectDownloadReservation
 } from './project-download-manager'
+import { ProjectItemStore } from './project-item-store'
 import type {
   ProjectRuntimeEnvelope,
   ProjectRuntimeStore
@@ -48,12 +49,19 @@ export interface BackgroundProjectRuntimeOptions {
   visible?: boolean
   onRuntimeChanged?(runtime: ProjectRuntimeRecord): void
   onTerminal?(runtime: ProjectRuntimeRecord): void | Promise<void>
+  onManualTakeoverRequested?(
+    projectId: string,
+    reason: string,
+    category: WorkflowFailureCategory
+  ): void
 }
 
 export class BackgroundProjectRuntime {
   readonly supervisor: BrowserTabManager
   private readonly downloadManager: ProjectDownloadManager
+  private readonly itemStore: ProjectItemStore
   private readonly pendingDownloads: ReservedDownload[] = []
+  private downloadCompletionQueue = Promise.resolve()
   private readonly queuedEvents: ProjectWorkflowEvent[] = []
   private readonly engine: ProjectWorkflowEngine
   private runtime: ProjectRuntimeRecord
@@ -85,6 +93,13 @@ export class BackgroundProjectRuntime {
         'downloads.json'
       ),
       { runtimeStore: options.runtimeStore }
+    )
+    this.itemStore = new ProjectItemStore(
+      join(
+        envelope.projectSnapshot.output.root,
+        'records',
+        'items.json'
+      )
     )
     this.engine = new ProjectWorkflowEngine(
       envelope.runtime.runtimeId,
@@ -194,11 +209,14 @@ export class BackgroundProjectRuntime {
     return this.getRuntime()
   }
 
-  async pause(): Promise<ProjectRuntimeRecord> {
+  async pause(
+    reason: string | null = null,
+    category: WorkflowFailureCategory | null = null
+  ): Promise<ProjectRuntimeRecord> {
     this.assertAvailable()
     this.lifecycleTransition = true
     try {
-      const runtime = await this.engine.pause()
+      const runtime = await this.engine.pause(reason, category)
       this.setRuntime(runtime)
       if (runtime.status !== 'paused') {
         return this.getRuntime()
@@ -268,22 +286,39 @@ export class BackgroundProjectRuntime {
       markDownloading: async (downloadId) => {
         await this.downloadManager.markDownloading(downloadId)
       },
-      complete: async (downloadId) => {
-        const record = await this.downloadManager.complete(downloadId)
-        await this.handleStrategyDomainEvent({
-          strategyId: 'host-download-manager',
-          name: 'download.completed',
-          payload: {
-            downloadId: record.downloadId,
-            businessItemId: record.businessItemId,
-            attachmentId: record.attachmentId,
-            finalPath: record.finalPath,
-            sha256: record.sha256,
-            size: record.size
-          },
-          url: record.sourcePage
+      complete: (downloadId) => {
+        const pending = this.downloadCompletionQueue.then(async () => {
+          const record = await this.downloadManager.complete(downloadId)
+          const outstanding = (
+            await this.downloadManager.read()
+          ).records.some(
+            (candidate) =>
+              candidate.runtimeId === record.runtimeId &&
+              (candidate.status === 'reserved' ||
+                candidate.status === 'downloading')
+          )
+          if (!outstanding) {
+            await this.handleStrategyDomainEvent({
+              strategyId: 'host-download-manager',
+              name: 'download.completed',
+              payload: {
+                downloadId: record.downloadId,
+                businessItemId: record.businessItemId,
+                attachmentId: record.attachmentId,
+                finalPath: record.finalPath,
+                sha256: record.sha256,
+                size: record.size
+              },
+              url: record.sourcePage
+            })
+          }
+          return { finalPath: record.finalPath, size: record.size }
         })
-        return { finalPath: record.finalPath, size: record.size }
+        this.downloadCompletionQueue = pending.then(
+          () => undefined,
+          () => undefined
+        )
+        return pending
       },
       fail: async (downloadId, category, detail) => {
         const record = await this.downloadManager.fail(
@@ -341,8 +376,32 @@ export class BackgroundProjectRuntime {
   private async handleStrategyDomainEvent(
     event: StrategyDomainEvent
   ): Promise<JsonValue | void> {
+    if (
+      event.name === 'project.authentication-required' ||
+      event.name === 'knowledge.page-changed'
+    ) {
+      if (!this.options.onManualTakeoverRequested) {
+        throw new Error('当前 Project Runtime 不支持人工接管请求')
+      }
+      const authentication =
+        event.name === 'project.authentication-required'
+      this.options.onManualTakeoverRequested(
+        this.runtime.projectId,
+        parseTakeoverReason(
+          event.payload,
+          authentication
+            ? '页面要求重新登录，等待人工接管'
+            : '页面结构变化，等待人工接管'
+        ),
+        authentication ? 'authentication' : 'page-changed'
+      )
+      return { kind: 'pause-requested' }
+    }
     if (event.name === 'download.intent') {
       return this.handleDownloadIntent(event)
+    }
+    if (event.name === 'project.item-observed') {
+      return this.handleItemObservation(event)
     }
     const workflowEvent: ProjectWorkflowEvent = {
       name: event.name,
@@ -360,6 +419,33 @@ export class BackgroundProjectRuntime {
     const runtime = await this.engine.handleEvent(workflowEvent)
     this.setRuntime(runtime)
     return null
+  }
+
+  private async handleItemObservation(
+    event: StrategyDomainEvent
+  ): Promise<JsonValue> {
+    const result = await this.itemStore.observe(
+      this.runtime.projectId,
+      event.payload,
+      event.url,
+      this.runtime.runtimeId
+    )
+    if (result.firstSeenInRuntime) {
+      const counter =
+        result.record.classification === 'matched'
+          ? { scanned: 1, matched: 1 }
+          : { scanned: 1, skipped: 1 }
+      const updated = await this.options.runtimeStore.incrementCounters(
+        this.runtime.runtimeId,
+        counter
+      )
+      this.setRuntime(updated.runtime)
+    }
+    return {
+      kind: result.kind,
+      firstSeenInRuntime: result.firstSeenInRuntime,
+      businessItemId: result.record.businessItemId
+    }
   }
 
   private async handleDownloadIntent(
@@ -411,7 +497,11 @@ export class BackgroundProjectRuntime {
     if (reservation.kind === 'in-progress') {
       return {
         kind: 'in-progress',
-        downloadId: reservation.record.downloadId
+        downloadId: reservation.record.downloadId,
+        canStart: this.pendingDownloads.some(
+          ({ record }) =>
+            record.downloadId === reservation.record.downloadId
+        )
       }
     }
     return {
@@ -592,4 +682,20 @@ function isTerminalRuntime(runtime: ProjectRuntimeRecord): boolean {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function parseTakeoverReason(
+  value: JsonValue | undefined,
+  fallback: string
+): string {
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    typeof value.reason === 'string' &&
+    value.reason.trim().length > 0
+  ) {
+    return value.reason.trim().slice(0, 4_000)
+  }
+  return fallback
 }

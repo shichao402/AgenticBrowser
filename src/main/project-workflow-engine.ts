@@ -110,7 +110,10 @@ export class ProjectWorkflowEngine {
     })
   }
 
-  pause(): Promise<ProjectRuntimeRecord> {
+  pause(
+    reason: string | null = null,
+    category: WorkflowFailureCategory | null = null
+  ): Promise<ProjectRuntimeRecord> {
     return this.enqueue(async () => {
       const envelope = await this.requireEnvelope()
       if (
@@ -137,7 +140,10 @@ export class ProjectWorkflowEngine {
               )
       }
       const paused = await this.transition('paused', {
-        nextWakeAt: null
+        nextWakeAt: null,
+        lastError:
+          reason === null ? null : truncate(reason, 4_000),
+        lastFailureCategory: category
       })
       return paused.runtime
     })
@@ -161,7 +167,9 @@ export class ProjectWorkflowEngine {
             ? null
             : new Date(
                 this.now() + pausedState.remainingWakeMs
-              ).toISOString()
+              ).toISOString(),
+        lastError: null,
+        lastFailureCategory: null
       })
       this.pausedState = null
       return resumed.runtime

@@ -1,7 +1,7 @@
 # AgenticBrowser 产品总计划
 
 - Last updated: 2026-10-15
-- Status: Phase 0–3 core implemented; knowledge-planet, failure-matrix and macOS/real-site gates pending
+- Status: Phase 0–3 core and local knowledge-planet gate implemented; failure-matrix and authenticated macOS/real-site gates pending
 
 ## 愿景
 
@@ -163,7 +163,7 @@ MVP 明确不做：
 
 ### Phase 3：Project Runtime
 
-当前状态：核心 Runtime、workflow、下载、Filter、工作台、双槽 Scheduler 和人工接管已实现；模拟 MP3 双轮幂等、不同 Profile 并行与共享 Profile 排队、暂停人工操作后恢复自动化的 smoke 均通过。真实知识星球、登录失效自动提示和故障矩阵仍待完成。
+当前状态：核心 Runtime、workflow、下载、Filter、工作台、双槽 Scheduler 和人工接管已实现；知识星球可配置模板、帖子记录、筛选计数、模拟 MP3 四轮幂等，以及登录失效/页面变化自动暂停与人工恢复均已通过本地 smoke。真实认证后 Feed/MP3 和故障矩阵仍待完成。
 
 - Project/Profile 清单。
 - 常驻与定时调度、并发预算。

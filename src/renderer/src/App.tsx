@@ -421,6 +421,32 @@ export function App(): React.JSX.Element {
     setActiveSection('projects')
   }
 
+  const installKnowledgePlanetPilot = async (): Promise<void> => {
+    const profileId = profiles.find((profile) => profile.active)?.id
+    if (!profileId) {
+      setError('请先选择一个活动 Profile')
+      return
+    }
+    if (
+      !window.confirm(
+        '安装禁用状态的知识星球试点模板？安装后还需要配置关键词并启用 Project。'
+      )
+    ) {
+      return
+    }
+    setError(null)
+    try {
+      const result =
+        await window.agenticBrowser.installKnowledgePlanetPilot(
+          profileId
+        )
+      setStrategyWorkspace(result.strategyWorkspace)
+      applyProjectWorkspace(result.projectWorkspace)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   const saveProject = async (): Promise<void> => {
     setError(null)
     try {
@@ -672,6 +698,13 @@ export function App(): React.JSX.Element {
           <section className="project-panel">
             <div className="panel-heading">
               <h2>Project</h2>
+              <button
+                type="button"
+                disabled={activeProjectRuntime !== null}
+                onClick={() => void installKnowledgePlanetPilot()}
+              >
+                安装知识星球模板
+              </button>
               <button type="button" onClick={newProject}>
                 新建
               </button>

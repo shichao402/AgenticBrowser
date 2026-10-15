@@ -88,6 +88,36 @@ describe('ProjectRuntimeStore', () => {
     )
   })
 
+  it('increments counters atomically without relying on a stale status', async () => {
+    const created = await store.create(project, 'manual')
+    await store.transition(created.runtime.runtimeId, 'starting')
+    await store.transition(created.runtime.runtimeId, 'running')
+
+    const running = await store.incrementCounters(
+      created.runtime.runtimeId,
+      { scanned: 2, matched: 1 }
+    )
+    expect(running.runtime).toMatchObject({
+      status: 'running',
+      counters: { scanned: 2, matched: 1 }
+    })
+
+    await store.transition(created.runtime.runtimeId, 'completed')
+    const completed = await store.incrementCounters(
+      created.runtime.runtimeId,
+      { downloaded: 1, downloadedBytes: 4096 }
+    )
+    expect(completed.runtime).toMatchObject({
+      status: 'completed',
+      counters: {
+        scanned: 2,
+        matched: 1,
+        downloaded: 1,
+        downloadedBytes: 4096
+      }
+    })
+  })
+
   it('recovers interrupted runtimes from their last checkpoint', async () => {
     const created = await store.create(project, 'manual')
     await store.transition(created.runtime.runtimeId, 'starting')

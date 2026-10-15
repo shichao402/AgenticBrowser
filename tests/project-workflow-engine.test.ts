@@ -164,15 +164,24 @@ describe('ProjectWorkflowEngine', () => {
 
     await engine.start()
     now += 2_000
-    expect(await engine.pause()).toMatchObject({
+    expect(
+      await engine.pause(
+        '知识星球登录失效',
+        'authentication'
+      )
+    ).toMatchObject({
       status: 'paused',
-      nextWakeAt: null
+      nextWakeAt: null,
+      lastError: '知识星球登录失效',
+      lastFailureCategory: 'authentication'
     })
     now += 60_000
     expect((await engine.tick()).status).toBe('paused')
     expect(await engine.resume()).toMatchObject({
       status: 'waiting',
-      nextWakeAt: '2026-10-15T00:01:05.000Z'
+      nextWakeAt: '2026-10-15T00:01:05.000Z',
+      lastError: null,
+      lastFailureCategory: null
     })
     now += 2_999
     expect((await engine.tick()).status).toBe('waiting')

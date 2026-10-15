@@ -1,6 +1,6 @@
 # MVP 路线图
 
-- Status: Phase 0–3 core implemented; knowledge-planet, failure-matrix and macOS/real-site gates pending
+- Status: Phase 0–3 core and local knowledge-planet gate implemented; failure-matrix and authenticated macOS/real-site gates pending
 - Scope: Phase 0–3
 
 MVP 的完成标准不是“能打开网页”，而是知识星球项目可以在故障注入下可靠扫描、筛选和下载，并能被监控。
@@ -71,7 +71,7 @@ Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy �
 
 ## Phase 3：Project Runtime 与试点
 
-当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽、人工接管和 Project 工作台已经落地。Windows 模拟站点的两轮 MP3 下载/去重闭环、不同 Profile 并行与共享 Profile 排队、暂停操作与恢复自动化均通过；真实知识星球、登录失效自动提示和下载中强杀恢复尚未通过。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
+当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽、人工接管和 Project 工作台已经落地。知识星球可配置模板、业务项记录、四轮 MP3 下载/去重，以及登录失效/页面变化自动暂停与恢复已通过本地受控站点；真实认证后 Feed/MP3 和下载中强杀恢复尚未通过。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
 
 ### 交付
 

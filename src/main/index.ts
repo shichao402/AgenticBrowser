@@ -17,6 +17,7 @@ import {
   type CapabilityPolicy,
   type ContentFilterDefinition,
   type JsonValue,
+  type KnowledgePlanetPilotInstallResult,
   type MonitorSnapshot,
   type ProjectDefinition,
   type ProjectDraft,
@@ -24,6 +25,7 @@ import {
   type ProjectWorkspaceSnapshot,
   type ProfileSummary,
   type ReloadOptions,
+  type WorkflowFailureCategory,
   type StrategyDefinition,
   type StrategyDraft,
   type StrategyWorkspaceSnapshot,
@@ -46,9 +48,16 @@ import {
 } from './checkpoint-store'
 import { MainProcessHeartbeat } from './main-process-heartbeat'
 import {
+  createKnowledgePlanetProjectDraft,
+  createKnowledgePlanetStrategyDraft,
+  KNOWLEDGE_PLANET_PROJECT_ID,
+  KNOWLEDGE_PLANET_STRATEGY_ID
+} from './knowledge-planet-pilot'
+import {
   ProjectDownloadManager,
   type ProjectDownloadReservation
 } from './project-download-manager'
+import { ProjectItemStore } from './project-item-store'
 import { ProjectScheduler } from './project-scheduler'
 import {
   ProjectRuntimeStore,
@@ -116,6 +125,9 @@ const projectConcurrencySmokeTest = process.argv.includes(
 const projectTakeoverSmokeTest = process.argv.includes(
   '--project-takeover-smoke-test'
 )
+const knowledgePlanetPilotSmokeTest = process.argv.includes(
+  '--knowledge-planet-pilot-smoke-test'
+)
 const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 const recoverySmokeResultPath = join(
@@ -141,6 +153,10 @@ const projectConcurrencySmokeResultPath = join(
 const projectTakeoverSmokeResultPath = join(
   process.cwd(),
   'phase3-project-takeover-smoke-result.json'
+)
+const knowledgePlanetPilotSmokeResultPath = join(
+  process.cwd(),
+  'phase3-knowledge-planet-pilot-smoke-result.json'
 )
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
 let automatedDownloadDirectory: string | null = null
@@ -245,6 +261,16 @@ function writeProjectTakeoverSmokeResult(result: unknown): void {
   if (projectTakeoverSmokeTest) {
     writeFileSync(
       projectTakeoverSmokeResultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
+  }
+}
+
+function writeKnowledgePlanetPilotSmokeResult(result: unknown): void {
+  if (knowledgePlanetPilotSmokeTest) {
+    writeFileSync(
+      knowledgePlanetPilotSmokeResultPath,
       `${JSON.stringify(result, null, 2)}\n`,
       'utf8'
     )
@@ -425,6 +451,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   )
   let activeWorkflowEngine: ProjectWorkflowEngine | null = null
   let activeDownloadManager: ProjectDownloadManager | null = null
+  let activeItemStore: ProjectItemStore | null = null
   let activeDownloadAdapter: BrowserDownloadAdapter | undefined
   let pendingManagedDownloads: Array<
     Extract<ProjectDownloadReservation, { kind: 'reserved' }>
@@ -442,6 +469,13 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         payload?: JsonValue
         url: string
       }) => JsonValue | void | Promise<JsonValue | void>)
+    | null = null
+  let requestManualTakeover:
+    | ((
+        projectId: string,
+        reason: string,
+        category: WorkflowFailureCategory
+      ) => void)
     | null = null
   let workflowTickTimer: NodeJS.Timeout | null = null
   let workflowTickInFlight = false
@@ -668,74 +702,93 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   }
   const createProjectDownloadAdapter = (
     manager: ProjectDownloadManager
-  ): BrowserDownloadAdapter => ({
-    reserve: async (request: BrowserDownloadRequest) => {
-      const requestUrls = new Set(
-        [request.sourceUrl, ...request.urlChain].map(
-          normalizeComparableUrl
+  ): BrowserDownloadAdapter => {
+    let completionQueue = Promise.resolve()
+    const adapter: BrowserDownloadAdapter = {
+      reserve: async (request: BrowserDownloadRequest) => {
+        const requestUrls = new Set(
+          [request.sourceUrl, ...request.urlChain].map(
+            normalizeComparableUrl
+          )
         )
-      )
-      const index = pendingManagedDownloads.findIndex((reservation) => {
-        const record = reservation.record
-        return (
-          requestUrls.has(normalizeComparableUrl(record.sourceUrl)) ||
-          (record.originalFileName === request.originalFileName &&
-            normalizeComparableUrl(record.sourcePage) ===
-              normalizeComparableUrl(request.sourcePage))
+        const index = pendingManagedDownloads.findIndex((reservation) => {
+          const record = reservation.record
+          return (
+            requestUrls.has(normalizeComparableUrl(record.sourceUrl)) ||
+            (record.originalFileName === request.originalFileName &&
+              normalizeComparableUrl(record.sourcePage) ===
+                normalizeComparableUrl(request.sourcePage))
+          )
+        })
+        if (index < 0) {
+          throw new Error(
+            `下载没有已授权的 Strategy 意图：${request.sourceUrl}`
+          )
+        }
+        const [reservation] = pendingManagedDownloads.splice(index, 1)
+        if (!reservation) {
+          throw new Error('下载意图队列状态无效')
+        }
+        return {
+          kind: 'reserved',
+          downloadId: reservation.record.downloadId,
+          temporaryPath: reservation.record.temporaryPath,
+          displayName: reservation.record.safeFileName
+        }
+      },
+      markDownloading: async (downloadId) => {
+        await manager.markDownloading(downloadId)
+      },
+      complete: (downloadId) => {
+        const pending = completionQueue.then(async () => {
+          const record = await manager.complete(downloadId)
+          const outstanding = (await manager.read()).records.some(
+            (candidate) =>
+              candidate.runtimeId === record.runtimeId &&
+              (candidate.status === 'reserved' ||
+                candidate.status === 'downloading')
+          )
+          if (!outstanding) {
+            await handleStrategyDomainEvent?.({
+              strategyId: 'host-download-manager',
+              name: 'download.completed',
+              payload: {
+                downloadId: record.downloadId,
+                businessItemId: record.businessItemId,
+                attachmentId: record.attachmentId,
+                finalPath: record.finalPath,
+                sha256: record.sha256,
+                size: record.size
+              },
+              url: record.sourcePage
+            })
+          }
+          return { finalPath: record.finalPath, size: record.size }
+        })
+        completionQueue = pending.then(
+          () => undefined,
+          () => undefined
         )
-      })
-      if (index < 0) {
-        throw new Error(
-          `下载没有已授权的 Strategy 意图：${request.sourceUrl}`
-        )
+        return pending
+      },
+      fail: async (downloadId, category, detail) => {
+        const record = await manager.fail(downloadId, category, detail)
+        await handleStrategyDomainEvent?.({
+          strategyId: 'host-download-manager',
+          name: 'download.failed',
+          payload: {
+            downloadId: record.downloadId,
+            businessItemId: record.businessItemId,
+            attachmentId: record.attachmentId,
+            category,
+            detail
+          },
+          url: record.sourcePage
+        })
       }
-      const [reservation] = pendingManagedDownloads.splice(index, 1)
-      if (!reservation) {
-        throw new Error('下载意图队列状态无效')
-      }
-      return {
-        kind: 'reserved',
-        downloadId: reservation.record.downloadId,
-        temporaryPath: reservation.record.temporaryPath,
-        displayName: reservation.record.safeFileName
-      }
-    },
-    markDownloading: async (downloadId) => {
-      await manager.markDownloading(downloadId)
-    },
-    complete: async (downloadId) => {
-      const record = await manager.complete(downloadId)
-      await handleStrategyDomainEvent?.({
-        strategyId: 'host-download-manager',
-        name: 'download.completed',
-        payload: {
-          downloadId: record.downloadId,
-          businessItemId: record.businessItemId,
-          attachmentId: record.attachmentId,
-          finalPath: record.finalPath,
-          sha256: record.sha256,
-          size: record.size
-        },
-        url: record.sourcePage
-      })
-      return { finalPath: record.finalPath, size: record.size }
-    },
-    fail: async (downloadId, category, detail) => {
-      const record = await manager.fail(downloadId, category, detail)
-      await handleStrategyDomainEvent?.({
-        strategyId: 'host-download-manager',
-        name: 'download.failed',
-        payload: {
-          downloadId: record.downloadId,
-          businessItemId: record.businessItemId,
-          attachmentId: record.attachmentId,
-          category,
-          detail
-        },
-        url: record.sourcePage
-      })
     }
-  })
+    return adapter
+  }
   const startProjectRuntime = async (
     runtimeId: string
   ): Promise<ProjectWorkspaceSnapshot> => {
@@ -792,6 +845,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     const previousCapabilityPolicy = activeCapabilityPolicy
     const previousContentFilter = activeContentFilter
     const previousDownloadManager = activeDownloadManager
+    const previousItemStore = activeItemStore
     const previousDownloadAdapter = activeDownloadAdapter
     const previousPendingDownloads = pendingManagedDownloads
 
@@ -812,6 +866,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       activeDownloadManager = new ProjectDownloadManager(
         join(runtimeProject.output.root, 'records', 'downloads.json'),
         { runtimeStore: projectRuntimeStore }
+      )
+      activeItemStore = new ProjectItemStore(
+        join(runtimeProject.output.root, 'records', 'items.json')
       )
       await activeDownloadManager.recoverInterrupted()
       pendingManagedDownloads = []
@@ -913,6 +970,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       activeCapabilityPolicy = previousCapabilityPolicy
       activeContentFilter = previousContentFilter
       activeDownloadManager = previousDownloadManager
+      activeItemStore = previousItemStore
       activeDownloadAdapter = previousDownloadAdapter
       pendingManagedDownloads = previousPendingDownloads
       try {
@@ -963,6 +1021,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     activeCapabilityPolicy = developmentCapabilityPolicy
     activeContentFilter = developmentContentFilter
     activeDownloadManager = null
+    activeItemStore = null
     activeDownloadAdapter = undefined
     pendingManagedDownloads = []
     if (activeCapabilityPolicy) {
@@ -1058,6 +1117,59 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     workflowTickTimer.unref()
   }
   handleStrategyDomainEvent = async (event) => {
+    if (
+      event.name === 'project.authentication-required' ||
+      event.name === 'knowledge.page-changed'
+    ) {
+      if (!currentProjectRuntime || !requestManualTakeover) {
+        throw new Error('当前 Project Runtime 不支持人工接管请求')
+      }
+      const authentication =
+        event.name === 'project.authentication-required'
+      requestManualTakeover(
+        currentProjectRuntime.projectId,
+        parseTakeoverReason(
+          event.payload,
+          authentication
+            ? '页面要求重新登录，等待人工接管'
+            : '页面结构变化，等待人工接管'
+        ),
+        authentication ? 'authentication' : 'page-changed'
+      )
+      return { kind: 'pause-requested' }
+    }
+    if (event.name === 'project.item-observed') {
+      if (
+        !activeItemStore ||
+        !projectRuntimeStore ||
+        !currentProjectRuntime
+      ) {
+        throw new Error('当前没有可接收帖子观测的 Project Runtime')
+      }
+      const result = await activeItemStore.observe(
+        currentProjectRuntime.projectId,
+        event.payload,
+        event.url,
+        currentProjectRuntime.runtimeId
+      )
+      if (result.firstSeenInRuntime) {
+        const counters =
+          result.record.classification === 'matched'
+            ? { scanned: 1, matched: 1 }
+            : { scanned: 1, skipped: 1 }
+        currentProjectRuntime = (
+          await projectRuntimeStore.incrementCounters(
+            currentProjectRuntime.runtimeId,
+            counters
+          )
+        ).runtime
+      }
+      return {
+        kind: result.kind,
+        firstSeenInRuntime: result.firstSeenInRuntime,
+        businessItemId: result.record.businessItemId
+      }
+    }
     if (event.name === 'download.intent') {
       if (
         !activeDownloadManager ||
@@ -1113,7 +1225,11 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       if (reservation.kind === 'in-progress') {
         return {
           kind: 'in-progress',
-          downloadId: reservation.record.downloadId
+          downloadId: reservation.record.downloadId,
+          canStart: pendingManagedDownloads.some(
+            ({ record }) =>
+              record.downloadId === reservation.record.downloadId
+          )
         }
       }
       return {
@@ -1176,7 +1292,11 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     await finalizeProjectRuntime(runtime, envelope.projectSnapshot.name)
   }
   const pauseProjectRuntime =
-    async (projectId: string): Promise<ProjectWorkspaceSnapshot> => {
+    async (
+      projectId: string,
+      reason: string | null = null,
+      category: WorkflowFailureCategory | null = null
+    ): Promise<ProjectWorkspaceSnapshot> => {
       if (!projectStore || !projectRuntimeStore) {
         throw new Error('Project Runtime 依赖当前不可用')
       }
@@ -1206,8 +1326,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         const paused = (
           await projectRuntimeStore.transition(runtimeId, 'paused', {
             nextWakeAt: null,
-            lastError: '等待人工恢复',
-            lastFailureCategory: null
+            lastError: reason ?? '等待人工恢复',
+            lastFailureCategory: category
           })
         ).runtime
         publish({
@@ -1227,7 +1347,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       try {
         const background = backgroundProjectRuntimes.get(runtimeId)
         if (background) {
-          const paused = await background.pause()
+          const paused = await background.pause(reason, category)
           if (isTerminalProjectRuntime(paused)) {
             projectScheduler?.releasePausedRuntime(runtimeId)
             await finalizeBackgroundProjectRuntime(paused, projectName)
@@ -1241,7 +1361,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
             url: background.supervisor.getSnapshot().url,
             detail:
               `${projectName}; runtimeId=${runtimeId}; ` +
-              'manual-takeover=true',
+              `manual-takeover=true${
+                reason ? `; reason=${reason}` : ''
+              }`,
             projectId,
             runtimeId
           })
@@ -1251,7 +1373,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         if (activeWorkflowEngine?.runtimeId !== runtimeId) {
           throw new Error('Project Runtime 的浏览器执行上下文不可用')
         }
-        const paused = await activeWorkflowEngine.pause()
+        const paused = await activeWorkflowEngine.pause(
+          reason,
+          category
+        )
         currentProjectRuntime = structuredClone(paused)
         if (isTerminalProjectRuntime(paused)) {
           projectScheduler?.releasePausedRuntime(runtimeId)
@@ -1263,7 +1388,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         showProjectSupervisor(projectId)
         publishProjectRuntimeEvent(
           'project-runtime-paused',
-          `${projectName}; runtimeId=${runtimeId}; manual-takeover=true`
+          `${projectName}; runtimeId=${runtimeId}; manual-takeover=true${
+            reason ? `; reason=${reason}` : ''
+          }`
         )
         return readProjectWorkspace()
       } catch (error) {
@@ -1277,6 +1404,37 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         throw error
       }
     }
+  const pendingAutomaticTakeovers = new Set<string>()
+  requestManualTakeover = (projectId, reason, category) => {
+    if (pendingAutomaticTakeovers.has(projectId)) {
+      return
+    }
+    pendingAutomaticTakeovers.add(projectId)
+    void enqueueSupervisorOperation(async () => {
+      const state = await projectRuntimeStore?.read()
+      const runtime = [...(state?.runtimes ?? [])]
+        .reverse()
+        .find(
+          ({ runtime: candidate }) =>
+            candidate.projectId === projectId &&
+            !isTerminalProjectRuntime(candidate)
+        )?.runtime
+      if (!runtime || runtime.status === 'paused') {
+        return
+      }
+      await pauseProjectRuntime(
+        projectId,
+        reason,
+        category
+      )
+    })
+      .catch((error: unknown) => {
+        console.error('自动请求人工接管失败', error)
+      })
+      .finally(() => {
+        pendingAutomaticTakeovers.delete(projectId)
+      })
+  }
   const resumeProjectRuntime =
     async (projectId: string): Promise<ProjectWorkspaceSnapshot> => {
       if (!projectStore || !projectRuntimeStore || !projectScheduler) {
@@ -1486,6 +1644,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       publish,
       bounds: browserBounds(),
       visible: false,
+      onManualTakeoverRequested: (projectId, reason, category) =>
+        requestManualTakeover?.(projectId, reason, category),
       onTerminal: (runtime) =>
         finalizeBackgroundProjectRuntime(
           runtime,
@@ -1762,6 +1922,75 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     assertTrustedSender(event.sender.id)
     return readProjectWorkspace()
   })
+
+  ipcMain.handle(
+    IPC_CHANNELS.installKnowledgePlanetPilot,
+    (event, profileId: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (
+        !projectStore ||
+        !profileStore ||
+        !strategyStore ||
+        !strategyPolicyStore ||
+        typeof profileId !== 'string'
+      ) {
+        throw new TypeError('知识星球模板安装参数无效')
+      }
+      return enqueueSupervisorOperation(async () => {
+        await assertProjectRuntimeInactive('安装知识星球模板')
+        const [profileState, projectState, strategyState] =
+          await Promise.all([
+            profileStore.read(),
+            projectStore.read(),
+            strategyStore.read()
+          ])
+        if (
+          !profileState.profiles.some(
+            (profile) => profile.id === profileId
+          )
+        ) {
+          throw new Error(`Profile 不存在：${profileId}`)
+        }
+        if (
+          projectState.projects.some(
+            (project) => project.id === KNOWLEDGE_PLANET_PROJECT_ID
+          ) ||
+          strategyState.strategies.some(
+            (definition) =>
+              definition.manifest.id === KNOWLEDGE_PLANET_STRATEGY_ID
+          )
+        ) {
+          throw new Error('知识星球试点模板已经安装，请直接编辑现有配置')
+        }
+
+        const strategyWorkspace =
+          await applyDevelopmentStrategyConfiguration(
+            await strategyStore.save(
+              createKnowledgePlanetStrategyDraft()
+            ),
+            await strategyPolicyStore.read()
+          )
+        await projectStore.save(
+          createKnowledgePlanetProjectDraft({
+            profileId,
+            outputRoot: join(
+              app.getPath('downloads'),
+              'AgenticBrowser',
+              'knowledge-planet'
+            )
+          })
+        )
+        const selectedState = await projectStore.setActive(
+          KNOWLEDGE_PLANET_PROJECT_ID
+        )
+        return {
+          projectWorkspace:
+            await buildProjectWorkspaceSnapshot(selectedState),
+          strategyWorkspace
+        }
+      })
+    }
+  )
 
   ipcMain.handle(
     IPC_CHANNELS.saveProject,
@@ -2047,6 +2276,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ipcMain.removeHandler(IPC_CHANNELS.activateProfile)
       ipcMain.removeHandler(IPC_CHANNELS.deleteProfile)
       ipcMain.removeHandler(IPC_CHANNELS.getProjectWorkspace)
+      ipcMain.removeHandler(
+        IPC_CHANNELS.installKnowledgePlanetPilot
+      )
       ipcMain.removeHandler(IPC_CHANNELS.saveProject)
       ipcMain.removeHandler(IPC_CHANNELS.setActiveProject)
       ipcMain.removeHandler(IPC_CHANNELS.deleteProject)
@@ -2222,6 +2454,22 @@ function normalizeComparableUrl(value: string): string {
   } catch {
     return value
   }
+}
+
+function parseTakeoverReason(
+  value: JsonValue | undefined,
+  fallback: string
+): string {
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    typeof value.reason === 'string' &&
+    value.reason.trim().length > 0
+  ) {
+    return value.reason.trim().slice(0, 4_000)
+  }
+  return fallback
 }
 
 function formatUnknownError(error: unknown): string {
@@ -2664,7 +2912,8 @@ function createCheckpointStore(): BrowserCheckpointStore | undefined {
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest
+    projectTakeoverSmokeTest ||
+    knowledgePlanetPilotSmokeTest
   ) {
     return undefined
   }
@@ -3037,6 +3286,305 @@ async function runProjectDownloadSmoke(
     filterHits,
     cssFilterEvents,
     expectedSha256,
+    observedEventTypes: [
+      ...new Set(runtime.events.map((event) => event.type))
+    ]
+  }
+}
+
+async function runKnowledgePlanetPilotSmoke(
+  runtime: MainWindowRuntime,
+  probe: PhaseZeroProbeServer,
+  outputRoot: string
+): Promise<Record<string, unknown>> {
+  const profiles = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.createProfile('Knowledge Planet Pilot')`
+  )) as ProfileSummary[]
+  const projectProfile = profiles.find(
+    (profile) => profile.name === 'Knowledge Planet Pilot'
+  )
+  if (!projectProfile) {
+    throw new Error('知识星球试点 smoke 未能创建 Profile')
+  }
+
+  const installed =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.installKnowledgePlanetPilot(${JSON.stringify(
+        projectProfile.id
+      )})`
+    )) as KnowledgePlanetPilotInstallResult
+  const fixtureOrigin = new URL(probe.knowledgePlanetFeedUrl).origin
+  const strategyDraft = createKnowledgePlanetStrategyDraft({
+    matches: [`${fixtureOrigin}/*`],
+    includeKeywords: ['会议'],
+    itemSelectors: ['.topic'],
+    textSelectors: ['.content'],
+    audioSelectors: ['a.audio'],
+    detailLinkSelectors: ['a.detail'],
+    idAttributes: ['data-topic-id'],
+    maximumItems: 10
+  })
+  const strategyWorkspace =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.saveStrategy(${JSON.stringify(
+        strategyDraft
+      )})`
+    )) as StrategyWorkspaceSnapshot
+
+  const createEnabledDraft = (entryUrl: string): ProjectDraft => {
+    const template = createKnowledgePlanetProjectDraft({
+      profileId: projectProfile.id,
+      outputRoot,
+      entryUrl,
+      runtimeMode: 'manual'
+    })
+    return {
+      ...template,
+      runtime: {
+        ...template.runtime,
+        maxRunMs: 30_000
+      },
+      enabled: true
+    }
+  }
+  const feedDraft = createEnabledDraft(probe.knowledgePlanetFeedUrl)
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.saveProject(${JSON.stringify(feedDraft)})`
+  )
+
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+      KNOWLEDGE_PLANET_PROJECT_ID
+    )})`
+  )
+  const firstWorkspace = await waitForProjectRuns(
+    runtime,
+    KNOWLEDGE_PLANET_PROJECT_ID,
+    1
+  )
+  const itemStore = new ProjectItemStore(
+    join(outputRoot, 'records', 'items.json')
+  )
+  const downloadManager = new ProjectDownloadManager(
+    join(outputRoot, 'records', 'downloads.json')
+  )
+  const firstItems = await itemStore.read()
+  const firstDownloads = await waitForCompletedDownloads(
+    downloadManager,
+    1
+  )
+
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+      KNOWLEDGE_PLANET_PROJECT_ID
+    )})`
+  )
+  const secondWorkspace = await waitForProjectRuns(
+    runtime,
+    KNOWLEDGE_PLANET_PROJECT_ID,
+    2
+  )
+  const secondItems = await itemStore.read()
+  const secondDownloads = await downloadManager.read()
+
+  const loginDraft = createEnabledDraft(
+    probe.knowledgePlanetLoginUrl
+  )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.saveProject(${JSON.stringify(loginDraft)})`
+  )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+      KNOWLEDGE_PLANET_PROJECT_ID
+    )})`
+  )
+  const authenticationPaused = await waitForProjectRuntimeStatus(
+    runtime,
+    KNOWLEDGE_PLANET_PROJECT_ID,
+    'paused'
+  )
+  const authenticationManualSnapshot =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.navigate(${JSON.stringify(
+        probe.knowledgePlanetFeedUrl
+      )})`
+    )) as BrowserSnapshot
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.resumeProjectRuntime(${JSON.stringify(
+      KNOWLEDGE_PLANET_PROJECT_ID
+    )})`
+  )
+  const authenticationWorkspace = await waitForProjectRuns(
+    runtime,
+    KNOWLEDGE_PLANET_PROJECT_ID,
+    3
+  )
+
+  const changedDraft = createEnabledDraft(
+    probe.knowledgePlanetChangedFeedUrl
+  )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.saveProject(${JSON.stringify(changedDraft)})`
+  )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+      KNOWLEDGE_PLANET_PROJECT_ID
+    )})`
+  )
+  const pageChangedPaused = await waitForProjectRuntimeStatus(
+    runtime,
+    KNOWLEDGE_PLANET_PROJECT_ID,
+    'paused'
+  )
+  const pageChangedManualSnapshot =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.navigate(${JSON.stringify(
+        probe.knowledgePlanetFeedUrl
+      )})`
+    )) as BrowserSnapshot
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.resumeProjectRuntime(${JSON.stringify(
+      KNOWLEDGE_PLANET_PROJECT_ID
+    )})`
+  )
+  const finalWorkspace = await waitForProjectRuns(
+    runtime,
+    KNOWLEDGE_PLANET_PROJECT_ID,
+    4
+  )
+
+  const finalItems = await itemStore.read()
+  const finalDownloads = await downloadManager.read()
+  const downloads = readDirectoryNames(join(outputRoot, 'downloads'))
+  const temporary = readDirectoryNames(join(outputRoot, 'tmp'))
+  const projectRuntimes = finalWorkspace.runtimes.filter(
+    (candidate) =>
+      candidate.projectId === KNOWLEDGE_PLANET_PROJECT_ID
+  )
+  const completedDownloads = finalDownloads.records.filter(
+    (record) => record.status === 'completed'
+  )
+  const matched = finalItems.records.find(
+    (record) => record.businessItemId === 'meeting-001'
+  )
+  const skipped = finalItems.records.find(
+    (record) => record.businessItemId === 'chat-001'
+  )
+  const expectedSha256 = createHash('sha256')
+    .update(Buffer.alloc(4096, 0x5a))
+    .digest('hex')
+  const expectedSecondSha256 = createHash('sha256')
+    .update(Buffer.alloc(2048, 0x33))
+    .digest('hex')
+  const expectedButtonSha256 = createHash('sha256')
+    .update(Buffer.alloc(1024, 0x71))
+    .digest('hex')
+  const takeoverEvents = runtime.events.filter(
+    (event) =>
+      event.projectId === KNOWLEDGE_PLANET_PROJECT_ID &&
+      (event.type === 'project-runtime-paused' ||
+        event.type === 'project-runtime-resumed')
+  )
+  const passed =
+    installed.projectWorkspace.projects.some(
+      (project) =>
+        project.id === KNOWLEDGE_PLANET_PROJECT_ID && !project.enabled
+    ) &&
+    installed.strategyWorkspace.strategies.some(
+      (definition) =>
+        definition.manifest.id === KNOWLEDGE_PLANET_STRATEGY_ID
+    ) &&
+    firstItems.records.length === 2 &&
+    firstDownloads.records.length === 3 &&
+    secondItems.records.length === 2 &&
+    secondDownloads.records.length === 3 &&
+    finalItems.records.length === 2 &&
+    matched?.classification === 'matched' &&
+    matched.attachmentCount === 3 &&
+    matched.seenCount === 4 &&
+    skipped?.classification === 'skipped' &&
+    skipped.seenCount === 4 &&
+    completedDownloads.length === 3 &&
+    completedDownloads.some(
+      (record) =>
+        record.size === 4096 && record.sha256 === expectedSha256
+    ) &&
+    completedDownloads.some(
+      (record) =>
+        record.size === 2048 && record.sha256 === expectedSecondSha256
+    ) &&
+    completedDownloads.some(
+      (record) =>
+        record.size === 1024 && record.sha256 === expectedButtonSha256
+    ) &&
+    downloads.length === 3 &&
+    temporary.length === 0 &&
+    authenticationPaused.lastFailureCategory === 'authentication' &&
+    authenticationPaused.lastError?.includes('登录失效') === true &&
+    authenticationManualSnapshot.url.startsWith(
+      probe.knowledgePlanetFeedUrl
+    ) &&
+    pageChangedPaused.lastFailureCategory === 'page-changed' &&
+    pageChangedPaused.lastError?.includes('audioSelectors') === true &&
+    pageChangedManualSnapshot.url.startsWith(
+      probe.knowledgePlanetFeedUrl
+    ) &&
+    projectRuntimes.length >= 4 &&
+    projectRuntimes.every(
+      (candidate) =>
+        candidate.status === 'completed' &&
+        candidate.counters.scanned === 2 &&
+        candidate.counters.matched === 1 &&
+        candidate.counters.skipped === 1
+    ) &&
+    projectRuntimes.reduce(
+      (total, candidate) => total + candidate.counters.downloaded,
+      0
+    ) === 3 &&
+    takeoverEvents.filter(
+      (event) => event.type === 'project-runtime-paused'
+    ).length === 2 &&
+    takeoverEvents.filter(
+      (event) => event.type === 'project-runtime-resumed'
+    ).length === 2
+
+  return {
+    passed,
+    installed: {
+      projectIds: installed.projectWorkspace.projects.map(
+        (project) => project.id
+      ),
+      strategyIds: installed.strategyWorkspace.strategies.map(
+        (definition) => definition.manifest.id
+      ),
+      installedProjectEnabled:
+        installed.projectWorkspace.projects.find(
+          (project) => project.id === KNOWLEDGE_PLANET_PROJECT_ID
+        )?.enabled ?? null
+    },
+    strategyWorkspace: {
+      strategyIds: strategyWorkspace.strategies.map(
+        (definition) => definition.manifest.id
+      ),
+      developmentAllowedStrategyIds:
+        strategyWorkspace.developmentAllowedStrategyIds
+    },
+    firstWorkspace,
+    secondWorkspace,
+    authenticationPaused,
+    authenticationManualSnapshot,
+    authenticationWorkspace,
+    pageChangedPaused,
+    pageChangedManualSnapshot,
+    finalWorkspace,
+    itemState: finalItems,
+    downloadState: finalDownloads,
+    downloads,
+    temporary,
+    takeoverEvents,
+    expectedSha256,
+    expectedSecondSha256,
+    expectedButtonSha256,
     observedEventTypes: [
       ...new Set(runtime.events.map((event) => event.type))
     ]
@@ -4066,7 +4614,8 @@ if (runApplication) {
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest
+    projectTakeoverSmokeTest ||
+    knowledgePlanetPilotSmokeTest
       ? undefined
       : new StructuredEventLog(
           join(app.getPath('userData'), 'logs', 'browser-events.jsonl')
@@ -4081,7 +4630,8 @@ if (runApplication) {
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest
+    projectTakeoverSmokeTest ||
+    knowledgePlanetPilotSmokeTest
       ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
       : null
   const profileStore = new ProfileStore(
@@ -4124,7 +4674,8 @@ if (runApplication) {
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest
+    projectTakeoverSmokeTest ||
+    knowledgePlanetPilotSmokeTest
       ? createCapabilityPolicy()
       : await capabilityStore.read()
   const strategyStore = new StrategyStore(
@@ -4150,7 +4701,8 @@ if (runApplication) {
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest
+    projectTakeoverSmokeTest ||
+    knowledgePlanetPilotSmokeTest
       ? await startPhaseZeroProbeServer()
       : null
   const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
@@ -4183,7 +4735,8 @@ if (runApplication) {
       !strategyWorkspaceSmokeTest &&
       !projectDownloadSmokeTest &&
       !projectConcurrencySmokeTest &&
-      !projectTakeoverSmokeTest,
+      !projectTakeoverSmokeTest &&
+      !knowledgePlanetPilotSmokeTest,
     phaseZeroProbe: smokeTest,
     healthMonitoring: !smokeTest && !strategyFaultSmokeTest,
     ...(initialUrl ? { initialUrl } : {}),
@@ -4437,6 +4990,29 @@ if (runApplication) {
     return
   }
 
+  if (knowledgePlanetPilotSmokeTest) {
+    if (!phaseZeroProbe || !automatedDownloadDirectory) {
+      throw new Error('知识星球试点 smoke 环境未初始化')
+    }
+    const result = await runKnowledgePlanetPilotSmoke(
+      runtime,
+      phaseZeroProbe,
+      join(automatedDownloadDirectory, 'knowledge-planet-output')
+    )
+    writeKnowledgePlanetPilotSmokeResult(result)
+    console.log(
+      `AGENTIC_BROWSER_KNOWLEDGE_PLANET_PILOT_SMOKE ${JSON.stringify(
+        result
+      )}`
+    )
+    await closeSmokeRuntime(runtime)
+    await phaseZeroProbe.close()
+    phaseZeroProbe = null
+    cleanupAutomatedDownloads()
+    app.exit(result.passed === true ? 0 : 1)
+    return
+  }
+
   if (recoverySmokeTest) {
     if (!phaseZeroProbe) {
       throw new Error('Recovery smoke probe server 未启动')
@@ -4530,6 +5106,7 @@ if (runApplication) {
     writeProjectDownloadSmokeResult(result)
     writeProjectConcurrencySmokeResult(result)
     writeProjectTakeoverSmokeResult(result)
+    writeKnowledgePlanetPilotSmokeResult(result)
     void phaseZeroProbe?.close()
     phaseZeroProbe = null
     cleanupAutomatedDownloads()

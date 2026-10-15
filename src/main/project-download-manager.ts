@@ -417,22 +417,16 @@ export class ProjectDownloadManager {
     if (!runtimeStore) {
       return
     }
-    const envelope = (await runtimeStore.read()).runtimes.find(
+    const exists = (await runtimeStore.read()).runtimes.some(
       ({ runtime }) => runtime.runtimeId === record.runtimeId
     )
-    if (!envelope) {
+    if (!exists) {
       return
     }
-    await runtimeStore.transition(
-      envelope.runtime.runtimeId,
-      envelope.runtime.status,
-      {
-        counters: {
-          downloaded: 1,
-          downloadedBytes: record.size
-        }
-      }
-    )
+    await runtimeStore.incrementCounters(record.runtimeId, {
+      downloaded: 1,
+      downloadedBytes: record.size
+    })
   }
 
   private async update<T>(

@@ -27,10 +27,12 @@
 - `src/main/background-project-runtime.ts`：独立后台 BrowserTabManager、workflow、Strategy、下载事务、人工接管与终态生命周期。
 - `src/main/project-workflow-engine.ts`：navigate/delay/wait-for-event/complete 状态机、重试、补偿转移、检查点和等待预算冻结/恢复。
 - `src/main/project-download-manager.ts`：下载意图、临时文件、哈希、配额、原子提交、manifest 和业务去重。
+- `src/main/project-item-store.ts`：项目业务项观测、matched/skipped 分类、跨 Runtime 去重和扫描计数。
+- `src/main/knowledge-planet-pilot.ts`：默认禁用的知识星球 Project/Strategy 模板、可配置页面定位与登录识别。
 - `src/main/content-filter.ts`：Project 网络资源规则和 CSS selector 规则。
 - `src/main/structured-event-log.ts`：串行 JSONL 领域事件日志。
 - `src/main/download-path.ts`：跨平台下载文件名清理。
-- `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
+- `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie、阻塞页面和知识星球 Feed/登录页夹具。
 - `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
 - `src/preload/index.ts`：最小 BrowserShell API。
 - `src/preload/strategy-bootstrap.ts`：单文件 session frame preload、run-at 调度和隔离 world bootstrap。
@@ -39,7 +41,7 @@
 
 尚未实现或尚未完成：
 
-- 真实知识星球与第二站点策略。
+- 已认证的真实知识星球 DOM/MP3 验证与第二站点策略；当前知识星球模板只通过本地受控夹具。
 - 两槽以上并发的资源压测与用户可配置预算；当前 Windows 验证预算固定为 2。
 - 下载中强杀、断网、结构变化和磁盘不足的完整 Electron 故障门禁。
 - 示教录制与 Agent sidecar。
@@ -177,7 +179,9 @@ Capability Policy schema v1 保存 popup、download、notification、geolocation
 
 开发态 Capability 文件仍提供默认运行上下文；Project Runtime 启动后使用 Project 快照自己的默认值和精确 Origin 规则，终态后恢复开发配置。
 
-session 级 `will-download` 统一接管下载。Project Strategy 必须先发送包含业务项、附件、来源 URL、文件名和预期大小的 `download.intent`；宿主完成权限、配额、磁盘与幂等检查后才允许对应下载。文件先写入项目 `tmp/`，完成后计算 SHA-256 并无覆盖提交到 `downloads/`，完整记录写入 `records/downloads.json`。相同业务附件再次出现时返回 completed 记录，不生成第二个文件；完成或失败通过领域事件推进 workflow。
+session 级 `will-download` 统一接管下载。Project Strategy 必须先发送包含业务项、附件、来源 URL、文件名和预期大小的 `download.intent`；宿主完成权限、配额、磁盘与幂等检查后才允许对应下载。文件先写入项目 `tmp/`，完成后计算 SHA-256 并无覆盖提交到 `downloads/`，完整记录写入 `records/downloads.json`。相同业务附件再次出现时返回 completed 记录，不生成第二个文件。多个附件的完成回调按宿主队列串行提交，只有同一 Runtime 不再存在 reserved/downloading 记录时才发送聚合完成事件；若页面导航打断预留与下载触发之间的窗口，后续 Strategy 注入可识别仍在宿主待处理队列中的预留项并继续触发。
+
+页面扫描通过 `project.item-observed` 报告业务项。宿主把文本、分类、附件摘要和来源写入 `records/items.json`，按 Project + 业务 ID 跨 Runtime 合并，并以原子计数更新 Runtime 的 scanned/matched/skipped。认证失效和已识别的页面结构变化由宿主转换为带分类的人工接管请求，页面脚本不能直接更改 Runtime 状态。
 
 ### TeachingRecorder
 

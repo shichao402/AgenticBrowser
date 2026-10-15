@@ -4,6 +4,7 @@ dist/
 out/
 release/
 coverage/
+.vitest/
 *.tsbuildinfo
 phase0-smoke-result.json
 phase1-recovery-smoke-result.json
@@ -12,6 +13,7 @@ phase2-strategy-workspace-smoke-result.json
 phase3-project-download-smoke-result.json
 phase3-project-concurrency-smoke-result.json
 phase3-project-takeover-smoke-result.json
+phase3-knowledge-planet-pilot-smoke-result.json
 watchdog-smoke-result.json
 
 # Runtime state

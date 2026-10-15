@@ -256,6 +256,36 @@ export class ProjectRuntimeStore {
     })
   }
 
+  async incrementCounters(
+    runtimeId: string,
+    counters: Partial<ProjectRuntimeCounters>
+  ): Promise<ProjectRuntimeEnvelope> {
+    return this.update((state) => {
+      const index = state.runtimes.findIndex(
+        ({ runtime }) => runtime.runtimeId === runtimeId
+      )
+      if (index < 0) {
+        throw new Error(`Project Runtime 不存在：${runtimeId}`)
+      }
+      const current = state.runtimes[index]!
+      const updatedAt = new Date(this.now()).toISOString()
+      const envelope = {
+        runtime: applyTransitionPatch(
+          {
+            ...current.runtime,
+            lastHeartbeatAt: updatedAt,
+            updatedAt
+          },
+          { counters }
+        ),
+        projectSnapshot: structuredClone(current.projectSnapshot)
+      }
+      const runtimes = [...state.runtimes]
+      runtimes[index] = envelope
+      return { state: { ...state, runtimes }, result: envelope }
+    })
+  }
+
   async recoverInterrupted(): Promise<ProjectRuntimeEnvelope[]> {
     return this.update((state) => {
       const now = new Date(this.now()).toISOString()
