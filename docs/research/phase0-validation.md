@@ -14,7 +14,7 @@
 - [x] Windows 开发模式启动
 - [x] Windows unpacked 应用构建和启动
 - [x] Windows NSIS 安装包构建
-- [ ] Windows 安装后启动
+- [x] Windows 安装后启动
 - [ ] macOS 构建、签名和启动
 
 ## 安全隔离
@@ -23,7 +23,7 @@
 - [x] 远程页面 `contextIsolation: true`
 - [x] 远程页面 `sandbox: true`
 - [x] BrowserShell 与远程页面使用不同 `WebContents`
-- [ ] 非 BrowserShell sender 无法调用高权限 IPC
+- [x] 非 BrowserShell sender 无法调用高权限 IPC
 - [x] 导航只允许 HTTP/HTTPS
 
 ## 生命周期与恢复
@@ -49,10 +49,10 @@
 ## 录制性能
 
 - [x] `capturePage` 10 FPS
-- [ ] 环形缓冲内存上限
-- [ ] 页面交互延迟影响
-- [ ] 多 `WebContentsView` 影响
-- [ ] renderer 挂死时的证据兜底
+- [x] 环形缓冲内存上限
+- [x] 页面交互延迟影响
+- [x] 多 `WebContentsView` 影响
+- [x] renderer 挂死时的证据兜底
 
 ## 目标站点
 
@@ -119,6 +119,7 @@ npm run smoke:electron
 
 - smoke 总结果 `passed: true`。
 - top frame、同源 iframe、跨域 OOPIF 均在页面 inline script 执行时看到 preload marker，且两者记录的 `document.readyState` 都是 `loading`。
+- 远程页面 main world 不存在 Node `process`、`require` 或 BrowserShell 的 `agenticBrowser` IPC bridge。
 - 跨域 frame 使用不同 renderer process，证明覆盖了 OOPIF，而不只是同进程 iframe。
 - renderer 强制崩溃并重建后，三个 frame 均再次看到 preload marker，preload error 为空。
 - Named Profile Cookie 在重建前后均存在。
@@ -129,7 +130,7 @@ npm run smoke:electron
 
 `webContents` 的 `unresponsive` 事件继续保留为辅助信号，但它不适合作为后台监督主信号：触发延迟通常约 30 秒，并受用户输入与页面可见性影响。Phase 1 的 HealthMonitor 必须以短周期主动心跳和业务断言为主，`unresponsive`/`responsive` 只补充故障时间线。
 
-当前 10 FPS 结果只证明单个可见 `WebContentsView` 的短时采集能力；尚未证明环形缓冲上限、长时间稳定性、多页面并发或交互延迟，因此这些验收项保持未完成。
+该次结果只证明单个可见 `WebContentsView` 的短时采集能力；环形缓冲、多页面和交互影响随后由扩展探针验证，长时间稳定性仍不在当前证据范围内。
 
 ### 2026-10-15：应用外 Watchdog 与持久化检查点
 
@@ -153,3 +154,33 @@ npm run smoke:watchdog
 - `npx electron-builder --win --dir` 重新打包成功；`app.asar` 已包含 `out/main/watchdog.js` 及其共享原子文件 chunk。
 
 这证明了开发环境中的独立进程重启和最小浏览器状态恢复。当前检查点只包含 URL 与 Profile ID，不等同于 Phase 3 的 workflow 步骤、幂等键和业务记录。Watchdog 产物已经由构建生成，但安装包入口、开机启动和 macOS launchd/签名集成仍属于 Phase 1 与双平台发布验证，不能按已交付能力宣称。
+
+### 2026-10-15：环形缓冲、交互影响、多页面与挂死证据
+
+扩展后的 `npm run smoke:electron` 结果仍为 `passed: true`：
+
+- 单页面 20 帧为 9.97 FPS，平均采集 17.84 ms、p95 27.13 ms，0 空帧。
+- 环形缓冲硬限制为 10 帧/1 MiB；输入 20 帧后保留最新 10 帧、237,200 bytes，淘汰 10 帧，没有越过上限。
+- 无录制时 renderer 往返延迟 p95 为 1.00 ms；10 FPS 录制期间 p95 为 1.06 ms，增加 0.06 ms。
+- 两个同时可见且具有不同 WebContents ID 的页面保持运行；辅助页面的 50 ms tick 在测试期间持续前进。第二页面负载存在时，主页面 20 帧采集达到 9.97 FPS，p95 18.96 ms，全部非空。该结果验证“活动页面录制 + 另一活动页面”的影响，不外推为所有页面同时录制。
+- renderer JavaScript 事件循环阻塞期间，主进程在 29.06 ms 内仍取得 23,720 bytes 的合成器画面；同时冻结的故障前环形缓冲保留 3 帧、71,160 bytes。即使实时截图失败，冻结缓冲也不依赖页面脚本存活。
+- `CaptureRingBuffer` 对帧数、字节数、超大帧和冻结行为有单元测试；当前总计 3 个测试文件、15 项测试通过。
+- Windows 上 `capturePage` 在窗口没有可用显示合成表面时会报告 `Current display surface not available for capture`/`UnknownVizError`。Smoke 明确前置并聚焦测试窗口后稳定通过；正式 Recorder 必须把页面可见性作为运行前置条件，并将该错误分类为“当前不可录制”，不能无限重试。
+
+这些数据是当前 Windows 主机上的短时 Phase 0 基准，不代表所有硬件的长期容量结论。Phase 4 仍需实现变化抽帧、磁盘证据包、保留期限和长时间压力测试。
+
+### 2026-10-15：Windows 安装后启动
+
+- `npm run dist` 使用当前源码重新生成 x64 NSIS one-click 安装包和 block map。
+- 安装包以 silent 模式安装到独立测试目录，退出码为 0。
+- 从安装目录启动 `AgenticBrowser.exe` 后，进程 `Responding: True`，主窗口标题为 `AgenticBrowser`，实际进程路径指向安装目录而非 unpacked 构建。
+- 测试结束后关闭应用并运行安装目录内的 uninstaller，退出码为 0。
+
+本次验证使用默认 Electron 图标和未配置发布证书的开发构建；正式图标、代码签名、SmartScreen、升级和回滚仍是发布前工作。
+
+## 当前主机无法闭合的 Phase 0 项
+
+- 当前只有 Windows 主机，不能把 Windows 交叉产物当作 macOS 构建、签名、公证或启动证据；需要 macOS runner 或真实设备。
+- 知识星球的真实首页/星球 URL、可用登录 Profile 和核心路径样本尚未提供，因此不能声称目标站点 A 已验证。
+- 第二个目标站点尚未确定。
+- Chromium `unresponsive`/`responsive` 事件本身没有可靠、可配置的短超时触发方式；后台监督已经改用主动 heartbeat，原生事件只保留辅助观测，不伪造完成证据。

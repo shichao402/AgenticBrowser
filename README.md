@@ -74,4 +74,4 @@ npm run dist
 
 ## 当前状态
 
-项目处于 Phase 0：已建立 Electron/TypeScript/React 工程基线、BrowserShell/远程页面分离、frame/OOPIF 注入探针、最小导航与生命周期事件流、renderer 重建、主动心跳停顿检测、应用外 Watchdog 强杀恢复、URL/Profile 检查点和单页面 10 FPS 采集基准。安装包 Watchdog 入口、workflow 业务检查点、长时录制和双平台验证仍待完成。证据见 [Phase 0 验证记录](docs/research/phase0-validation.md)。
+项目处于 Phase 0：已建立 Electron/TypeScript/React 工程基线、BrowserShell/远程页面分离、frame/OOPIF 注入探针、最小导航与生命周期事件流、renderer 重建、主动心跳停顿检测、应用外 Watchdog 强杀恢复、URL/Profile 检查点，以及带硬上限和故障冻结的 10 FPS 截图环。单/双页面短时性能与交互影响已实测；安装包 Watchdog 入口、workflow 业务检查点、长时录制和双平台验证仍待完成。证据见 [Phase 0 验证记录](docs/research/phase0-validation.md)。

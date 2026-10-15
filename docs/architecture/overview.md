@@ -9,6 +9,7 @@
 - `src/main/index.ts`：`BaseWindow`、BrowserShell `WebContentsView`、远程页面布局和受信 IPC 注册。
 - `src/main/browser-supervisor.ts`：Named Profile session、页面生命周期事件、导航/刷新、主动心跳探针和 renderer 消失后的重建入口。
 - `src/main/checkpoint-store.ts`：版本化浏览器检查点、串行原子写入、读取校验和损坏文件隔离。
+- `src/main/capture-ring-buffer.ts`：受帧数与字节数双重约束、可冻结的内存截图环。
 - `src/main/main-process-heartbeat.ts`：Electron main 的外部存活心跳。
 - `src/main/watchdog.ts`：应用外进程监督、心跳超时、重启预算和状态记录。
 - `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
@@ -128,6 +129,8 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 ### TeachingRecorder
 
 记录带单调时间戳的输入、URL、viewport、滚动位置、目标语义、DOM/Accessibility、网络摘要和关键帧。运行数据使用环形缓冲与变化抽帧。
+
+当前 Phase 0 只实现了录制底座中的内存截图环：按最大帧数与最大字节数淘汰最旧 JPEG，并可在故障发生时冻结，冻结后拒绝新帧覆盖证据。输入轨迹、变化抽帧、DOM/AX、网络摘要、证据落盘和清理策略仍属于 Phase 4。
 
 ### AgentOrchestrator
 

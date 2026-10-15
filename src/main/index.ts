@@ -282,6 +282,9 @@ app.whenReady().then(async () => {
   })
 
   if (smokeTest) {
+    runtime.window.setAlwaysOnTop(true)
+    runtime.window.show()
+    runtime.window.focus()
     if (!phaseZeroProbe) {
       throw new Error('Phase 0 probe server 未启动')
     }
@@ -291,6 +294,9 @@ app.whenReady().then(async () => {
     const profileCookieBeforeCrash =
       await runtime.supervisor.hasProfileCookie('agentic_phase0_session')
     const capture = await runtime.supervisor.benchmarkCapture()
+    const interactionDuringCapture =
+      await runtime.supervisor.benchmarkInteractionDuringCapture()
+    const multiViewCapture = await runtime.supervisor.benchmarkMultiViewCapture()
     const heartbeatStall = await runtime.supervisor.probeHeartbeatStall()
     await runtime.supervisor.forceCrashAndWait()
     const afterCrash = await runtime.supervisor.collectDiagnostics(runtime.shellView.webContents.id)
@@ -340,6 +346,7 @@ app.whenReady().then(async () => {
       beforeCrash.preferences.nodeIntegrationInSubFrames &&
       !beforeCrash.pageWorld.hasNodeProcess &&
       !beforeCrash.pageWorld.hasRequire &&
+      !beforeCrash.pageWorld.hasBrowserShellBridge &&
       beforeCrash.strategyPreloadRegistered &&
       injectedBeforeCrash.length === expectedLabels.size &&
       injectedAfterCrash.length === expectedLabels.size &&
@@ -348,8 +355,22 @@ app.whenReady().then(async () => {
       profileCookieAfterCrash &&
       capture.emptyFrames === 0 &&
       capture.achievedFps >= 9.5 &&
+      capture.ring.frameCount === 10 &&
+      capture.ring.byteLength <= 1024 * 1024 &&
+      capture.ring.evictedFrames === 10 &&
+      interactionDuringCapture.captureFps >= 9.5 &&
+      interactionDuringCapture.duringCapture.p95Ms < 100 &&
+      interactionDuringCapture.p95DeltaMs < 100 &&
+      multiViewCapture.distinctWebContents &&
+      multiViewCapture.auxiliaryResponsive &&
+      multiViewCapture.auxiliaryTickAdvanced &&
+      multiViewCapture.emptyFrames === 0 &&
+      multiViewCapture.achievedFps >= 9 &&
       heartbeatStall.stallDetected &&
       heartbeatStall.recovered &&
+      heartbeatStall.frozenEvidence.frozen &&
+      heartbeatStall.frozenEvidence.frameCount === 3 &&
+      heartbeatStall.frozenEvidence.byteLength > 0 &&
       failedNavigationRejected &&
       expectedEventTypes.every((eventType) => observedEventTypes.has(eventType)) &&
       afterCrash.generation > beforeCrash.generation
@@ -366,7 +387,9 @@ app.whenReady().then(async () => {
       failedNavigationRejected,
       observedEventTypes: [...observedEventTypes],
       heartbeatStall,
-      capture
+      capture,
+      interactionDuringCapture,
+      multiViewCapture
     }
     writeSmokeResult(result)
     console.log(`AGENTIC_BROWSER_SMOKE ${JSON.stringify(result)}`)

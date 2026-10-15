@@ -3,7 +3,8 @@ import {
   WebContentsView,
   session,
   type Rectangle,
-  type Session
+  type Session,
+  type WebContents
 } from 'electron'
 
 import type {
@@ -16,6 +17,10 @@ import {
   type BrowserCheckpoint,
   type BrowserCheckpointStore
 } from './checkpoint-store'
+import {
+  CaptureRingBuffer,
+  type CaptureRingSnapshot
+} from './capture-ring-buffer'
 import { normalizeNavigationUrl } from './navigation'
 
 const DEFAULT_URL = 'https://example.com/'
@@ -40,6 +45,7 @@ export interface BrowserDiagnostics {
   pageWorld: {
     hasNodeProcess: boolean
     hasRequire: boolean
+    hasBrowserShellBridge: boolean
   }
   strategyPreloadRegistered: boolean
   preloadErrors: string[]
@@ -69,6 +75,34 @@ export interface CaptureBenchmark {
   encodedBytes: number
   emptyFrames: number
   rssDeltaBytes: number
+  ring: CaptureRingSnapshot
+}
+
+export interface InteractionCaptureBenchmark {
+  baseline: LatencyStats
+  duringCapture: LatencyStats
+  p95DeltaMs: number
+  captureFps: number
+}
+
+export interface MultiViewCaptureBenchmark {
+  distinctWebContents: boolean
+  capturedPrimaryFrames: number
+  auxiliaryResponsive: boolean
+  auxiliaryTickAdvanced: boolean
+  achievedFps: number
+  averageCaptureMs: number
+  p95CaptureMs: number
+  emptyFrames: number
+  encodedBytes: number
+  rssDeltaBytes: number
+}
+
+export interface LatencyStats {
+  sampleCount: number
+  averageMs: number
+  p95Ms: number
+  maximumMs: number
 }
 
 export interface HeartbeatStallProbe {
@@ -77,6 +111,10 @@ export interface HeartbeatStallProbe {
   stallDetected: boolean
   recovered: boolean
   elapsedMs: number
+  frozenEvidence: CaptureRingSnapshot
+  liveEvidenceBytes: number
+  liveEvidenceCaptureMs: number
+  liveEvidenceCapturedBeforeRecovery: boolean
 }
 
 export interface BrowserSupervisorOptions {
@@ -165,7 +203,8 @@ export class BrowserSupervisor {
         hasNodeProcess:
           typeof globalThis.process !== 'undefined' &&
           Boolean(globalThis.process?.versions?.node),
-        hasRequire: typeof globalThis.require === 'function'
+        hasRequire: typeof globalThis.require === 'function',
+        hasBrowserShellBridge: typeof globalThis.agenticBrowser !== 'undefined'
       })
     `)) as BrowserDiagnostics['pageWorld']
 
@@ -242,6 +281,7 @@ export class BrowserSupervisor {
   async benchmarkCapture(frameCount = 20, intervalMs = 100): Promise<CaptureBenchmark> {
     const contents = this.requireContents()
     const durations: number[] = []
+    const ring = new CaptureRingBuffer(10, 1024 * 1024)
     await new Promise((resolve) => setTimeout(resolve, 500))
     await this.capturePageWithRetry()
     const startedAt = performance.now()
@@ -261,6 +301,7 @@ export class BrowserSupervisor {
       frameStartedAt.push(captureStartedAt)
       const image = await this.capturePageWithRetry()
       const encoded = image.toJPEG(70)
+      ring.push(encoded)
       const captureDuration = performance.now() - captureStartedAt
       durations.push(captureDuration)
       encodedBytes += encoded.byteLength
@@ -289,7 +330,128 @@ export class BrowserSupervisor {
       p95CaptureMs: sortedDurations[p95Index] ?? 0,
       encodedBytes,
       emptyFrames,
-      rssDeltaBytes: process.memoryUsage().rss - rssBefore
+      rssDeltaBytes: process.memoryUsage().rss - rssBefore,
+      ring: ring.getSnapshot()
+    }
+  }
+
+  async benchmarkInteractionDuringCapture(
+    sampleCount = 20
+  ): Promise<InteractionCaptureBenchmark> {
+    await this.capturePageWithRetry()
+    const baseline = await this.sampleRendererLatency(sampleCount, 20)
+    const capturePromise = this.benchmarkCapture(20, 100)
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    const duringCapture = await this.sampleRendererLatency(sampleCount, 75)
+    const capture = await capturePromise
+
+    return {
+      baseline,
+      duringCapture,
+      p95DeltaMs: duringCapture.p95Ms - baseline.p95Ms,
+      captureFps: capture.achievedFps
+    }
+  }
+
+  async benchmarkMultiViewCapture(
+    frameCount = 20,
+    intervalMs = 100
+  ): Promise<MultiViewCaptureBenchmark> {
+    const primaryView = this.pageView
+    if (!primaryView) {
+      throw new Error('浏览器页面当前不可用')
+    }
+
+    const primaryContents = this.requireContents()
+    const auxiliaryView = new WebContentsView({
+      webPreferences: {
+        ...REMOTE_PAGE_SECURITY,
+        session: this.profileSession
+      }
+    })
+    const auxiliaryContents = auxiliaryView.webContents
+    auxiliaryContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    const leftWidth = Math.floor(this.bounds.width / 2)
+    const rightWidth = this.bounds.width - leftWidth
+    const durations: number[] = []
+    const frameStartedAt: number[] = []
+    let emptyFrames = 0
+    let encodedBytes = 0
+    const rssBefore = process.memoryUsage().rss
+
+    this.window.contentView.addChildView(auxiliaryView)
+    primaryView.setBounds({
+      ...this.bounds,
+      width: leftWidth
+    })
+    auxiliaryView.setBounds({
+      x: this.bounds.x + leftWidth,
+      y: this.bounds.y,
+      width: rightWidth,
+      height: this.bounds.height
+    })
+    primaryView.setVisible(true)
+    auxiliaryView.setVisible(true)
+
+    try {
+      await auxiliaryContents.loadURL(this.currentUrl)
+      primaryContents.invalidate()
+      auxiliaryContents.invalidate()
+      await new Promise((resolve) => setTimeout(resolve, 750))
+      await this.captureContentsWithRetry(primaryContents, 20)
+      const auxiliaryTickBefore = Number(
+        await auxiliaryContents.executeJavaScript(
+          'document.documentElement.dataset.tick ?? "0"'
+        )
+      )
+      const startedAt = performance.now()
+
+      for (let index = 0; index < frameCount; index += 1) {
+        const waitMs = startedAt + index * intervalMs - performance.now()
+        if (waitMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitMs))
+        }
+
+        const captureStartedAt = performance.now()
+        frameStartedAt.push(captureStartedAt)
+        const image = await this.captureContentsWithRetry(primaryContents, 10)
+        durations.push(performance.now() - captureStartedAt)
+
+        const encoded = image.toJPEG(70)
+        encodedBytes += encoded.byteLength
+        if (image.isEmpty() || encoded.byteLength === 0) {
+          emptyFrames += 1
+        }
+      }
+
+      const auxiliaryTickAfter = Number(
+        await auxiliaryContents.executeJavaScript(
+          'document.documentElement.dataset.tick ?? "0"'
+        )
+      )
+      const stats = summarizeLatencies(durations)
+      return {
+        distinctWebContents: primaryContents.id !== auxiliaryContents.id,
+        capturedPrimaryFrames: frameCount,
+        auxiliaryResponsive: !auxiliaryContents.isCrashed(),
+        auxiliaryTickAdvanced: auxiliaryTickAfter > auxiliaryTickBefore,
+        achievedFps:
+          frameStartedAt.length > 1
+            ? ((frameStartedAt.length - 1) * 1000) /
+              ((frameStartedAt.at(-1) ?? startedAt) - frameStartedAt[0]!)
+            : 0,
+        averageCaptureMs: stats.averageMs,
+        p95CaptureMs: stats.p95Ms,
+        emptyFrames,
+        encodedBytes,
+        rssDeltaBytes: process.memoryUsage().rss - rssBefore
+      }
+    } finally {
+      this.window.contentView.removeChildView(auxiliaryView)
+      if (!auxiliaryContents.isDestroyed()) {
+        auxiliaryContents.close()
+      }
+      primaryView.setBounds(this.bounds)
     }
   }
 
@@ -298,19 +460,42 @@ export class BrowserSupervisor {
     timeoutMs = 250
   ): Promise<HeartbeatStallProbe> {
     const contents = this.requireContents()
+    const evidenceRing = new CaptureRingBuffer(3, 1024 * 1024)
+    for (let index = 0; index < 3; index += 1) {
+      evidenceRing.push((await this.capturePageWithRetry()).toJPEG(70))
+    }
+
     const startedAt = performance.now()
-    const execution = contents.executeJavaScript(`
-      {
-        const blockedUntil = performance.now() + ${blockMs};
-        while (performance.now() < blockedUntil) {
-          // Intentional Phase 0 renderer hang.
+    let rendererExecutionFinished = false
+    const execution = contents
+      .executeJavaScript(`
+        {
+          const blockedUntil = performance.now() + ${blockMs};
+          while (performance.now() < blockedUntil) {
+            // Intentional Phase 0 renderer hang.
+          }
+          true;
         }
-        true;
-      }
-    `)
+      `)
+      .finally(() => {
+        rendererExecutionFinished = true
+      })
 
     await new Promise((resolve) => setTimeout(resolve, 50))
     const stallDetected = !(await this.pingRenderer(timeoutMs))
+    const frozenEvidence = evidenceRing.freeze('renderer-heartbeat-stalled')
+    const liveEvidenceStartedAt = performance.now()
+    let liveEvidenceBytes = 0
+    let liveEvidenceCapturedBeforeRecovery = false
+    try {
+      const liveEvidence = await this.capturePageWithRetry()
+      liveEvidenceBytes = liveEvidence.toJPEG(70).byteLength
+      liveEvidenceCapturedBeforeRecovery =
+        !rendererExecutionFinished && !liveEvidence.isEmpty() && liveEvidenceBytes > 0
+    } catch {
+      // The frozen pre-failure ring remains available when live capture is impossible.
+    }
+    const liveEvidenceCaptureMs = performance.now() - liveEvidenceStartedAt
     await execution
     const recovered = await this.pingRenderer(timeoutMs)
 
@@ -319,15 +504,22 @@ export class BrowserSupervisor {
       timeoutMs,
       stallDetected,
       recovered,
-      elapsedMs: performance.now() - startedAt
+      elapsedMs: performance.now() - startedAt,
+      frozenEvidence,
+      liveEvidenceBytes,
+      liveEvidenceCaptureMs,
+      liveEvidenceCapturedBeforeRecovery
     }
   }
 
   private async capturePageWithRetry() {
-    const contents = this.requireContents()
+    return this.captureContentsWithRetry(this.requireContents())
+  }
+
+  private async captureContentsWithRetry(contents: WebContents, attempts = 5) {
     let lastError: unknown
 
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         return await contents.capturePage()
       } catch (error) {
@@ -337,6 +529,32 @@ export class BrowserSupervisor {
     }
 
     throw lastError
+  }
+
+  private async sampleRendererLatency(
+    sampleCount: number,
+    intervalMs: number
+  ): Promise<LatencyStats> {
+    if (!Number.isInteger(sampleCount) || sampleCount <= 0) {
+      throw new Error('sampleCount 必须是正整数')
+    }
+
+    const contents = this.requireContents()
+    const durations: number[] = []
+    const startedAt = performance.now()
+
+    for (let index = 0; index < sampleCount; index += 1) {
+      const waitMs = startedAt + index * intervalMs - performance.now()
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
+      }
+
+      const sampleStartedAt = performance.now()
+      await contents.executeJavaScript('performance.now()')
+      durations.push(performance.now() - sampleStartedAt)
+    }
+
+    return summarizeLatencies(durations)
   }
 
   private async pingRenderer(timeoutMs: number): Promise<boolean> {
@@ -538,5 +756,31 @@ export class BrowserSupervisor {
 
     this.lastEvent = event
     this.publish(event)
+  }
+}
+
+function summarizeLatencies(durations: number[]): LatencyStats {
+  if (durations.length === 0) {
+    return {
+      sampleCount: 0,
+      averageMs: 0,
+      p95Ms: 0,
+      maximumMs: 0
+    }
+  }
+
+  const sorted = [...durations].sort((left, right) => left - right)
+  const p95Index = Math.min(
+    sorted.length - 1,
+    Math.ceil(sorted.length * 0.95) - 1
+  )
+
+  return {
+    sampleCount: durations.length,
+    averageMs:
+      durations.reduce((total, duration) => total + duration, 0) /
+      durations.length,
+    p95Ms: sorted[p95Index] ?? 0,
+    maximumMs: sorted.at(-1) ?? 0
   }
 }

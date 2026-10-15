@@ -7,7 +7,7 @@ MVP 的完成标准不是“能打开网页”，而是知识星球项目可以�
 
 ## Phase 0：Electron Spike
 
-当前切片：工程基线、BrowserShell/远程页面隔离、frame/OOPIF 注入、renderer 重建、主动页面心跳、应用外 Watchdog 强杀恢复、最小 URL/Profile 检查点和单页面 10 FPS 采集已经通过 Windows smoke。仍需完成环形缓冲与交互影响、第二目标站点、安装后启动和 macOS 验证。证据持续记录在 [Phase 0 验证记录](../research/phase0-validation.md)。
+当前切片：工程基线、BrowserShell/远程页面隔离、frame/OOPIF 注入、renderer 重建、主动页面心跳、应用外 Watchdog 强杀恢复、最小 URL/Profile 检查点、有硬上限的单/双页面 10 FPS 截图环、交互影响和 Windows 安装后启动已经通过验证。仍需完成真实目标站点与 macOS 验证。证据持续记录在 [Phase 0 验证记录](../research/phase0-validation.md)。
 
 ### 交付
 
