@@ -59,6 +59,7 @@ npm run smoke:strategy-fault
 npm run smoke:strategy-workspace
 npm run smoke:project-download
 npm run smoke:project-concurrency
+npm run smoke:project-takeover
 npm run smoke:recovery
 npm run smoke:watchdog
 npm run smoke:watchdog:packaged

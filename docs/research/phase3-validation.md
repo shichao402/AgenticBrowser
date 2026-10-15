@@ -101,16 +101,16 @@ npm run smoke:project-takeover
 => passed
 ```
 
-探针运行一个等待领域事件的 Project：
+探针先在主槽运行 blocker，再在独立 Profile 的后台槽运行一个等待领域事件的 Project：
 
-1. Runtime 进入 `waiting`，Project Strategy 保持运行。
+1. 两个 Runtime 同时进入 `waiting`，接管目标的 Project Strategy 在后台槽保持运行。
 2. “暂停并接管”把 Runtime 转为 `paused`，冻结等待截止时间并重建无 Strategy 的页面。
 3. 暂停期间通过 BrowserShell 导航模拟用户完成登录或修复页面；Runtime 仍为 paused，活动 Strategy 数为 0。
 4. “恢复自动化”重新注入固定版本 Strategy，页面发出完成事件，原 Runtime 从同一 workflow 节点完成。
 
 观测结果：
 
-- 暂停监控为 1 个 paused Project、0 个活动 Strategy，页面仍健康且可导航。
+- 暂停监控为 1 个 active blocker、1 个 paused Project、2 个页面和 0 个活动 Strategy，页面仍健康且可导航。
 - 恢复后 checkpoint 保存 `takeover.completed`，Runtime 为 completed。
 - `project-runtime-paused` 与 `project-runtime-resumed` 事件均携带 Project/Runtime 归属。
 - 暂停 Runtime 在 Scheduler 中继续占用执行槽和 Profile 锁。

@@ -3347,10 +3347,6 @@ async function runProjectTakeoverSmoke(
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.saveProject(${JSON.stringify(blockerDraft)})`
   )
-  await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(blockerDraft.id)})`
-  )
-  await waitForProjectRuntimeStatus(runtime, blockerDraft.id, 'waiting')
 
   const initialUrl = new URL(probe.topUrl)
   initialUrl.searchParams.set('takeover', 'initial')
@@ -3422,6 +3418,10 @@ async function runProjectTakeoverSmoke(
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.saveProject(${JSON.stringify(draft)})`
   )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(blockerDraft.id)})`
+  )
+  await waitForProjectRuntimeStatus(runtime, blockerDraft.id, 'waiting')
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.startProjectRuntime(${JSON.stringify(draft.id)})`
   )
