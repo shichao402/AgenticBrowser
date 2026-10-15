@@ -201,6 +201,42 @@ describe('ProjectDownloadManager', () => {
     ).resolves.toBe('partial')
   })
 
+  it('safely retries an interrupted attachment without adding a filename suffix', async () => {
+    const first = await manager.reserve(project, intent())
+    if (first.kind !== 'reserved') {
+      throw new Error('expected reservation')
+    }
+    await writeFile(first.record.temporaryPath, 'partial')
+    await manager.markDownloading(first.record.downloadId)
+    await manager.recoverInterrupted()
+
+    const retry = await manager.reserve(project, intent())
+    expect(retry.kind).toBe('reserved')
+    if (retry.kind !== 'reserved') {
+      throw new Error('expected retry reservation')
+    }
+    expect(retry.record).toMatchObject({
+      safeFileName: first.record.safeFileName,
+      finalPath: first.record.finalPath,
+      retryCount: 1
+    })
+    await writeFile(retry.record.temporaryPath, 'mp3-data')
+    await manager.markDownloading(retry.record.downloadId)
+    const completed = await manager.complete(retry.record.downloadId)
+
+    expect(completed).toMatchObject({
+      status: 'completed',
+      safeFileName: 'post-1-meeting.mp3',
+      size: 8
+    })
+    await expect(readFile(completed.finalPath, 'utf8')).resolves.toBe(
+      'mp3-data'
+    )
+    await expect(readFile(first.record.temporaryPath, 'utf8')).resolves.toBe(
+      'partial'
+    )
+  })
+
   it('bounds long idempotency inputs with a stable digest', () => {
     const key = createDownloadIdempotencyKey(project.id, {
       businessItemId: 'post'.repeat(200),

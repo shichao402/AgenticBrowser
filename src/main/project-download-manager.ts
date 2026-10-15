@@ -616,9 +616,17 @@ async function chooseSafeFileName(
   records: ProjectDownloadRecord[]
 ): Promise<string> {
   const safe = sanitizeDownloadFileName(rendered)
+  // Failed/cancelled records keep audit evidence, but an absent final file
+  // must remain reusable by a safe retry of the same business attachment.
   const occupied = new Set(
     records
-      .filter((record) => dirname(record.finalPath) === root)
+      .filter(
+        (record) =>
+          dirname(record.finalPath) === root &&
+          (record.status === 'reserved' ||
+            record.status === 'downloading' ||
+            record.status === 'completed')
+      )
       .map((record) => record.safeFileName.toLowerCase())
   )
   if (

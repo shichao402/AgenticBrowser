@@ -29,8 +29,8 @@ npm run typecheck
 => passed
 
 npm test
-=> 23 test files passed
-=> 115 tests passed
+=> 24 test files passed
+=> 119 tests passed
 ```
 
 覆盖：
@@ -39,7 +39,7 @@ npm test
 - Runtime 状态机、单实例、检查点恢复和跨重启幂等。
 - Scheduler 单/双槽预算、Profile 互斥、优先级、自动启动、常驻退避、定时到期和 maxRunMs。
 - Workflow 导航、领域事件、delay、超时重试、补偿转移和幂等跳过。
-- Download Manager 临时提交、文件名、哈希、重复去重、并发预留、配额、磁盘不足、中断记录和 Runtime 下载计数。
+- Download Manager 临时提交、文件名、哈希、重复去重、并发预留、配额、磁盘不足、中断记录、无后缀安全重试和 Runtime 下载计数。
 - Content Filter allow 优先、资源类型边界和 CSS selector 规则。
 - Strategy 领域事件会等待宿主处理，并把 JSON 预授权结果返回页面脚本。
 - 接管暂停/恢复、暂停期间领域事件拒绝、跨重启 paused Runtime 重排队，以及暂停槽/Profile 锁不被调度器复用。
@@ -119,6 +119,22 @@ npm run smoke:project-takeover
 - `project-runtime-paused` 与 `project-runtime-resumed` 事件均携带 Project/Runtime 归属。
 - 暂停 Runtime 在 Scheduler 中继续占用执行槽和 Profile 锁。
 
+### Electron main 下载中强杀与安全重试
+
+```text
+npm run smoke:project-download-recovery
+=> passed
+```
+
+独立 Watchdog 启动一个持久化 Project Runtime，从本地 HTTP 端点下载 1 MiB 的慢速文件。探针在 manifest 已进入 `downloading` 且 `.part` 已写入部分字节时，从应用外强杀 Electron main：
+
+1. Watchdog 启动第二个 Electron PID，应用把同一 Runtime 从 `wait-download` 检查点以 `trigger=resume` 重新排队。
+2. Download Manager 将首次未完成记录分类为 `failed/unknown`，保留部分 `.part` 作为故障证据，不把它提交到最终目录。
+3. 相同业务幂等键重新预留并完整下载；失败记录不再无谓占用最终文件名，重试沿用原安全文件名。
+4. 新文件完成 SHA-256 校验和原子提交后，同一 Runtime 进入 `completed`。
+
+最终只有一个完整文件，大小为 1,048,576 bytes，SHA-256 为 `bf63d8a95fcc2e64619813aae35fdcbe871fdd9264caa3f365eb3aed0f679129`；manifest 保留一条 failed 证据和一条 completed 记录，Runtime 下载计数只增加一次。Watchdog 状态为两次 launch、一次 restart，锁在退出后释放。该门禁证明 Electron main 与其 renderer 一同消失时可以安全重试，但不等同于单独只杀下载页面 renderer。
+
 ### Electron 双公开真实站点闭环
 
 ```text
@@ -138,7 +154,7 @@ npm run smoke:automation-playground
 
 ## 尚未通过的门禁
 
-- 下载过程中强杀 renderer / Electron main 后的端到端续传或安全重试。
+- 下载过程中只强杀页面 renderer、但保留 Electron main 时的下载归属与恢复。
 - 断网、登录失效和磁盘不足的 Electron 级故障注入；页面变化门禁已通过。
 - 两槽以上的资源预算压测与可配置并发上限。
 - macOS DMG、签名、公证、Watchdog 和 login item。

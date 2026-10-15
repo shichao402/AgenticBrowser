@@ -18,7 +18,7 @@
 ```text
 npm run check
 => typecheck passed
-=> 23 test files / 115 tests passed
+=> 24 test files / 119 tests passed
 => production build passed
 => production dependency audit: 0 known vulnerabilities
 ```
@@ -30,6 +30,7 @@ Windows Electron 门禁：
 - `npm run smoke:strategy-fault`：Strategy 心跳、超时、同步死循环隔离和 renderer 重建恢复通过。
 - `npm run smoke:strategy-workspace`：Strategy 编辑、启停、授权与热重载通过。
 - `npm run smoke:project-download`：下载预授权、临时文件、SHA-256、原子提交和幂等通过。
+- `npm run smoke:project-download-recovery`：下载部分写入时强杀 Electron main，Watchdog 重启后同一 Runtime 从检查点安全重试并只提交一个完整附件。
 - `npm run smoke:project-concurrency`：双执行槽、不同 Profile 并行、共享 Profile 互斥和输出隔离通过。
 - `npm run smoke:project-takeover`：人工接管、等待预算冻结、Strategy 暂停和同 Runtime 恢复通过。
 - `npm run smoke:automation-playground`：双公开真实站点三轮流程通过。
@@ -39,7 +40,7 @@ Windows Electron 门禁：
 持续集成：
 
 - `.github/workflows/ci.yml` 在 `main` push、Pull Request 和手动触发时使用 Node.js 22 的 `windows-latest` 执行 `npm ci` 与 `npm run check`。
-- 该 CI 是快速工程基线，不包含 Electron GUI、打包 Watchdog或外部真实站点 smoke；这些门禁当前仍需本地或发布前显式执行，不能把 `CI passed` 等同于完整 MVP 验收。
+- 该 CI 是快速工程基线，不包含 Electron GUI、打包 Watchdog 或外部真实站点 smoke；这些门禁当前仍需本地或发布前显式执行，不能把 `CI passed` 等同于完整 MVP 验收。
 
 ## 双公开站点验收
 
@@ -74,12 +75,14 @@ Strategy manifest、URL/frame/run-at 匹配、隔离 world、受控宿主 API、
 
 Project/Profile/Runtime、固定 Strategy 版本、workflow/checkpoint、Scheduler、双槽与 Profile 互斥、下载事务、Content Filter、监控和人工接管已闭合。双公开站点验收已通过。
 
-未闭合：下载过程中强杀 renderer/main、断网和磁盘不足的 Electron 端到端故障门禁。
+已闭合：下载过程中强杀 Electron main 后的 Watchdog、Project Runtime、manifest、幂等和安全重试门禁。
+
+未闭合：下载过程中只强杀页面 renderer、断网和磁盘不足的 Electron 端到端故障门禁。
 
 ## 阻止 MVP 完成的门禁
 
 1. 在 Electron 层注入断网，确认故障被分类、按预算恢复或进入可接管状态。
-2. 在真实下载过程中强杀 renderer 和 Electron main，确认重启后不会提交损坏文件或重复业务附件，并能安全重试。
+2. 在真实下载过程中只强杀页面 renderer、保留 Electron main，确认下载归属、事件和 Runtime 状态仍然一致。Electron main 强杀及安全重试已经通过。
 3. 在 Electron 层模拟磁盘不足，确认临时文件、manifest、Runtime 计数和错误分类一致。
 4. 在 macOS 实机或可信 runner 验证 DMG、签名、公证、Watchdog、login item 和基本真实站点闭环。
 

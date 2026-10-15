@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import {
+  existsSync,
   mkdirSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { app, BaseWindow, ipcMain, session, WebContentsView } from 'electron'
@@ -61,6 +63,11 @@ import {
   ProjectDownloadManager,
   type ProjectDownloadReservation
 } from './project-download-manager'
+import {
+  PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID,
+  createProjectDownloadRecoveryProjectDraft,
+  createProjectDownloadRecoveryStrategyDraft
+} from './project-download-recovery-smoke'
 import { ProjectItemStore } from './project-item-store'
 import { ProjectScheduler } from './project-scheduler'
 import {
@@ -133,6 +140,9 @@ const automationPlaygroundSmokeTest = process.argv.includes(
   '--automation-playground-smoke-test'
 )
 const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
+const projectDownloadRecoverySmokeChild = process.argv.includes(
+  '--project-download-recovery-smoke-child'
+)
 const automatedTestRun =
   smokeTest ||
   recoverySmokeTest ||
@@ -142,7 +152,8 @@ const automatedTestRun =
   projectConcurrencySmokeTest ||
   projectTakeoverSmokeTest ||
   automationPlaygroundSmokeTest ||
-  watchdogSmokeChild
+  watchdogSmokeChild ||
+  projectDownloadRecoverySmokeChild
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 const recoverySmokeResultPath = join(
   process.cwd(),
@@ -3350,6 +3361,263 @@ async function runProjectDownloadSmoke(
   }
 }
 
+async function runProjectDownloadRecoverySmokeChild(
+  runtime: MainWindowRuntime,
+  projectRuntimeStore: ProjectRuntimeStore
+): Promise<void> {
+  const resultPath = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_RESULT_PATH'
+  )
+  const pageUrl = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_URL'
+  )
+  const outputRoot = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_OUTPUT_ROOT'
+  )
+  const expectedSha256 = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_SHA256'
+  )
+  const expectedBytes = parsePositiveInteger(
+    requireEnvironmentValue(
+      'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_BYTES'
+    ),
+    'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_BYTES'
+  )
+  const downloadManager = new ProjectDownloadManager(
+    join(outputRoot, 'records', 'downloads.json')
+  )
+
+  if (watchdogRestartCount === 0) {
+    const profiles =
+      (await runtime.shellView.webContents.executeJavaScript(
+        `window.agenticBrowser.createProfile('Smoke Download Recovery Profile')`
+      )) as ProfileSummary[]
+    const projectProfile = profiles.find(
+      (profile) => profile.name === 'Smoke Download Recovery Profile'
+    )
+    if (!projectProfile) {
+      throw new Error('下载恢复 smoke 未能创建 Profile')
+    }
+
+    const strategyDraft = createProjectDownloadRecoveryStrategyDraft(
+      pageUrl,
+      expectedBytes
+    )
+    const projectDraft = createProjectDownloadRecoveryProjectDraft({
+      profileId: projectProfile.id,
+      pageUrl,
+      outputRoot,
+      expectedBytes
+    })
+    await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.saveStrategy(${JSON.stringify(strategyDraft)})`
+    )
+    await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.saveProject(${JSON.stringify(projectDraft)})`
+    )
+    const started =
+      (await runtime.shellView.webContents.executeJavaScript(
+        `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+          PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID
+        )})`
+      )) as ProjectWorkspaceSnapshot
+    const interrupted = await waitForPartialProjectDownload(
+      downloadManager,
+      expectedBytes,
+      30_000
+    )
+    const runtimeState = await projectRuntimeStore.read()
+    const activeRuntime = runtimeState.runtimes.find(
+      ({ runtime: candidate }) =>
+        candidate.projectId === PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID &&
+        !isTerminalProjectRuntime(candidate)
+    )?.runtime
+    if (!activeRuntime) {
+      throw new Error('下载恢复 smoke 在强杀前没有活动 Runtime')
+    }
+
+    const result = {
+      ready: true,
+      stage: 'kill-ready',
+      passed: null,
+      pid: process.pid,
+      restartCount: watchdogRestartCount,
+      projectId: PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID,
+      runtime: activeRuntime,
+      interrupted,
+      started,
+      expectedBytes,
+      expectedSha256
+    }
+    await writeJsonAtomic(resultPath, result)
+    console.log(
+      `AGENTIC_BROWSER_PROJECT_DOWNLOAD_RECOVERY_CHILD ${JSON.stringify(
+        result
+      )}`
+    )
+    return
+  }
+
+  const recovered = await waitForRecoveredProjectDownload(
+    downloadManager,
+    projectRuntimeStore,
+    expectedBytes,
+    60_000
+  )
+  const failed = recovered.downloadState.records.filter(
+    (record) => record.status === 'failed'
+  )
+  const completed = recovered.downloadState.records.filter(
+    (record) => record.status === 'completed'
+  )
+  const interruptedRecord = failed[0] ?? null
+  const completedRecord = completed[0] ?? null
+  const downloads = readDirectoryNames(join(outputRoot, 'downloads'))
+  const temporary = readDirectoryNames(join(outputRoot, 'tmp'))
+  const interruptedSize = interruptedRecord
+    ? readFileSize(interruptedRecord.temporaryPath)
+    : -1
+  const passed =
+    watchdogRestartCount === 1 &&
+    failed.length === 1 &&
+    completed.length === 1 &&
+    interruptedRecord?.errorCategory === 'unknown' &&
+    interruptedRecord.error?.includes('应用退出时下载未完成') === true &&
+    interruptedSize > 0 &&
+    interruptedSize < expectedBytes &&
+    completedRecord?.size === expectedBytes &&
+    completedRecord.sha256 === expectedSha256 &&
+    completedRecord.retryCount === 1 &&
+    completedRecord.idempotencyKey === interruptedRecord.idempotencyKey &&
+    completedRecord.finalPath === interruptedRecord.finalPath &&
+    completedRecord.safeFileName === interruptedRecord.safeFileName &&
+    downloads.length === 1 &&
+    downloads[0] === basename(completedRecord.finalPath) &&
+    temporary.length === 1 &&
+    temporary[0] === basename(interruptedRecord.temporaryPath) &&
+    recovered.runtime.status === 'completed' &&
+    recovered.runtime.trigger === 'resume' &&
+    recovered.runtime.counters.downloaded === 1 &&
+    recovered.runtime.counters.downloadedBytes === expectedBytes
+
+  const result = {
+    ready: true,
+    stage: 'completed',
+    passed,
+    pid: process.pid,
+    restartCount: watchdogRestartCount,
+    projectId: PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID,
+    runtime: recovered.runtime,
+    downloadState: recovered.downloadState,
+    downloads,
+    temporary,
+    interruptedSize,
+    expectedBytes,
+    expectedSha256
+  }
+  await writeJsonAtomic(resultPath, result)
+  console.log(
+    `AGENTIC_BROWSER_PROJECT_DOWNLOAD_RECOVERY_CHILD ${JSON.stringify(
+      result
+    )}`
+  )
+  await closeSmokeRuntime(runtime)
+  await mainProcessHeartbeat?.stop()
+  app.exit(passed ? 0 : 1)
+}
+
+async function waitForPartialProjectDownload(
+  manager: ProjectDownloadManager,
+  expectedBytes: number,
+  timeoutMs: number
+): Promise<{
+  downloadId: string
+  temporaryPath: string
+  receivedBytes: number
+}> {
+  const deadline = Date.now() + timeoutMs
+  let latest = await manager.read()
+  while (Date.now() < deadline) {
+    latest = await manager.read()
+    const record = latest.records.find(
+      (candidate) => candidate.status === 'downloading'
+    )
+    if (record) {
+      const receivedBytes = readFileSize(record.temporaryPath)
+      if (receivedBytes > 0 && receivedBytes < expectedBytes) {
+        return {
+          downloadId: record.downloadId,
+          temporaryPath: record.temporaryPath,
+          receivedBytes
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(
+    `等待下载进入部分写入状态超时：${JSON.stringify(latest)}`
+  )
+}
+
+async function waitForRecoveredProjectDownload(
+  manager: ProjectDownloadManager,
+  runtimeStore: ProjectRuntimeStore,
+  expectedBytes: number,
+  timeoutMs: number
+) {
+  const deadline = Date.now() + timeoutMs
+  let latestDownloads = await manager.read()
+  let latestRuntime: ProjectRuntimeSnapshot | null = null
+  while (Date.now() < deadline) {
+    const [downloadState, runtimeState] = await Promise.all([
+      manager.read(),
+      runtimeStore.read()
+    ])
+    latestDownloads = downloadState
+    latestRuntime =
+      runtimeState.runtimes.find(
+        ({ runtime }) =>
+          runtime.projectId === PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID
+      )?.runtime ?? null
+    const hasInterrupted = downloadState.records.some(
+      (record) =>
+        record.status === 'failed' &&
+        record.errorCategory === 'unknown'
+    )
+    const hasCompleted = downloadState.records.some(
+      (record) =>
+        record.status === 'completed' &&
+        record.size === expectedBytes
+    )
+    if (
+      hasInterrupted &&
+      hasCompleted &&
+      latestRuntime?.status === 'completed'
+    ) {
+      return {
+        downloadState,
+        runtime: latestRuntime
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error(
+    '等待强杀后的 Project 下载恢复超时：' +
+      JSON.stringify({
+        downloadState: latestDownloads,
+        runtime: latestRuntime
+      })
+  )
+}
+
+function readFileSize(path: string): number {
+  try {
+    return existsSync(path) ? statSync(path).size : -1
+  } catch {
+    return -1
+  }
+}
+
 async function runAutomationPlaygroundSmoke(
   runtime: MainWindowRuntime,
   outputRoot: string
@@ -4614,6 +4882,22 @@ function parseNonNegativeInteger(value: string | undefined): number {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
 }
 
+function parsePositiveInteger(value: string, name: string): number {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} 必须是正整数`)
+  }
+  return parsed
+}
+
+function requireEnvironmentValue(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(`缺少环境变量 ${name}`)
+  }
+  return value
+}
+
 function cleanupAutomatedDownloads(): void {
   if (automatedDownloadDirectory) {
     rmSync(automatedDownloadDirectory, {
@@ -4760,6 +5044,7 @@ if (runApplication) {
   const runtime = await createMainWindow({
     show:
       !watchdogSmokeChild &&
+      !projectDownloadRecoverySmokeChild &&
       !recoverySmokeTest &&
       !strategyFaultSmokeTest &&
       !strategyWorkspaceSmokeTest &&
@@ -5113,6 +5398,14 @@ if (runApplication) {
 
   if (watchdogSmokeChild) {
     await runWatchdogSmokeChild(runtime, restoredCheckpoint, watchdogSmokeUrl)
+    return
+  }
+
+  if (projectDownloadRecoverySmokeChild) {
+    await runProjectDownloadRecoverySmokeChild(
+      runtime,
+      projectRuntimeStore
+    )
     return
   }
 

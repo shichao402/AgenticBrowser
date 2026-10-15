@@ -27,6 +27,7 @@
 - `src/main/background-project-runtime.ts`：独立后台 BrowserTabManager、workflow、Strategy、下载事务、人工接管与终态生命周期。
 - `src/main/project-workflow-engine.ts`：navigate/delay/wait-for-event/complete 状态机、重试、补偿转移、检查点和等待预算冻结/恢复。
 - `src/main/project-download-manager.ts`：下载意图、临时文件、哈希、配额、原子提交、manifest 和业务去重。
+- `src/main/project-download-recovery-smoke.ts` 与 `scripts/project-download-recovery-smoke.mjs`：下载部分写入时外部强杀 Electron main，并验证 Watchdog、Runtime 检查点、失败证据和无重复安全重试。
 - `src/main/project-item-store.ts`：项目业务项观测、matched/skipped 分类、跨 Runtime 去重和扫描计数。
 - `src/main/automation-playground-pilot.ts`：默认禁用的双站点 Project/Strategy 模板、确定性页面断言、跨域延迟同步与测试文件下载。
 - `src/main/content-filter.ts`：Project 网络资源规则和 CSS selector 规则。
@@ -42,7 +43,7 @@
 尚未实现或尚未完成：
 
 - 两槽以上并发的资源压测与用户可配置预算；当前 Windows 验证预算固定为 2。
-- 下载中强杀、断网、结构变化和磁盘不足的完整 Electron 故障门禁。
+- 下载中单独强杀页面 renderer、断网和磁盘不足的完整 Electron 故障门禁；Electron main 强杀后的 Watchdog/Runtime 安全重试已通过。
 - 示教录制与 Agent sidecar。
 
 目标架构章节描述的是完成后的组件边界；未实现能力不能按现有功能对外宣称。

@@ -163,7 +163,7 @@ MVP 明确不做：
 
 ### Phase 3：Project Runtime
 
-当前状态：核心 Runtime、workflow、下载、Filter、工作台、双槽 Scheduler 和人工接管已实现；Selenium 与 Test Pages 两个真实测试站点上的表单、动态 DOM、跨域 workflow、固定文件下载、三轮业务项计数、下载幂等、renderer 崩溃恢复，以及页面变化自动暂停与人工恢复均已通过 smoke。完整故障矩阵仍待完成。
+当前状态：核心 Runtime、workflow、下载、Filter、工作台、双槽 Scheduler 和人工接管已实现；Selenium 与 Test Pages 两个真实测试站点上的表单、动态 DOM、跨域 workflow、固定文件下载、三轮业务项计数、下载幂等、renderer 崩溃恢复，以及页面变化自动暂停与人工恢复均已通过 smoke。下载中强杀 Electron main 后的 Watchdog 重启、同 Runtime 续跑与安全重试也已通过；单独强杀下载 renderer、断网和磁盘不足等故障矩阵仍待完成。
 
 - Project/Profile 清单。
 - 常驻与定时调度、并发预算。
