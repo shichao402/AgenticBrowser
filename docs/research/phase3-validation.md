@@ -1,6 +1,6 @@
 # Phase 3 Project Runtime 验证记录
 
-- Status: core runtime and local knowledge-planet gate implemented on Windows; authenticated real-site and external gates pending
+- Status: core runtime and one public real-site gate implemented on Windows; external gates pending
 - Date: 2026-10-15
 - Environment: Windows 11 24H2, Electron 44.7.2, Node.js 22+
 
@@ -15,7 +15,7 @@
 - 项目级网络/CSS Content Filter。
 - Project 工作台、JSON 编辑、策略版本解析、启动/暂停接管/恢复/停止和 Runtime 监控。
 - 人工接管期间冻结 workflow 等待预算、禁用所有 Project Strategy，并继续占用浏览器槽与 Profile 互斥。
-- 业务项持久化、筛选计数、知识星球可配置模板，以及登录失效自动转人工接管。
+- 业务项持久化、筛选计数、Selenium 官方测试页面模板，以及页面变化自动转人工接管。
 - Runtime 计数器使用独立原子增量，不再依赖调用方读取到的旧状态，避免页面领域事件与 workflow 状态迁移竞态。
 
 当前全局并发预算为 2：前台主槽与独立后台 BrowserTabManager 可以同时执行不同 Profile 的 Project；共享 Profile 的 Project 由调度器保持排队。前台选择会切换对应 view，可见性不会停止后台健康监督和 workflow。
@@ -43,9 +43,9 @@ npm test
 - Content Filter allow 优先、资源类型边界和 CSS selector 规则。
 - Strategy 领域事件会等待宿主处理，并把 JSON 预授权结果返回页面脚本。
 - 接管暂停/恢复、暂停期间领域事件拒绝、跨重启 paused Runtime 重排队，以及暂停槽/Profile 锁不被调度器复用。
-- 业务项存储、跨 Runtime seen count、损坏文件隔离、知识星球模板 schema，以及不依赖 Runtime 旧状态的原子计数。
+- 业务项存储、跨 Runtime seen count、损坏文件隔离、Selenium 验收模板 schema，以及不依赖 Runtime 旧状态的原子计数。
 
-### Electron Project + MP3 闭环
+### Electron 本地 Project + 下载闭环
 
 ```text
 npm run smoke:project-download
@@ -118,32 +118,29 @@ npm run smoke:project-takeover
 - `project-runtime-paused` 与 `project-runtime-resumed` 事件均携带 Project/Runtime 归属。
 - 暂停 Runtime 在 Scheduler 中继续占用执行槽和 Profile 锁。
 
-### Electron 知识星球本地闭环
+### Electron Selenium 公开真实站点闭环
 
 ```text
-npm run smoke:knowledge-planet
+npm run smoke:automation-playground
 => passed
 ```
 
-受控 Feed 包含一条关键词匹配并带 MP3 的帖子，以及一条跳过项。门禁覆盖：
+目标为 Selenium 官方公开浏览器测试资源 `https://www.selenium.dev/selenium/web/`，无需账号，不写入远端业务数据。门禁执行三个 Runtime：
 
-1. 通过 BrowserShell IPC 安装默认禁用的生产模板，再替换为本地 fixture 配置并显式启用。
-2. 第一轮持久化 2 条业务记录，Runtime 计数为 scanned=2、matched=1、skipped=1；通过两个直链和一个页面按钮批量下载 4,096、2,048、1,024-byte MP3。
-3. 第二轮重复扫描只增加 seen count，不增加下载 manifest 或最终文件。
-4. 第三轮先进入登录夹具；Strategy 报告认证失效，宿主自动把 Runtime 转为 paused。
-5. 人工导航到 Feed 后恢复同一 Runtime，Strategy 重新注入并以幂等结果完成。
-6. 第四轮进入缺少 MP3 的详情夹具，按 page-changed 自动暂停；人工导航修复后恢复完成。
+1. 第一轮填写文本、文本域、下拉框和复选框，经 GET 提交并验证结果；随后等待延迟 DOM，输入新出现的控件，最后下载官方测试文件。
+2. 第二轮在 `wait-dynamic` workflow 节点强制终止 renderer。BrowserSupervisor 重建 view，Strategy 重新注入并从同一节点继续；既有下载命中幂等记录。
+3. 第三轮从同域不存在路径启动。业务断言发送 `project.page-changed`，宿主自动暂停；人工导航回表单页后恢复同一 Runtime 并完成。
 
-最终 `records/items.json` 只有 2 条记录、两条 seen count 均为 4；`records/downloads.json` 和 `downloads/` 均只有三个 completed MP3，合计 7,168 bytes，`tmp/` 为空。宿主串行处理完成回调，并仅在同一 Runtime 不再存在 reserved/downloading 记录后发送 `download.completed`。门禁同时覆盖了初始导航打断“预留后、点击前”时的预留恢复；第二至第四轮均没有重复下载。暂停原因分别分类为 authentication 和 page-changed，两组 paused/resumed 事件归属正确。
+三个 Runtime 均为 completed，每轮计数均为 scanned=3、matched=3、skipped=0。最终 `records/items.json` 只有 form、dynamic、download 三条记录，seen count 均为 3；`records/downloads.json` 和 `downloads/` 均只有一个 completed 文件，`tmp/` 为空。文件内容为 `Hello, World!\n`，14 bytes，SHA-256 为 `c98c24b677eff44860afea6f493bbaec5bb1c4cbb209c6fc2bbb47f66ff2ad31`。第二轮证据包含 renderer generation 增长以及 `renderer-gone`、`recovery-succeeded`、`recreated`；第三轮暂停原因分类为 `page-changed`，paused/resumed 事件各一条。
+
+该门禁证明了真实网络下的页面操作、跨页面 workflow、延迟 DOM、HTTPS 下载、幂等、renderer 崩溃恢复和页面漂移接管。它不证明任意生产网站兼容，完整范围见 [Selenium 自动化验收试点](../roadmap/automation-playground-pilot.md)。
 
 ## 尚未通过的门禁
 
-- 真实知识星球登录、Feed 解析、指定文本分类和真实 MP3 下载。
-- 知识星球认证后页面的登录失效标志、恢复断言和人工提示体验；本地探针链路已自动触发。
 - 下载过程中强杀 renderer / Electron main 后的端到端续传或安全重试。
-- 断网、页面结构变化、登录失效和磁盘不足的 Electron 级故障注入。
+- 断网、登录失效和磁盘不足的 Electron 级故障注入；页面变化门禁已通过。
 - 第二个真实目标站点。
 - 两槽以上的资源预算压测与可配置并发上限。
 - macOS DMG、签名、公证、Watchdog 和 login item。
 
-Phase 3 核心基础设施已经完成；上述真实站点与故障门禁完成前，知识星球试点和整个 MVP 仍保持进行中。
+知识星球试点因登录和账号风控风险已按用户要求取消，未进行真实账号自动化；底层通用 Runtime 能力保留。Phase 3 核心基础设施和首个公开真实站点门禁已经完成，完整故障矩阵、第二站点与 macOS 门禁完成前，整个 MVP 仍保持进行中。

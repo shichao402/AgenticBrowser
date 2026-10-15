@@ -28,11 +28,11 @@ describe('ProfileStore', () => {
   })
 
   it('creates, activates, and deletes an inactive named profile', async () => {
-    const created = await store.create('知识星球账号')
+    const created = await store.create('自动化测试账号')
     const profile = created.profiles.find(
       (item) => item.id !== 'profile-default'
     )
-    expect(profile?.name).toBe('知识星球账号')
+    expect(profile?.name).toBe('自动化测试账号')
 
     const active = await store.setActive(profile!.id)
     expect(active.activeProfileId).toBe(profile!.id)

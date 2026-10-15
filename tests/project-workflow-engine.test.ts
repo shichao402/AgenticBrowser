@@ -166,13 +166,13 @@ describe('ProjectWorkflowEngine', () => {
     now += 2_000
     expect(
       await engine.pause(
-        '知识星球登录失效',
+        '测试站点登录失效',
         'authentication'
       )
     ).toMatchObject({
       status: 'paused',
       nextWakeAt: null,
-      lastError: '知识星球登录失效',
+      lastError: '测试站点登录失效',
       lastFailureCategory: 'authentication'
     })
     now += 60_000

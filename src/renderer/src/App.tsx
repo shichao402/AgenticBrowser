@@ -421,7 +421,7 @@ export function App(): React.JSX.Element {
     setActiveSection('projects')
   }
 
-  const installKnowledgePlanetPilot = async (): Promise<void> => {
+  const installAutomationPlayground = async (): Promise<void> => {
     const profileId = profiles.find((profile) => profile.active)?.id
     if (!profileId) {
       setError('请先选择一个活动 Profile')
@@ -429,7 +429,7 @@ export function App(): React.JSX.Element {
     }
     if (
       !window.confirm(
-        '安装禁用状态的知识星球试点模板？安装后还需要配置关键词并启用 Project。'
+        '安装禁用状态的 Selenium 官方自动化验收模板？该模板无需账号，只访问公开测试页面。'
       )
     ) {
       return
@@ -437,7 +437,7 @@ export function App(): React.JSX.Element {
     setError(null)
     try {
       const result =
-        await window.agenticBrowser.installKnowledgePlanetPilot(
+        await window.agenticBrowser.installAutomationPlayground(
           profileId
         )
       setStrategyWorkspace(result.strategyWorkspace)
@@ -701,9 +701,9 @@ export function App(): React.JSX.Element {
               <button
                 type="button"
                 disabled={activeProjectRuntime !== null}
-                onClick={() => void installKnowledgePlanetPilot()}
+                onClick={() => void installAutomationPlayground()}
               >
-                安装知识星球模板
+                安装自动化验收模板
               </button>
               <button type="button" onClick={newProject}>
                 新建

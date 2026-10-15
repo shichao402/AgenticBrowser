@@ -26,7 +26,7 @@
 2. [总体架构](architecture/overview.md)
 3. [产品领域模型](architecture/product-model.md)
 4. [MVP 路线图](roadmap/mvp.md)
-5. [知识星球试点](roadmap/knowledge-planet-pilot.md)
+5. [Selenium 自动化验收试点](roadmap/automation-playground-pilot.md)
 6. [浏览器内核与兼容性研究](research/browser-runtime-and-compatibility.md)
 7. [示教录制与 Agent 研究](research/recording-and-agent.md)
 8. [Phase 0 验证记录](research/phase0-validation.md)

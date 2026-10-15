@@ -45,17 +45,15 @@ Project 是用户直接启动、停止、调度和监控的单元。
 建议字段：
 
 ```yaml
-id: knowledge-planet-audio
-name: 知识星球语音采集
-profile: personal-knowledge-planet
+id: selenium-automation-playground
+name: Selenium 自动化验收
+profile: public-playground
 startupPages:
-  - https://example.com/home
+  - https://www.selenium.dev/selenium/web/web-form.html
 strategies:
-  feed-scanner: 0.1.0
-  text-classifier: 0.1.0
-  audio-downloader: 0.1.0
+  selenium-automation-smoke: 0.1.0
 runtime:
-  mode: schedule
+  mode: manual
   timezone: Asia/Shanghai
   concurrency: 1
 output:
@@ -65,10 +63,7 @@ capabilities:
     popups: false
     downloads: true
     media: false
-  origins:
-    - origin: https://example.com
-      overrides:
-        popups: true
+  origins: []
   agent: optional
 ```
 

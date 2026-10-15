@@ -56,7 +56,7 @@
 
 ## 目标站点
 
-- [ ] 目标站点 A：知识星球基础登录与首页
+- [x] 目标站点 A：Selenium 官方公开测试页面（表单、动态 DOM、下载与恢复）
 - [ ] 目标站点 B：待确定
 
 ## 当前实现切片
@@ -178,9 +178,12 @@ npm run smoke:watchdog
 
 本次验证使用默认 Electron 图标和未配置发布证书的开发构建；正式图标、代码签名、SmartScreen、升级和回滚仍是发布前工作。
 
+### 2026-10-15：首个公开真实站点
+
+Selenium 官方测试资源 `https://www.selenium.dev/selenium/web/` 已通过 Electron 真实网络闭环：表单提交、延迟 DOM、固定文件下载、renderer 崩溃重建，以及页面漂移后的暂停/人工恢复均成功。该站点无需账号且不写入远程业务数据。详细过程、哈希和结论边界见 [Phase 3 验证](phase3-validation.md) 与 [Selenium 自动化验收试点](../roadmap/automation-playground-pilot.md)。
+
 ## 当前主机无法闭合的 Phase 0 项
 
 - 当前只有 Windows 主机，不能把 Windows 交叉产物当作 macOS 构建、签名、公证或启动证据；需要 macOS runner 或真实设备。
-- 知识星球的真实首页/星球 URL、可用登录 Profile 和核心路径样本尚未提供，因此不能声称目标站点 A 已验证。
-- 第二个目标站点尚未确定。
+- 第二个公开真实目标站点尚未确定；`the-internet.herokuapp.com` 在当前主机不可达，不作为门禁依赖。
 - Chromium `unresponsive`/`responsive` 事件本身没有可靠、可配置的短超时触发方式；后台监督已经改用主动 heartbeat，原生事件只保留辅助观测，不伪造完成证据。

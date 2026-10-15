@@ -16,7 +16,7 @@
     "smoke:project-download": "npm run build && electron . --project-download-smoke-test",
     "smoke:project-concurrency": "npm run build && electron . --project-concurrency-smoke-test",
     "smoke:project-takeover": "npm run build && electron . --project-takeover-smoke-test",
-    "smoke:knowledge-planet": "npm run build && electron . --knowledge-planet-pilot-smoke-test",
+    "smoke:automation-playground": "npm run build && electron . --automation-playground-smoke-test",
     "smoke:recovery": "npm run build && electron . --recovery-smoke-test",
     "smoke:watchdog": "npm run build && node scripts/watchdog-smoke.mjs",
     "smoke:watchdog:packaged": "npm run build && electron-builder --dir && node scripts/watchdog-smoke.mjs --packaged",

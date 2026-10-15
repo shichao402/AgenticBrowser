@@ -17,7 +17,7 @@ import {
   type CapabilityPolicy,
   type ContentFilterDefinition,
   type JsonValue,
-  type KnowledgePlanetPilotInstallResult,
+  type AutomationPlaygroundInstallResult,
   type MonitorSnapshot,
   type ProjectDefinition,
   type ProjectDraft,
@@ -48,11 +48,14 @@ import {
 } from './checkpoint-store'
 import { MainProcessHeartbeat } from './main-process-heartbeat'
 import {
-  createKnowledgePlanetProjectDraft,
-  createKnowledgePlanetStrategyDraft,
-  KNOWLEDGE_PLANET_PROJECT_ID,
-  KNOWLEDGE_PLANET_STRATEGY_ID
-} from './knowledge-planet-pilot'
+  AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL,
+  AUTOMATION_PLAYGROUND_FORM_URL,
+  AUTOMATION_PLAYGROUND_MISSING_URL,
+  AUTOMATION_PLAYGROUND_PROJECT_ID,
+  AUTOMATION_PLAYGROUND_STRATEGY_ID,
+  createAutomationPlaygroundProjectDraft,
+  createAutomationPlaygroundStrategyDraft
+} from './automation-playground-pilot'
 import {
   ProjectDownloadManager,
   type ProjectDownloadReservation
@@ -125,10 +128,20 @@ const projectConcurrencySmokeTest = process.argv.includes(
 const projectTakeoverSmokeTest = process.argv.includes(
   '--project-takeover-smoke-test'
 )
-const knowledgePlanetPilotSmokeTest = process.argv.includes(
-  '--knowledge-planet-pilot-smoke-test'
+const automationPlaygroundSmokeTest = process.argv.includes(
+  '--automation-playground-smoke-test'
 )
 const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
+const automatedTestRun =
+  smokeTest ||
+  recoverySmokeTest ||
+  strategyFaultSmokeTest ||
+  strategyWorkspaceSmokeTest ||
+  projectDownloadSmokeTest ||
+  projectConcurrencySmokeTest ||
+  projectTakeoverSmokeTest ||
+  automationPlaygroundSmokeTest ||
+  watchdogSmokeChild
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 const recoverySmokeResultPath = join(
   process.cwd(),
@@ -154,9 +167,9 @@ const projectTakeoverSmokeResultPath = join(
   process.cwd(),
   'phase3-project-takeover-smoke-result.json'
 )
-const knowledgePlanetPilotSmokeResultPath = join(
+const automationPlaygroundSmokeResultPath = join(
   process.cwd(),
-  'phase3-knowledge-planet-pilot-smoke-result.json'
+  'phase3-automation-playground-smoke-result.json'
 )
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
 let automatedDownloadDirectory: string | null = null
@@ -267,10 +280,10 @@ function writeProjectTakeoverSmokeResult(result: unknown): void {
   }
 }
 
-function writeKnowledgePlanetPilotSmokeResult(result: unknown): void {
-  if (knowledgePlanetPilotSmokeTest) {
+function writeAutomationPlaygroundSmokeResult(result: unknown): void {
+  if (automationPlaygroundSmokeTest) {
     writeFileSync(
-      knowledgePlanetPilotSmokeResultPath,
+      automationPlaygroundSmokeResultPath,
       `${JSON.stringify(result, null, 2)}\n`,
       'utf8'
     )
@@ -284,6 +297,7 @@ interface MainWindowRuntime {
   events: BrowserEvent[]
   getEventCount(): number
   suppressShellEvents(): void
+  prepareForShutdown(): Promise<void>
 }
 
 interface CreateMainWindowOptions {
@@ -1119,7 +1133,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   handleStrategyDomainEvent = async (event) => {
     if (
       event.name === 'project.authentication-required' ||
-      event.name === 'knowledge.page-changed'
+      event.name === 'project.page-changed'
     ) {
       if (!currentProjectRuntime || !requestManualTakeover) {
         throw new Error('当前 Project Runtime 不支持人工接管请求')
@@ -1924,7 +1938,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   })
 
   ipcMain.handle(
-    IPC_CHANNELS.installKnowledgePlanetPilot,
+    IPC_CHANNELS.installAutomationPlayground,
     (event, profileId: unknown) => {
       assertTrustedSender(event.sender.id)
       if (
@@ -1934,10 +1948,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         !strategyPolicyStore ||
         typeof profileId !== 'string'
       ) {
-        throw new TypeError('知识星球模板安装参数无效')
+        throw new TypeError('自动化验收模板安装参数无效')
       }
       return enqueueSupervisorOperation(async () => {
-        await assertProjectRuntimeInactive('安装知识星球模板')
+        await assertProjectRuntimeInactive('安装自动化验收模板')
         const [profileState, projectState, strategyState] =
           await Promise.all([
             profileStore.read(),
@@ -1953,35 +1967,37 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         }
         if (
           projectState.projects.some(
-            (project) => project.id === KNOWLEDGE_PLANET_PROJECT_ID
+            (project) =>
+              project.id === AUTOMATION_PLAYGROUND_PROJECT_ID
           ) ||
           strategyState.strategies.some(
             (definition) =>
-              definition.manifest.id === KNOWLEDGE_PLANET_STRATEGY_ID
+              definition.manifest.id ===
+              AUTOMATION_PLAYGROUND_STRATEGY_ID
           )
         ) {
-          throw new Error('知识星球试点模板已经安装，请直接编辑现有配置')
+          throw new Error('自动化验收模板已经安装，请直接编辑现有配置')
         }
 
         const strategyWorkspace =
           await applyDevelopmentStrategyConfiguration(
             await strategyStore.save(
-              createKnowledgePlanetStrategyDraft()
+              createAutomationPlaygroundStrategyDraft()
             ),
             await strategyPolicyStore.read()
           )
         await projectStore.save(
-          createKnowledgePlanetProjectDraft({
+          createAutomationPlaygroundProjectDraft({
             profileId,
             outputRoot: join(
               app.getPath('downloads'),
               'AgenticBrowser',
-              'knowledge-planet'
+              'automation-playground'
             )
           })
         )
         const selectedState = await projectStore.setActive(
-          KNOWLEDGE_PLANET_PROJECT_ID
+          AUTOMATION_PLAYGROUND_PROJECT_ID
         )
         return {
           projectWorkspace:
@@ -2254,6 +2270,37 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     )
   })
 
+  let shutdownPrepared = false
+  const prepareForShutdown = async (): Promise<void> => {
+    if (shutdownPrepared) {
+      return
+    }
+    shutdownPrepared = true
+    shellEventsEnabled = false
+    stopWorkflowTicker()
+    projectScheduler?.dispose()
+    projectScheduler = null
+    handleStrategyDomainEvent = null
+
+    let pendingOperations: Promise<void>
+    do {
+      pendingOperations = supervisorOperationQueue
+      await pendingOperations
+    } while (pendingOperations !== supervisorOperationQueue)
+
+    await Promise.all([
+      supervisor.prepareForShutdown(),
+      ...[...backgroundProjectRuntimes.values()].map(
+        (runtime) => runtime.prepareForShutdown()
+      )
+    ])
+    for (const runtime of backgroundProjectRuntimes.values()) {
+      runtime.dispose()
+    }
+    backgroundProjectRuntimes.clear()
+    supervisor.dispose()
+  }
+
   window.on('resize', layout)
   window.on('closed', () => {
     shellEventsEnabled = false
@@ -2277,7 +2324,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ipcMain.removeHandler(IPC_CHANNELS.deleteProfile)
       ipcMain.removeHandler(IPC_CHANNELS.getProjectWorkspace)
       ipcMain.removeHandler(
-        IPC_CHANNELS.installKnowledgePlanetPilot
+        IPC_CHANNELS.installAutomationPlayground
       )
       ipcMain.removeHandler(IPC_CHANNELS.saveProject)
       ipcMain.removeHandler(IPC_CHANNELS.setActiveProject)
@@ -2304,13 +2351,15 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       shellView.webContents.close()
     }
 
-    void enqueueSupervisorOperation(() => {
-      for (const runtime of backgroundProjectRuntimes.values()) {
-        runtime.dispose(true)
-      }
-      backgroundProjectRuntimes.clear()
-      supervisor.dispose(true)
-    })
+    if (!shutdownPrepared) {
+      void enqueueSupervisorOperation(() => {
+        for (const runtime of backgroundProjectRuntimes.values()) {
+          runtime.dispose(true)
+        }
+        backgroundProjectRuntimes.clear()
+        supervisor.dispose(true)
+      })
+    }
 
     if (mainWindow === window) {
       mainWindow = null
@@ -2345,7 +2394,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     getEventCount: () => eventCount,
     suppressShellEvents: () => {
       shellEventsEnabled = false
-    }
+    },
+    prepareForShutdown
   }
 }
 
@@ -2913,7 +2963,7 @@ function createCheckpointStore(): BrowserCheckpointStore | undefined {
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
     projectTakeoverSmokeTest ||
-    knowledgePlanetPilotSmokeTest
+    automationPlaygroundSmokeTest
   ) {
     return undefined
   }
@@ -3292,165 +3342,123 @@ async function runProjectDownloadSmoke(
   }
 }
 
-async function runKnowledgePlanetPilotSmoke(
+async function runAutomationPlaygroundSmoke(
   runtime: MainWindowRuntime,
-  probe: PhaseZeroProbeServer,
   outputRoot: string
 ): Promise<Record<string, unknown>> {
   const profiles = (await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.createProfile('Knowledge Planet Pilot')`
+    `window.agenticBrowser.createProfile('Selenium Automation Pilot')`
   )) as ProfileSummary[]
   const projectProfile = profiles.find(
-    (profile) => profile.name === 'Knowledge Planet Pilot'
+    (profile) => profile.name === 'Selenium Automation Pilot'
   )
   if (!projectProfile) {
-    throw new Error('知识星球试点 smoke 未能创建 Profile')
+    throw new Error('Selenium 自动化验收未能创建 Profile')
   }
 
   const installed =
     (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.installKnowledgePlanetPilot(${JSON.stringify(
+      `window.agenticBrowser.installAutomationPlayground(${JSON.stringify(
         projectProfile.id
       )})`
-    )) as KnowledgePlanetPilotInstallResult
-  const fixtureOrigin = new URL(probe.knowledgePlanetFeedUrl).origin
-  const strategyDraft = createKnowledgePlanetStrategyDraft({
-    matches: [`${fixtureOrigin}/*`],
-    includeKeywords: ['会议'],
-    itemSelectors: ['.topic'],
-    textSelectors: ['.content'],
-    audioSelectors: ['a.audio'],
-    detailLinkSelectors: ['a.detail'],
-    idAttributes: ['data-topic-id'],
-    maximumItems: 10
-  })
-  const strategyWorkspace =
-    (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.saveStrategy(${JSON.stringify(
-        strategyDraft
-      )})`
-    )) as StrategyWorkspaceSnapshot
-
-  const createEnabledDraft = (entryUrl: string): ProjectDraft => {
-    const template = createKnowledgePlanetProjectDraft({
+    )) as AutomationPlaygroundInstallResult
+  const createEnabledDraft = (entryUrl: string): ProjectDraft => ({
+    ...createAutomationPlaygroundProjectDraft({
       profileId: projectProfile.id,
       outputRoot,
       entryUrl,
-      runtimeMode: 'manual'
-    })
-    return {
-      ...template,
-      runtime: {
-        ...template.runtime,
-        maxRunMs: 30_000
-      },
-      enabled: true
-    }
-  }
-  const feedDraft = createEnabledDraft(probe.knowledgePlanetFeedUrl)
+      runtimeMode: 'manual',
+      maxRunMs: 90_000
+    }),
+    enabled: true
+  })
   await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.saveProject(${JSON.stringify(feedDraft)})`
-  )
-
-  await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
-      KNOWLEDGE_PLANET_PROJECT_ID
+    `window.agenticBrowser.saveProject(${JSON.stringify(
+      createEnabledDraft(AUTOMATION_PLAYGROUND_FORM_URL)
     )})`
   )
-  const firstWorkspace = await waitForProjectRuns(
-    runtime,
-    KNOWLEDGE_PLANET_PROJECT_ID,
-    1
-  )
+
   const itemStore = new ProjectItemStore(
     join(outputRoot, 'records', 'items.json')
   )
   const downloadManager = new ProjectDownloadManager(
     join(outputRoot, 'records', 'downloads.json')
   )
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+      AUTOMATION_PLAYGROUND_PROJECT_ID
+    )})`
+  )
+  const firstWorkspace = await waitForProjectRuns(
+    runtime,
+    AUTOMATION_PLAYGROUND_PROJECT_ID,
+    1,
+    60_000
+  )
   const firstItems = await itemStore.read()
   const firstDownloads = await waitForCompletedDownloads(
     downloadManager,
-    1
+    1,
+    30_000
   )
 
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
-      KNOWLEDGE_PLANET_PROJECT_ID
+      AUTOMATION_PLAYGROUND_PROJECT_ID
     )})`
   )
+  const crashTarget = await waitForProjectRuntimeNode(
+    runtime,
+    AUTOMATION_PLAYGROUND_PROJECT_ID,
+    'wait-dynamic',
+    45_000
+  )
+  const generationBeforeCrash =
+    runtime.supervisor.getSnapshot().generation
+  await runtime.supervisor.forceCrashAndWait(20_000)
+  const generationAfterCrash =
+    runtime.supervisor.getSnapshot().generation
   const secondWorkspace = await waitForProjectRuns(
     runtime,
-    KNOWLEDGE_PLANET_PROJECT_ID,
-    2
+    AUTOMATION_PLAYGROUND_PROJECT_ID,
+    2,
+    60_000
   )
   const secondItems = await itemStore.read()
   const secondDownloads = await downloadManager.read()
 
-  const loginDraft = createEnabledDraft(
-    probe.knowledgePlanetLoginUrl
-  )
   await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.saveProject(${JSON.stringify(loginDraft)})`
+    `window.agenticBrowser.saveProject(${JSON.stringify(
+      createEnabledDraft(AUTOMATION_PLAYGROUND_MISSING_URL)
+    )})`
   )
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
-      KNOWLEDGE_PLANET_PROJECT_ID
-    )})`
-  )
-  const authenticationPaused = await waitForProjectRuntimeStatus(
-    runtime,
-    KNOWLEDGE_PLANET_PROJECT_ID,
-    'paused'
-  )
-  const authenticationManualSnapshot =
-    (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.navigate(${JSON.stringify(
-        probe.knowledgePlanetFeedUrl
-      )})`
-    )) as BrowserSnapshot
-  await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.resumeProjectRuntime(${JSON.stringify(
-      KNOWLEDGE_PLANET_PROJECT_ID
-    )})`
-  )
-  const authenticationWorkspace = await waitForProjectRuns(
-    runtime,
-    KNOWLEDGE_PLANET_PROJECT_ID,
-    3
-  )
-
-  const changedDraft = createEnabledDraft(
-    probe.knowledgePlanetChangedFeedUrl
-  )
-  await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.saveProject(${JSON.stringify(changedDraft)})`
-  )
-  await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
-      KNOWLEDGE_PLANET_PROJECT_ID
+      AUTOMATION_PLAYGROUND_PROJECT_ID
     )})`
   )
   const pageChangedPaused = await waitForProjectRuntimeStatus(
     runtime,
-    KNOWLEDGE_PLANET_PROJECT_ID,
-    'paused'
+    AUTOMATION_PLAYGROUND_PROJECT_ID,
+    'paused',
+    45_000
   )
-  const pageChangedManualSnapshot =
+  const manualSnapshot =
     (await runtime.shellView.webContents.executeJavaScript(
       `window.agenticBrowser.navigate(${JSON.stringify(
-        probe.knowledgePlanetFeedUrl
+        AUTOMATION_PLAYGROUND_FORM_URL
       )})`
     )) as BrowserSnapshot
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.resumeProjectRuntime(${JSON.stringify(
-      KNOWLEDGE_PLANET_PROJECT_ID
+      AUTOMATION_PLAYGROUND_PROJECT_ID
     )})`
   )
   const finalWorkspace = await waitForProjectRuns(
     runtime,
-    KNOWLEDGE_PLANET_PROJECT_ID,
-    4
+    AUTOMATION_PLAYGROUND_PROJECT_ID,
+    3,
+    60_000
   )
 
   const finalItems = await itemStore.read()
@@ -3459,97 +3467,88 @@ async function runKnowledgePlanetPilotSmoke(
   const temporary = readDirectoryNames(join(outputRoot, 'tmp'))
   const projectRuntimes = finalWorkspace.runtimes.filter(
     (candidate) =>
-      candidate.projectId === KNOWLEDGE_PLANET_PROJECT_ID
-  )
-  const completedDownloads = finalDownloads.records.filter(
-    (record) => record.status === 'completed'
-  )
-  const matched = finalItems.records.find(
-    (record) => record.businessItemId === 'meeting-001'
-  )
-  const skipped = finalItems.records.find(
-    (record) => record.businessItemId === 'chat-001'
+      candidate.projectId === AUTOMATION_PLAYGROUND_PROJECT_ID
   )
   const expectedSha256 = createHash('sha256')
-    .update(Buffer.alloc(4096, 0x5a))
+    .update('Hello, World!\n')
     .digest('hex')
-  const expectedSecondSha256 = createHash('sha256')
-    .update(Buffer.alloc(2048, 0x33))
-    .digest('hex')
-  const expectedButtonSha256 = createHash('sha256')
-    .update(Buffer.alloc(1024, 0x71))
-    .digest('hex')
+  const completedDownload = finalDownloads.records.find(
+    (record) => record.status === 'completed'
+  )
   const takeoverEvents = runtime.events.filter(
     (event) =>
-      event.projectId === KNOWLEDGE_PLANET_PROJECT_ID &&
+      event.projectId === AUTOMATION_PLAYGROUND_PROJECT_ID &&
       (event.type === 'project-runtime-paused' ||
         event.type === 'project-runtime-resumed')
+  )
+  const rendererEvents = runtime.events.filter(
+    (event) =>
+      event.type === 'renderer-gone' || event.type === 'recreated'
   )
   const passed =
     installed.projectWorkspace.projects.some(
       (project) =>
-        project.id === KNOWLEDGE_PLANET_PROJECT_ID && !project.enabled
+        project.id === AUTOMATION_PLAYGROUND_PROJECT_ID &&
+        !project.enabled
     ) &&
     installed.strategyWorkspace.strategies.some(
       (definition) =>
-        definition.manifest.id === KNOWLEDGE_PLANET_STRATEGY_ID
+        definition.manifest.id ===
+        AUTOMATION_PLAYGROUND_STRATEGY_ID
     ) &&
-    firstItems.records.length === 2 &&
-    firstDownloads.records.length === 3 &&
-    secondItems.records.length === 2 &&
-    secondDownloads.records.length === 3 &&
-    finalItems.records.length === 2 &&
-    matched?.classification === 'matched' &&
-    matched.attachmentCount === 3 &&
-    matched.seenCount === 4 &&
-    skipped?.classification === 'skipped' &&
-    skipped.seenCount === 4 &&
-    completedDownloads.length === 3 &&
-    completedDownloads.some(
+    firstItems.records.length === 3 &&
+    firstItems.records.every((record) => record.seenCount === 1) &&
+    firstDownloads.records.length === 1 &&
+    secondItems.records.length === 3 &&
+    secondItems.records.every((record) => record.seenCount === 2) &&
+    secondDownloads.records.length === 1 &&
+    finalItems.records.length === 3 &&
+    finalItems.records.every(
       (record) =>
-        record.size === 4096 && record.sha256 === expectedSha256
+        record.classification === 'matched' &&
+        record.seenCount === 3
     ) &&
-    completedDownloads.some(
-      (record) =>
-        record.size === 2048 && record.sha256 === expectedSecondSha256
-    ) &&
-    completedDownloads.some(
-      (record) =>
-        record.size === 1024 && record.sha256 === expectedButtonSha256
-    ) &&
-    downloads.length === 3 &&
+    finalDownloads.records.length === 1 &&
+    completedDownload?.sourceUrl ===
+      AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL &&
+    completedDownload.size === 14 &&
+    completedDownload.sha256 === expectedSha256 &&
+    downloads.length === 1 &&
     temporary.length === 0 &&
-    authenticationPaused.lastFailureCategory === 'authentication' &&
-    authenticationPaused.lastError?.includes('登录失效') === true &&
-    authenticationManualSnapshot.url.startsWith(
-      probe.knowledgePlanetFeedUrl
-    ) &&
+    crashTarget.status === 'waiting' &&
+    generationAfterCrash > generationBeforeCrash &&
+    rendererEvents.some((event) => event.type === 'renderer-gone') &&
+    rendererEvents.some((event) => event.type === 'recreated') &&
     pageChangedPaused.lastFailureCategory === 'page-changed' &&
-    pageChangedPaused.lastError?.includes('audioSelectors') === true &&
-    pageChangedManualSnapshot.url.startsWith(
-      probe.knowledgePlanetFeedUrl
-    ) &&
-    projectRuntimes.length >= 4 &&
+    pageChangedPaused.lastError?.includes('未声明页面') === true &&
+    manualSnapshot.url.startsWith(AUTOMATION_PLAYGROUND_FORM_URL) &&
+    projectRuntimes.length === 3 &&
     projectRuntimes.every(
       (candidate) =>
         candidate.status === 'completed' &&
-        candidate.counters.scanned === 2 &&
-        candidate.counters.matched === 1 &&
-        candidate.counters.skipped === 1
+        candidate.counters.scanned === 3 &&
+        candidate.counters.matched === 3 &&
+        candidate.counters.skipped === 0
     ) &&
     projectRuntimes.reduce(
       (total, candidate) => total + candidate.counters.downloaded,
       0
-    ) === 3 &&
+    ) === 1 &&
     takeoverEvents.filter(
       (event) => event.type === 'project-runtime-paused'
-    ).length === 2 &&
+    ).length === 1 &&
     takeoverEvents.filter(
       (event) => event.type === 'project-runtime-resumed'
-    ).length === 2
+    ).length === 1
 
   return {
     passed,
+    site: {
+      formUrl: AUTOMATION_PLAYGROUND_FORM_URL,
+      downloadFileUrl: AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL,
+      accountRequired: false,
+      writesRemoteData: false
+    },
     installed: {
       projectIds: installed.projectWorkspace.projects.map(
         (project) => project.id
@@ -3559,32 +3558,25 @@ async function runKnowledgePlanetPilotSmoke(
       ),
       installedProjectEnabled:
         installed.projectWorkspace.projects.find(
-          (project) => project.id === KNOWLEDGE_PLANET_PROJECT_ID
+          (project) =>
+            project.id === AUTOMATION_PLAYGROUND_PROJECT_ID
         )?.enabled ?? null
     },
-    strategyWorkspace: {
-      strategyIds: strategyWorkspace.strategies.map(
-        (definition) => definition.manifest.id
-      ),
-      developmentAllowedStrategyIds:
-        strategyWorkspace.developmentAllowedStrategyIds
-    },
     firstWorkspace,
+    crashTarget,
+    generationBeforeCrash,
+    generationAfterCrash,
     secondWorkspace,
-    authenticationPaused,
-    authenticationManualSnapshot,
-    authenticationWorkspace,
     pageChangedPaused,
-    pageChangedManualSnapshot,
+    manualSnapshot,
     finalWorkspace,
     itemState: finalItems,
     downloadState: finalDownloads,
     downloads,
     temporary,
     takeoverEvents,
+    rendererEvents,
     expectedSha256,
-    expectedSecondSha256,
-    expectedButtonSha256,
     observedEventTypes: [
       ...new Set(runtime.events.map((event) => event.type))
     ]
@@ -4117,6 +4109,39 @@ async function waitForProjectRuntimeStatus(
   )
 }
 
+async function waitForProjectRuntimeNode(
+  runtime: MainWindowRuntime,
+  projectId: string,
+  expectedNodeId: string,
+  timeoutMs = 15_000
+): Promise<ProjectRuntimeSnapshot> {
+  const deadline = Date.now() + timeoutMs
+  let latest: ProjectRuntimeSnapshot | null = null
+  while (Date.now() < deadline) {
+    const workspace =
+      (await runtime.shellView.webContents.executeJavaScript(
+        'window.agenticBrowser.getProjectWorkspace()'
+      )) as ProjectWorkspaceSnapshot
+    latest =
+      [...workspace.runtimes]
+        .reverse()
+        .find((candidate) => candidate.projectId === projectId) ??
+      null
+    if (
+      latest?.currentNodeId === expectedNodeId &&
+      latest.status === 'waiting' &&
+      !isTerminalProjectRuntime(latest)
+    ) {
+      return latest
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error(
+    `等待 Project Runtime 节点 ${expectedNodeId} 超时：` +
+      JSON.stringify(latest)
+  )
+}
+
 async function waitForProjectSet(
   runtime: MainWindowRuntime,
   projectIds: string[],
@@ -4595,7 +4620,7 @@ function cleanupAutomatedDownloads(): void {
 async function closeSmokeRuntime(runtime: MainWindowRuntime): Promise<void> {
   runtime.suppressShellEvents()
   await Promise.all([
-    runtime.supervisor.prepareForShutdown(),
+    runtime.prepareForShutdown(),
     new Promise((resolve) => setTimeout(resolve, 250))
   ])
   runtime.window.close()
@@ -4615,7 +4640,7 @@ if (runApplication) {
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
     projectTakeoverSmokeTest ||
-    knowledgePlanetPilotSmokeTest
+    automationPlaygroundSmokeTest
       ? undefined
       : new StructuredEventLog(
           join(app.getPath('userData'), 'logs', 'browser-events.jsonl')
@@ -4631,7 +4656,7 @@ if (runApplication) {
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
     projectTakeoverSmokeTest ||
-    knowledgePlanetPilotSmokeTest
+    automationPlaygroundSmokeTest
       ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
       : null
   const profileStore = new ProfileStore(
@@ -4675,7 +4700,7 @@ if (runApplication) {
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
     projectTakeoverSmokeTest ||
-    knowledgePlanetPilotSmokeTest
+    automationPlaygroundSmokeTest
       ? createCapabilityPolicy()
       : await capabilityStore.read()
   const strategyStore = new StrategyStore(
@@ -4701,8 +4726,7 @@ if (runApplication) {
     strategyWorkspaceSmokeTest ||
     projectDownloadSmokeTest ||
     projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest ||
-    knowledgePlanetPilotSmokeTest
+    projectTakeoverSmokeTest
       ? await startPhaseZeroProbeServer()
       : null
   const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
@@ -4736,7 +4760,7 @@ if (runApplication) {
       !projectDownloadSmokeTest &&
       !projectConcurrencySmokeTest &&
       !projectTakeoverSmokeTest &&
-      !knowledgePlanetPilotSmokeTest,
+      !automationPlaygroundSmokeTest,
     phaseZeroProbe: smokeTest,
     healthMonitoring: !smokeTest && !strategyFaultSmokeTest,
     ...(initialUrl ? { initialUrl } : {}),
@@ -4990,24 +5014,21 @@ if (runApplication) {
     return
   }
 
-  if (knowledgePlanetPilotSmokeTest) {
-    if (!phaseZeroProbe || !automatedDownloadDirectory) {
-      throw new Error('知识星球试点 smoke 环境未初始化')
+  if (automationPlaygroundSmokeTest) {
+    if (!automatedDownloadDirectory) {
+      throw new Error('Selenium 自动化验收 smoke 环境未初始化')
     }
-    const result = await runKnowledgePlanetPilotSmoke(
+    const result = await runAutomationPlaygroundSmoke(
       runtime,
-      phaseZeroProbe,
-      join(automatedDownloadDirectory, 'knowledge-planet-output')
+      join(automatedDownloadDirectory, 'automation-playground-output')
     )
-    writeKnowledgePlanetPilotSmokeResult(result)
+    writeAutomationPlaygroundSmokeResult(result)
     console.log(
-      `AGENTIC_BROWSER_KNOWLEDGE_PLANET_PILOT_SMOKE ${JSON.stringify(
+      `AGENTIC_BROWSER_AUTOMATION_PLAYGROUND_SMOKE ${JSON.stringify(
         result
       )}`
     )
     await closeSmokeRuntime(runtime)
-    await phaseZeroProbe.close()
-    phaseZeroProbe = null
     cleanupAutomatedDownloads()
     app.exit(result.passed === true ? 0 : 1)
     return
@@ -5106,7 +5127,7 @@ if (runApplication) {
     writeProjectDownloadSmokeResult(result)
     writeProjectConcurrencySmokeResult(result)
     writeProjectTakeoverSmokeResult(result)
-    writeKnowledgePlanetPilotSmokeResult(result)
+    writeAutomationPlaygroundSmokeResult(result)
     void phaseZeroProbe?.close()
     phaseZeroProbe = null
     cleanupAutomatedDownloads()
@@ -5121,7 +5142,7 @@ app.on('before-quit', () => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && !automatedTestRun) {
     app.quit()
   }
 })

@@ -378,7 +378,7 @@ export class BackgroundProjectRuntime {
   ): Promise<JsonValue | void> {
     if (
       event.name === 'project.authentication-required' ||
-      event.name === 'knowledge.page-changed'
+      event.name === 'project.page-changed'
     ) {
       if (!this.options.onManualTakeoverRequested) {
         throw new Error('当前 Project Runtime 不支持人工接管请求')

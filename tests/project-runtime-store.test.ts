@@ -206,8 +206,8 @@ describe('ProjectRuntimeStore', () => {
 
 function createProjectDraft(): ProjectDraft {
   return {
-    id: 'knowledge-audio',
-    name: '知识星球语音采集',
+    id: 'public-site-download',
+    name: '公开站点下载验收',
     profileId: 'profile-default',
     startupPages: ['https://example.com/feed'],
     strategies: [{ id: 'feed-scanner', version: '0.1.0' }],

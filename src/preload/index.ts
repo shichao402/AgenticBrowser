@@ -7,7 +7,7 @@ import {
   type BrowserTab,
   type CapabilityPolicy,
   type CapabilityPolicySnapshot,
-  type KnowledgePlanetPilotInstallResult,
+  type AutomationPlaygroundInstallResult,
   type MonitorSnapshot,
   type ProjectDraft,
   type ProjectWorkspaceSnapshot,
@@ -46,11 +46,11 @@ const api: BrowserShellApi = {
     ipcRenderer.invoke(IPC_CHANNELS.deleteProfile, profileId),
   getProjectWorkspace: (): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.getProjectWorkspace),
-  installKnowledgePlanetPilot: (
+  installAutomationPlayground: (
     profileId: string
-  ): Promise<KnowledgePlanetPilotInstallResult> =>
+  ): Promise<AutomationPlaygroundInstallResult> =>
     ipcRenderer.invoke(
-      IPC_CHANNELS.installKnowledgePlanetPilot,
+      IPC_CHANNELS.installAutomationPlayground,
       profileId
     ),
   saveProject: (

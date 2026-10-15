@@ -1,7 +1,7 @@
 # AgenticBrowser 产品总计划
 
 - Last updated: 2026-10-15
-- Status: Phase 0–3 core and local knowledge-planet gate implemented; failure-matrix and authenticated macOS/real-site gates pending
+- Status: Phase 0–3 core and one public real-site gate implemented; failure-matrix, second-site and macOS gates pending
 
 ## 愿景
 
@@ -122,20 +122,19 @@ MVP 明确不做：
 - Chrome Sync 与 Google 浏览器私有 API。
 - 完整 Chrome 扩展生态。
 
-## 首个项目
+## 首个真实站点验收项目
 
-知识星球文本与 MP3 采集：
+使用 Selenium 官方公开测试资源验收 Runtime：
 
-1. 持久化登录并打开首页。
-2. 从检查点扫描帖子。
-3. 按关键词、规则或按需 Agent 筛选文本。
-4. 打开匹配详情并点击下载 MP3。
-5. 将临时文件原子移动到项目输出目录。
-6. 记录帖子、附件、文件、校验和和处理状态。
-7. 用业务 ID 幂等去重。
-8. 在页面或应用故障后恢复。
+1. 在公开 HTTPS 页面填写并提交表单。
+2. 等待延迟 DOM 并继续输入。
+3. 下载固定测试文件，原子提交到项目输出目录。
+4. 记录表单、动态页面和下载业务项。
+5. 用稳定业务键和下载键幂等去重。
+6. 在 renderer 崩溃后重建页面并从检查点续跑。
+7. 页面断言失败时暂停，人工导航修复后恢复。
 
-详见 [知识星球试点](knowledge-planet-pilot.md)。
+知识星球曾是业务试点候选，但因账号登录和平台风控风险，已停止真实站点验证；通用 Runtime 能力保留。详见 [Selenium 自动化验收试点](automation-playground-pilot.md)。
 
 ## 实施阶段
 
@@ -163,13 +162,13 @@ MVP 明确不做：
 
 ### Phase 3：Project Runtime
 
-当前状态：核心 Runtime、workflow、下载、Filter、工作台、双槽 Scheduler 和人工接管已实现；知识星球可配置模板、帖子记录、筛选计数、模拟 MP3 四轮幂等，以及登录失效/页面变化自动暂停与人工恢复均已通过本地 smoke。真实认证后 Feed/MP3 和故障矩阵仍待完成。
+当前状态：核心 Runtime、workflow、下载、Filter、工作台、双槽 Scheduler 和人工接管已实现；Selenium 官方真实站点上的表单、动态 DOM、固定文件下载、三轮业务项计数、下载幂等、renderer 崩溃恢复，以及页面变化自动暂停与人工恢复均已通过 smoke。完整故障矩阵仍待完成。
 
 - Project/Profile 清单。
 - 常驻与定时调度、并发预算。
 - Workflow、检查点、下载和 Content Filter。
 - 项目监控和人工接管。
-- 跑通知识星球闭环。
+- 跑通无需账号的公开真实站点闭环。
 
 ### Phase 4：示教录制
 
@@ -186,7 +185,7 @@ MVP 明确不做：
 ## 尚需确定
 
 - 第二个 Phase 0 目标站点。
-- 知识星球文本分类规则、历史扫描范围、时区、目录和文件名。
+- 首个实际业务项目及其数据规则、时区、目录和文件名。
 - 登录失效、MFA、验证码和人工接管规则。
 - 高风险动作的确认与审计策略。
 - Strategy 权限、依赖、资源和版本迁移格式。

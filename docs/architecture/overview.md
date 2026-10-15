@@ -1,6 +1,6 @@
 # 总体架构
 
-> 状态：演进中。Phase 0 Windows 技术基线、Phase 1 监督浏览器、Phase 2 Strategy 与 Phase 3 核心 Runtime 已经落地；真实站点试点和外部门禁仍在进行。
+> 状态：演进中。Phase 0 Windows 技术基线、Phase 1 监督浏览器、Phase 2 Strategy 与 Phase 3 核心 Runtime 已经落地；一个公开真实站点试点已通过，第二站点和外部门禁仍在进行。
 
 ## 当前代码映射
 
@@ -28,11 +28,11 @@
 - `src/main/project-workflow-engine.ts`：navigate/delay/wait-for-event/complete 状态机、重试、补偿转移、检查点和等待预算冻结/恢复。
 - `src/main/project-download-manager.ts`：下载意图、临时文件、哈希、配额、原子提交、manifest 和业务去重。
 - `src/main/project-item-store.ts`：项目业务项观测、matched/skipped 分类、跨 Runtime 去重和扫描计数。
-- `src/main/knowledge-planet-pilot.ts`：默认禁用的知识星球 Project/Strategy 模板、可配置页面定位与登录识别。
+- `src/main/automation-playground-pilot.ts`：默认禁用的 Selenium Project/Strategy 模板、确定性页面断言与测试文件下载。
 - `src/main/content-filter.ts`：Project 网络资源规则和 CSS selector 规则。
 - `src/main/structured-event-log.ts`：串行 JSONL 领域事件日志。
 - `src/main/download-path.ts`：跨平台下载文件名清理。
-- `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie、阻塞页面和知识星球 Feed/登录页夹具。
+- `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞页面夹具。
 - `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
 - `src/preload/index.ts`：最小 BrowserShell API。
 - `src/preload/strategy-bootstrap.ts`：单文件 session frame preload、run-at 调度和隔离 world bootstrap。
@@ -41,7 +41,7 @@
 
 尚未实现或尚未完成：
 
-- 已认证的真实知识星球 DOM/MP3 验证与第二站点策略；当前知识星球模板只通过本地受控夹具。
+- 第二个公开真实站点策略；当前 Selenium 官方测试站点门禁已通过。
 - 两槽以上并发的资源压测与用户可配置预算；当前 Windows 验证预算固定为 2。
 - 下载中强杀、断网、结构变化和磁盘不足的完整 Electron 故障门禁。
 - 示教录制与 Agent sidecar。
