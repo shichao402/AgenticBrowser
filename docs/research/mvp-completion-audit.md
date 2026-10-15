@@ -18,7 +18,7 @@
 ```text
 npm run check
 => typecheck passed
-=> 24 test files / 119 tests passed
+=> 25 test files / 124 tests passed
 => production build passed
 => production dependency audit: 0 known vulnerabilities
 ```
@@ -31,6 +31,7 @@ Windows Electron 门禁：
 - `npm run smoke:strategy-workspace`：Strategy 编辑、启停、授权与热重载通过。
 - `npm run smoke:project-download`：下载预授权、临时文件、SHA-256、原子提交和幂等通过。
 - `npm run smoke:project-download-recovery`：下载部分写入时强杀 Electron main，Watchdog 重启后同一 Runtime 从检查点安全重试并只提交一个完整附件。
+- `npm run smoke:project-download-fault`：Electron session 离线、活动下载中止、`failed/network`，以及下载前配额拒绝、`failed/disk`、Runtime 失败计数和分类 workflow 通过。
 - `npm run smoke:project-concurrency`：双执行槽、不同 Profile 并行、共享 Profile 互斥和输出隔离通过。
 - `npm run smoke:project-takeover`：人工接管、等待预算冻结、Strategy 暂停和同 Runtime 恢复通过。
 - `npm run smoke:automation-playground`：双公开真实站点三轮流程通过。
@@ -75,21 +76,20 @@ Strategy manifest、URL/frame/run-at 匹配、隔离 world、受控宿主 API、
 
 Project/Profile/Runtime、固定 Strategy 版本、workflow/checkpoint、Scheduler、双槽与 Profile 互斥、下载事务、Content Filter、监控和人工接管已闭合。双公开站点验收已通过。
 
-已闭合：下载过程中强杀 Electron main 后的 Watchdog、Project Runtime、manifest、幂等和安全重试门禁。
+已闭合：下载过程中强杀 Electron main 后的 Watchdog、Project Runtime、manifest、幂等和安全重试，以及 session 断网和磁盘配额不足的分类门禁。
 
-未闭合：下载过程中只强杀页面 renderer、断网和磁盘不足的 Electron 端到端故障门禁。
+未闭合：下载过程中只强杀页面 renderer、保留 Electron main 的端到端故障门禁。
 
 ## 阻止 MVP 完成的门禁
 
-1. 在 Electron 层注入断网，确认故障被分类、按预算恢复或进入可接管状态。
-2. 在真实下载过程中只强杀页面 renderer、保留 Electron main，确认下载归属、事件和 Runtime 状态仍然一致。Electron main 强杀及安全重试已经通过。
-3. 在 Electron 层模拟磁盘不足，确认临时文件、manifest、Runtime 计数和错误分类一致。
-4. 在 macOS 实机或可信 runner 验证 DMG、签名、公证、Watchdog、login item 和基本真实站点闭环。
+1. 在真实下载过程中只强杀页面 renderer、保留 Electron main，确认下载归属、事件和 Runtime 状态仍然一致。Electron main 强杀及安全重试已经通过。
+2. 在 macOS 实机或可信 runner 验证 DMG、签名、公证、Watchdog、login item 和基本真实站点闭环。
 
 ## 不阻止当前 Windows 核心验收，但发布前必须处理
 
 - 当前并发预算固定为 2；两槽以上压测和用户可配置预算尚未实现。
 - Pull Request CI 当前只执行 `npm run check`；Electron smoke、打包产物断言和真实站点结果尚未纳入自动归档门禁。
+- 磁盘门禁覆盖宿主预检与项目配额拒绝；真实隔离卷耗尽后的 OS `ENOSPC` 仍需发布前破坏性验证。
 - Windows 构建仍使用默认 Electron 图标，正式代码签名、SmartScreen、自动升级和回滚未闭合。
 - 长时间常驻压力、资源泄漏、代理/证书、WebAuthn、音视频和企业登录需要按实际业务环境验证。
 - 真实业务项目、登录失效、MFA、验证码、数据规则和高风险操作审批尚未确定。

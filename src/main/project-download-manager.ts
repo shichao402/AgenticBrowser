@@ -58,6 +58,11 @@ export type ProjectDownloadReservation =
       kind: 'duplicate'
       record: ProjectDownloadRecord
     }
+  | {
+      kind: 'rejected'
+      record: ProjectDownloadRecord
+      newlyCreated: boolean
+    }
 
 export interface ProjectDownloadManagerOptions {
   minimumFreeBytes?: number
@@ -121,15 +126,10 @@ export class ProjectDownloadManager {
       mkdir(dirname(this.filePath), { recursive: true })
     ])
     const expectedBytes = intent.expectedBytes ?? 0
-    const available = await this.getAvailableBytes(root)
-    if (available - expectedBytes < this.minimumFreeBytes) {
-      throw new ProjectDownloadError(
-        'disk',
-        `磁盘可用空间不足：${available} bytes`
-      )
-    }
 
-    return this.update<ProjectDownloadReservation>(async (state) => {
+    const reservation = await this.update<ProjectDownloadReservation>(async (
+      state
+    ) => {
       const idempotencyKey = createDownloadIdempotencyKey(
         project.id,
         intent
@@ -166,6 +166,25 @@ export class ProjectDownloadManager {
           }
         }
       }
+      const rejected = state.records.find(
+        (record) =>
+          record.projectId === project.id &&
+          record.runtimeId === intent.runtimeId &&
+          record.workflowNodeId === intent.workflowNodeId &&
+          record.idempotencyKey === idempotencyKey &&
+          record.status === 'failed' &&
+          record.errorCategory === 'disk'
+      )
+      if (rejected) {
+        return {
+          state,
+          result: {
+            kind: 'rejected',
+            record: structuredClone(rejected),
+            newlyCreated: false
+          }
+        }
+      }
 
       const consumed = state.records
         .filter(
@@ -174,13 +193,6 @@ export class ProjectDownloadManager {
             record.status === 'completed'
         )
         .reduce((total, record) => total + record.size, 0)
-      if (consumed + expectedBytes > project.output.maxBytes) {
-        throw new ProjectDownloadError(
-          'disk',
-          `项目下载配额不足：${consumed + expectedBytes}/${project.output.maxBytes}`
-        )
-      }
-
       const safeFileName = await chooseSafeFileName(
         downloadsRoot,
         renderFileName(project.output.fileNameTemplate, intent),
@@ -188,7 +200,12 @@ export class ProjectDownloadManager {
       )
       const downloadId = createDownloadId(this.createId)
       const now = new Date(this.now()).toISOString()
-      const record: ProjectDownloadRecord = {
+      const retryCount = state.records.filter(
+        (candidate) =>
+          candidate.projectId === project.id &&
+          candidate.idempotencyKey === idempotencyKey
+      ).length
+      const baseRecord = {
         downloadId,
         idempotencyKey,
         projectId: project.id,
@@ -211,26 +228,50 @@ export class ProjectDownloadManager {
         mime: intent.mime ?? null,
         size: 0,
         sha256: null,
-        status: 'reserved',
-        retryCount: state.records.filter(
-          (candidate) =>
-            candidate.projectId === project.id &&
-            candidate.idempotencyKey === idempotencyKey
-        ).length,
-        errorCategory: null,
-        error: null,
         startedAt: now,
         updatedAt: now,
         completedAt: null
       }
+      const available = await this.getAvailableBytes(root)
+      const diskError =
+        available - expectedBytes < this.minimumFreeBytes
+          ? `磁盘可用空间不足：${available} bytes`
+          : consumed + expectedBytes > project.output.maxBytes
+            ? `项目下载配额不足：${consumed + expectedBytes}/${project.output.maxBytes}`
+            : null
+      const record: ProjectDownloadRecord = diskError
+        ? {
+            ...baseRecord,
+            status: 'failed',
+            retryCount: retryCount + 1,
+            errorCategory: 'disk',
+            error: diskError
+          }
+        : {
+            ...baseRecord,
+            status: 'reserved',
+            retryCount,
+            errorCategory: null,
+            error: null
+          }
+      const result: ProjectDownloadReservation = diskError
+        ? { kind: 'rejected', record, newlyCreated: true }
+        : { kind: 'reserved', record }
       return {
         state: {
           schemaVersion: 1,
           records: pruneRecords([...state.records, record])
         },
-        result: { kind: 'reserved', record }
+        result
       }
     })
+    if (
+      reservation.kind === 'rejected' &&
+      reservation.newlyCreated
+    ) {
+      await this.incrementRuntimeFailureCounter(reservation.record)
+    }
+    return reservation
   }
 
   async markDownloading(downloadId: string): Promise<ProjectDownloadRecord> {
@@ -301,7 +342,11 @@ export class ProjectDownloadManager {
     return this.enqueue(async () => {
       const state = await this.read()
       const record = requireRecord(state, downloadId)
-      if (record.status === 'completed' || record.status === 'cancelled') {
+      if (
+        record.status === 'completed' ||
+        record.status === 'cancelled' ||
+        record.status === 'failed'
+      ) {
         return structuredClone(record)
       }
       const updated: ProjectDownloadRecord = {
@@ -313,6 +358,7 @@ export class ProjectDownloadManager {
         updatedAt: new Date(this.now()).toISOString()
       }
       await this.writeUpdatedRecord(state, updated)
+      await this.incrementRuntimeFailureCounter(updated)
       return updated
     })
   }
@@ -427,6 +473,22 @@ export class ProjectDownloadManager {
       downloaded: 1,
       downloadedBytes: record.size
     })
+  }
+
+  private async incrementRuntimeFailureCounter(
+    record: ProjectDownloadRecord
+  ): Promise<void> {
+    const runtimeStore = this.options.runtimeStore
+    if (!runtimeStore) {
+      return
+    }
+    const exists = (await runtimeStore.read()).runtimes.some(
+      ({ runtime }) => runtime.runtimeId === record.runtimeId
+    )
+    if (!exists) {
+      return
+    }
+    await runtimeStore.incrementCounters(record.runtimeId, { failed: 1 })
   }
 
   private async update<T>(

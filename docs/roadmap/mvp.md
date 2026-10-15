@@ -71,7 +71,7 @@ Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy �
 
 ## Phase 3：Project Runtime 与试点
 
-当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽、人工接管和 Project 工作台已经落地。Selenium 与 Test Pages 两个真实测试站点上的表单、延迟 DOM、跨域 workflow、固定文件下载/去重、renderer 崩溃恢复，以及页面变化自动暂停与恢复已经通过；下载进行中强杀 Electron main 后，Watchdog 重启、Runtime 续跑和同业务附件安全重试也已通过。单独只杀下载页面 renderer、断网和磁盘不足门禁仍待完成。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
+当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽、人工接管和 Project 工作台已经落地。Selenium 与 Test Pages 两个真实测试站点上的表单、延迟 DOM、跨域 workflow、固定文件下载/去重、renderer 崩溃恢复，以及页面变化自动暂停与恢复已经通过；下载进行中强杀 Electron main 后的安全重试、Electron session 断网和磁盘配额不足分类也已通过。单独只杀下载页面 renderer 的门禁仍待完成。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
 
 ### 交付
 

@@ -19,9 +19,9 @@ BrowserShell 同时只能展示一个前台浏览器，但调度器需要让常�
 - 应用启动时把中断的 starting/running/waiting/recovering Runtime 恢复为 queued，并从最后检查点重新进入 workflow。
 - “暂停并接管”把 Runtime 转为 paused、冻结 workflow deadline，并继续占用原执行槽和 Profile 锁。宿主以同一 Profile 和当前 URL 干净重建页面，但不注入 Strategy，确保旧脚本不能继续抢操作。
 - 进程内恢复会重建页面、重新注入固定版本 Strategy，并继续原等待节点；应用重启后的 paused Runtime 不自动运行，只有用户明确恢复时才从最近检查点重新排队。
-- Strategy 在触发网页下载前必须发送 `download.intent`。宿主完成权限、项目边界、磁盘、配额和幂等检查后返回 `reserved`、`in-progress` 或 `duplicate`。
+- Strategy 在触发网页下载前必须发送 `download.intent`。宿主完成权限、项目边界、磁盘、配额和幂等检查后返回 `reserved`、`in-progress`、`duplicate` 或带分类与审计记录的 `rejected`。
 - `reserved` 下载先写入项目 `tmp/`，完成后计算 SHA-256，再无覆盖提交到 `downloads/`；状态写入 `records/downloads.json`。
-- Download Manager 通过 `download.completed` / `download.failed` 领域事件驱动 workflow，Strategy 不直接获得任意文件系统能力。
+- `rejected` 与传输中断都会先持久化失败 manifest、原子增加 Runtime 失败计数，再通过 `download.failed` 领域事件驱动 workflow；Strategy 不直接获得任意文件系统能力。
 
 ## Consequences
 

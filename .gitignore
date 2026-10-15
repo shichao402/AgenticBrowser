@@ -12,6 +12,7 @@ phase2-strategy-fault-smoke-result.json
 phase2-strategy-workspace-smoke-result.json
 phase3-project-download-smoke-result.json
 phase3-project-download-recovery-smoke-result.json
+phase3-project-download-fault-smoke-result.json
 phase3-project-concurrency-smoke-result.json
 phase3-project-takeover-smoke-result.json
 phase3-automation-playground-smoke-result.json

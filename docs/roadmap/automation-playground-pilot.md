@@ -63,5 +63,5 @@ npm run smoke:automation-playground
 - 文件上传、系统文件选择器和客户端证书。
 - 跨域 frame、Shadow DOM、Canvas 和 WebAuthn 的完整流程。
 - 在真实公网文件下载过程中强杀进程；独立本地慢速下载门禁已经验证 Electron main 强杀后的安全重试。
-- 断网、磁盘不足和长时间资源预算。
+- 真实公网断网、隔离卷 `ENOSPC` 和长时间资源预算；独立本地门禁已经验证 Electron session 离线与项目配额不足分类。
 - macOS 打包、签名、公证和运行。

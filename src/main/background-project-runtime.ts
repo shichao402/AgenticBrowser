@@ -483,6 +483,48 @@ export class BackgroundProjectRuntime {
           : { expectedBytes: intent.expectedBytes })
       }
     )
+    if (reservation.kind === 'rejected') {
+      const detail = reservation.record.error ?? '下载预检被宿主拒绝'
+      const failureEvent: StrategyDomainEvent = {
+        strategyId: 'host-download-manager',
+        name: 'download.failed',
+        payload: {
+          downloadId: reservation.record.downloadId,
+          businessItemId: reservation.record.businessItemId,
+          attachmentId: reservation.record.attachmentId,
+          category: 'disk',
+          detail
+        },
+        url: reservation.record.sourcePage
+      }
+      if (reservation.newlyCreated) {
+        this.options.publish({
+          sequence: 0,
+          type: 'download-failed',
+          timestamp: new Date().toISOString(),
+          url: reservation.record.sourcePage,
+          detail: `${reservation.record.safeFileName}; ${detail}`,
+          projectId: reservation.record.projectId,
+          runtimeId: reservation.record.runtimeId
+        })
+        setImmediate(() => {
+          void this.handleStrategyDomainEvent(failureEvent).catch(
+            (error: unknown) => {
+              void this.fail('unknown', formatError(error)).catch(
+                () => undefined
+              )
+            }
+          )
+        })
+      }
+      return {
+        kind: 'rejected',
+        downloadId: reservation.record.downloadId,
+        category: 'disk',
+        detail,
+        newlyCreated: reservation.newlyCreated
+      }
+    }
     if (reservation.kind === 'reserved') {
       if (this.pendingDownloads.length >= 100) {
         await this.downloadManager.fail(

@@ -11,7 +11,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
-  ProjectDownloadError,
   ProjectDownloadManager,
   createDownloadIdempotencyKey
 } from '../src/main/project-download-manager'
@@ -129,6 +128,39 @@ describe('ProjectDownloadManager', () => {
     })
   })
 
+  it('increments the runtime failure counter once per failed record', async () => {
+    const runtime = await runtimeStore.create(project, 'manual')
+    const reservation = await manager.reserve(project, {
+      ...intent(),
+      runtimeId: runtime.runtime.runtimeId
+    })
+    if (reservation.kind !== 'reserved') {
+      throw new Error('expected reservation')
+    }
+    await manager.markDownloading(reservation.record.downloadId)
+    await manager.fail(
+      reservation.record.downloadId,
+      'network',
+      'diagnostic-offline'
+    )
+    await manager.fail(
+      reservation.record.downloadId,
+      'network',
+      'diagnostic-offline'
+    )
+
+    const updated = (await runtimeStore.read()).runtimes.find(
+      ({ runtime: candidate }) =>
+        candidate.runtimeId === runtime.runtime.runtimeId
+    )
+    expect(updated?.runtime.counters.failed).toBe(1)
+    expect((await manager.read()).records[0]).toMatchObject({
+      status: 'failed',
+      errorCategory: 'network',
+      retryCount: 1
+    })
+  })
+
   it('does not reserve the same attachment twice while it is in progress', async () => {
     const first = await manager.reserve(project, intent())
     if (first.kind !== 'reserved') {
@@ -167,8 +199,13 @@ describe('ProjectDownloadManager', () => {
         getAvailableBytes: async () => 50
       }
     )
-    await expect(lowDisk.reserve(project, intent())).rejects.toMatchObject({
-      category: 'disk'
+    await expect(lowDisk.reserve(project, intent())).resolves.toMatchObject({
+      kind: 'rejected',
+      record: {
+        status: 'failed',
+        errorCategory: 'disk',
+        retryCount: 1
+      }
     })
 
     await expect(
@@ -179,7 +216,59 @@ describe('ProjectDownloadManager', () => {
         },
         { ...intent(), expectedBytes: 1024 * 1024 + 1 }
       )
-    ).rejects.toBeInstanceOf(ProjectDownloadError)
+    ).resolves.toMatchObject({
+      kind: 'rejected',
+      record: {
+        status: 'failed',
+        errorCategory: 'disk',
+        error: expect.stringContaining('配额')
+      }
+    })
+  })
+
+  it('keeps disk rejections auditable and reuses their filename on retry', async () => {
+    let availableBytes = 0
+    const retrying = new ProjectDownloadManager(
+      join(temporaryRoot, 'records', 'disk-retry.json'),
+      {
+        minimumFreeBytes: 100,
+        createId: () => `diskretry${++sequence}`,
+        getAvailableBytes: async () => availableBytes
+      }
+    )
+    const rejected = await retrying.reserve(project, intent())
+    expect(rejected.kind).toBe('rejected')
+    if (rejected.kind !== 'rejected') {
+      throw new Error('expected rejected reservation')
+    }
+    await expect(retrying.reserve(project, intent())).resolves.toEqual({
+      kind: 'rejected',
+      record: rejected.record,
+      newlyCreated: false
+    })
+    expect((await retrying.read()).records).toHaveLength(1)
+
+    availableBytes = 1024 * 1024 * 1024
+    const retry = await retrying.reserve(project, {
+      ...intent(),
+      runtimeId: 'runtime-download2'
+    })
+    expect(retry.kind).toBe('reserved')
+    if (retry.kind !== 'reserved') {
+      throw new Error('expected retry reservation')
+    }
+    expect(retry.record).toMatchObject({
+      safeFileName: rejected.record.safeFileName,
+      finalPath: rejected.record.finalPath,
+      retryCount: 1
+    })
+    expect((await retrying.read()).records).toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        errorCategory: 'disk'
+      }),
+      expect.objectContaining({ status: 'reserved' })
+    ])
   })
 
   it('classifies interrupted downloads and preserves their temporary evidence', async () => {

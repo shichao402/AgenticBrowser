@@ -28,6 +28,7 @@
 - `src/main/project-workflow-engine.ts`：navigate/delay/wait-for-event/complete 状态机、重试、补偿转移、检查点和等待预算冻结/恢复。
 - `src/main/project-download-manager.ts`：下载意图、临时文件、哈希、配额、原子提交、manifest 和业务去重。
 - `src/main/project-download-recovery-smoke.ts` 与 `scripts/project-download-recovery-smoke.mjs`：下载部分写入时外部强杀 Electron main，并验证 Watchdog、Runtime 检查点、失败证据和无重复安全重试。
+- `src/main/project-download-fault-smoke.ts` 与 `scripts/project-download-fault-smoke.mjs`：在 Electron session 内注入离线并中止已建立下载，同时验证磁盘配额预检拒绝、manifest、Runtime 计数和分类事件。
 - `src/main/project-item-store.ts`：项目业务项观测、matched/skipped 分类、跨 Runtime 去重和扫描计数。
 - `src/main/automation-playground-pilot.ts`：默认禁用的双站点 Project/Strategy 模板、确定性页面断言、跨域延迟同步与测试文件下载。
 - `src/main/content-filter.ts`：Project 网络资源规则和 CSS selector 规则。
@@ -43,7 +44,7 @@
 尚未实现或尚未完成：
 
 - 两槽以上并发的资源压测与用户可配置预算；当前 Windows 验证预算固定为 2。
-- 下载中单独强杀页面 renderer、断网和磁盘不足的完整 Electron 故障门禁；Electron main 强杀后的 Watchdog/Runtime 安全重试已通过。
+- 下载中单独强杀页面 renderer 的完整 Electron 故障门禁；Electron main 强杀、session 断网和磁盘配额不足门禁已通过。
 - 示教录制与 Agent sidecar。
 
 目标架构章节描述的是完成后的组件边界；未实现能力不能按现有功能对外宣称。
@@ -179,7 +180,7 @@ Capability Policy schema v1 保存 popup、download、notification、geolocation
 
 开发态 Capability 文件仍提供默认运行上下文；Project Runtime 启动后使用 Project 快照自己的默认值和精确 Origin 规则，终态后恢复开发配置。
 
-session 级 `will-download` 统一接管下载。Project Strategy 必须先发送包含业务项、附件、来源 URL、文件名和预期大小的 `download.intent`；宿主完成权限、配额、磁盘与幂等检查后才允许对应下载。文件先写入项目 `tmp/`，完成后计算 SHA-256 并无覆盖提交到 `downloads/`，完整记录写入 `records/downloads.json`。相同业务附件再次出现时返回 completed 记录，不生成第二个文件。多个附件的完成回调按宿主队列串行提交，只有同一 Runtime 不再存在 reserved/downloading 记录时才发送聚合完成事件；若页面导航打断预留与下载触发之间的窗口，后续 Strategy 注入可识别仍在宿主待处理队列中的预留项并继续触发。
+session 级 `will-download` 统一接管下载。Project Strategy 必须先发送包含业务项、附件、来源 URL、文件名和预期大小的 `download.intent`；宿主完成权限、配额、磁盘与幂等检查后才允许对应下载。预检不足会返回 `rejected`，以 `failed/disk` 写入 manifest、原子增加 Runtime 失败计数并投递 `download.failed`，同一 Runtime/节点的重复 Strategy 注入复用同一拒绝记录。文件先写入项目 `tmp/`，完成后计算 SHA-256 并无覆盖提交到 `downloads/`，完整记录写入 `records/downloads.json`。相同业务附件再次出现时返回 completed 记录，不生成第二个文件。多个附件的完成回调按宿主队列串行提交，只有同一 Runtime 不再存在 reserved/downloading 记录时才发送聚合完成事件；若页面导航打断预留与下载触发之间的窗口，后续 Strategy 注入可识别仍在宿主待处理队列中的预留项并继续触发。网络中断同样先持久化 `failed/network` 和计数，再由 workflow 处理分类事件；故障注入诊断会将 Profile session 置为 offline，并显式中止已建立的 DownloadItem，因为 Chromium 的离线仿真本身不会终止已经建立的传输连接。
 
 页面扫描通过 `project.item-observed` 报告业务项。宿主把文本、分类、附件摘要和来源写入 `records/items.json`，按 Project + 业务 ID 跨 Runtime 合并，并以原子计数更新 Runtime 的 scanned/matched/skipped。认证失效和已识别的页面结构变化由宿主转换为带分类的人工接管请求，页面脚本不能直接更改 Runtime 状态。
 

@@ -21,7 +21,8 @@ import {
   type FrameDiagnostics,
   type HeartbeatStallProbe,
   type InteractionCaptureBenchmark,
-  type MultiViewCaptureBenchmark
+  type MultiViewCaptureBenchmark,
+  type NetworkFaultDiagnostics
 } from './browser-supervisor'
 import type { BrowserCheckpoint } from './checkpoint-store'
 import {
@@ -297,6 +298,20 @@ export class BrowserTabManager {
 
   requestDownload(url: string): void {
     this.activeSupervisor().requestDownload(url)
+  }
+
+  armManagedDownloadNetworkDropForDiagnostics(afterBytes = 1): void {
+    this.activeSupervisor().armManagedDownloadNetworkDropForDiagnostics(
+      afterBytes
+    )
+  }
+
+  disableNetworkEmulationForDiagnostics(): void {
+    this.activeSupervisor().disableNetworkEmulationForDiagnostics()
+  }
+
+  getNetworkFaultDiagnostics(): NetworkFaultDiagnostics {
+    return this.activeSupervisor().getNetworkFaultDiagnostics()
   }
 
   triggerPopup(url: string): Promise<void> {

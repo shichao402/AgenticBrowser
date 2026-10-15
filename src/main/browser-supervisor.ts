@@ -232,6 +232,12 @@ export interface BrowserDownloadAdapter {
   ): Promise<void>
 }
 
+export interface NetworkFaultDiagnostics {
+  armedAfterBytes: number | null
+  offline: boolean
+  injectedDrops: number
+}
+
 export class BrowserSupervisor {
   private readonly profileSession: Session
   private readonly profileId: string
@@ -252,6 +258,9 @@ export class BrowserSupervisor {
     receivedBytes: 0
   }
   private downloadSequence = 0
+  private networkDropAfterBytes: number | null = null
+  private networkOfflineForDiagnostics = false
+  private injectedNetworkDrops = 0
   private readonly onWillDownload = (
     _event: ElectronEvent,
     item: DownloadItem,
@@ -400,6 +409,29 @@ export class BrowserSupervisor {
 
   setDownloadAdapter(adapter: BrowserDownloadAdapter | undefined): void {
     this.downloadAdapter = adapter
+  }
+
+  armManagedDownloadNetworkDropForDiagnostics(afterBytes = 1): void {
+    if (!Number.isSafeInteger(afterBytes) || afterBytes <= 0) {
+      throw new Error('下载断网注入阈值必须是正整数')
+    }
+    this.profileSession.disableNetworkEmulation()
+    this.networkOfflineForDiagnostics = false
+    this.networkDropAfterBytes = afterBytes
+  }
+
+  disableNetworkEmulationForDiagnostics(): void {
+    this.profileSession.disableNetworkEmulation()
+    this.networkDropAfterBytes = null
+    this.networkOfflineForDiagnostics = false
+  }
+
+  getNetworkFaultDiagnostics(): NetworkFaultDiagnostics {
+    return {
+      armedAfterBytes: this.networkDropAfterBytes,
+      offline: this.networkOfflineForDiagnostics,
+      injectedDrops: this.injectedNetworkDrops
+    }
   }
 
   getEffectiveCapabilities(
@@ -978,6 +1010,12 @@ export class BrowserSupervisor {
   dispose(windowClosed = false): void {
     this.disposed = true
     this.healthMonitor.stop()
+    if (
+      this.networkOfflineForDiagnostics ||
+      this.networkDropAfterBytes !== null
+    ) {
+      this.disableNetworkEmulationForDiagnostics()
+    }
     this.setSessionHandlerOwnership(false)
     this.destroyPageView(!windowClosed)
   }
@@ -1510,6 +1548,7 @@ export class BrowserSupervisor {
         )
         let accountedBytes = 0
         let lastProgressEventAt = 0
+        let diagnosticNetworkDropInjected = false
         item.on('updated', () => {
           const received = item.getReceivedBytes()
           this.downloads.receivedBytes += Math.max(
@@ -1517,6 +1556,12 @@ export class BrowserSupervisor {
             received - accountedBytes
           )
           accountedBytes = received
+          if (this.injectManagedDownloadNetworkDrop(received)) {
+            diagnosticNetworkDropInjected = true
+            // Chromium keeps an established transfer alive after session
+            // offline; cancel outside the DownloadItem observer callback.
+            setImmediate(() => item.cancel())
+          }
           const now = Date.now()
           if (now - lastProgressEventAt >= 1_000) {
             lastProgressEventAt = now
@@ -1552,14 +1597,25 @@ export class BrowserSupervisor {
               })
           } else {
             const category =
-              state === 'cancelled' ? 'cancelled' : 'network'
+              diagnosticNetworkDropInjected
+                ? 'network'
+                : state === 'cancelled'
+                  ? 'cancelled'
+                  : 'network'
+            const detail = diagnosticNetworkDropInjected
+              ? 'diagnostic-offline'
+              : state
+            this.downloads.failed += 1
+            this.emit(
+              'download-failed',
+              `${reservation.displayName}; ${detail}`
+            )
             void adapter
-              .fail(reservation.downloadId, category, state)
-              .finally(() => {
-                this.downloads.failed += 1
+              .fail(reservation.downloadId, category, detail)
+              .catch((error: unknown) => {
                 this.emit(
                   'download-failed',
-                  `${reservation.displayName}; ${state}`
+                  `${reservation.displayName}; persist-error=${formatError(error)}`
                 )
               })
           }
@@ -1576,6 +1632,22 @@ export class BrowserSupervisor {
           `${item.getFilename()}; ${formatError(error)}`
         )
       })
+  }
+
+  private injectManagedDownloadNetworkDrop(receivedBytes: number): boolean {
+    const threshold = this.networkDropAfterBytes
+    if (
+      threshold === null ||
+      this.networkOfflineForDiagnostics ||
+      receivedBytes < threshold
+    ) {
+      return false
+    }
+    this.networkDropAfterBytes = null
+    this.networkOfflineForDiagnostics = true
+    this.injectedNetworkDrops += 1
+    this.profileSession.enableNetworkEmulation({ offline: true })
+    return true
   }
 
   private requestRecovery(

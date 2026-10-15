@@ -238,6 +238,7 @@ async function main() {
       recoveredRuntime?.status === 'completed' &&
       recoveredRuntime.trigger === 'resume' &&
       recoveredRuntime.counters.downloaded === 1 &&
+      recoveredRuntime.counters.failed === 1 &&
       recoveredRuntime.counters.downloadedBytes === expectedBytes &&
       lockReleased
 

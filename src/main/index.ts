@@ -64,6 +64,12 @@ import {
   type ProjectDownloadReservation
 } from './project-download-manager'
 import {
+  PROJECT_DOWNLOAD_DISK_PROJECT_ID,
+  PROJECT_DOWNLOAD_NETWORK_PROJECT_ID,
+  createProjectDownloadFaultProjectDraft,
+  createProjectDownloadFaultStrategyDraft
+} from './project-download-fault-smoke'
+import {
   PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID,
   createProjectDownloadRecoveryProjectDraft,
   createProjectDownloadRecoveryStrategyDraft
@@ -102,6 +108,7 @@ import {
   StrategyStore,
   type StrategyState
 } from './strategy-store'
+import type { StrategyDomainEvent } from './strategy-runtime'
 import {
   launchPackagedWatchdog,
   WATCHDOG_AUTOSTART_ARGUMENT
@@ -143,6 +150,9 @@ const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
 const projectDownloadRecoverySmokeChild = process.argv.includes(
   '--project-download-recovery-smoke-child'
 )
+const projectDownloadFaultSmokeChild = process.argv.includes(
+  '--project-download-fault-smoke-child'
+)
 const automatedTestRun =
   smokeTest ||
   recoverySmokeTest ||
@@ -153,7 +163,8 @@ const automatedTestRun =
   projectTakeoverSmokeTest ||
   automationPlaygroundSmokeTest ||
   watchdogSmokeChild ||
-  projectDownloadRecoverySmokeChild
+  projectDownloadRecoverySmokeChild ||
+  projectDownloadFaultSmokeChild
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 const recoverySmokeResultPath = join(
   process.cwd(),
@@ -302,6 +313,18 @@ function writeAutomationPlaygroundSmokeResult(result: unknown): void {
   }
 }
 
+function writeProjectDownloadFaultSmokeChildResult(result: unknown): void {
+  const resultPath =
+    process.env.AGENTIC_PROJECT_DOWNLOAD_FAULT_RESULT_PATH
+  if (projectDownloadFaultSmokeChild && resultPath) {
+    writeFileSync(
+      resultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
+  }
+}
+
 interface MainWindowRuntime {
   window: BaseWindow
   shellView: WebContentsView
@@ -435,7 +458,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     if (
       (projectDownloadSmokeTest ||
         projectConcurrencySmokeTest ||
-        projectTakeoverSmokeTest) &&
+        projectTakeoverSmokeTest ||
+        projectDownloadFaultSmokeChild) &&
       (event.type.startsWith('strategy-') ||
         event.type.startsWith('download-') ||
         event.type.startsWith('project-runtime-'))
@@ -1246,6 +1270,47 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           kind: 'reserved',
           downloadId: reservation.record.downloadId,
           safeFileName: reservation.record.safeFileName
+        }
+      }
+      if (reservation.kind === 'rejected') {
+        const detail =
+          reservation.record.error ?? '下载预检被宿主拒绝'
+        const failureEvent = {
+          strategyId: 'host-download-manager',
+          name: 'download.failed',
+          payload: {
+            downloadId: reservation.record.downloadId,
+            businessItemId: reservation.record.businessItemId,
+            attachmentId: reservation.record.attachmentId,
+            category: 'disk',
+            detail
+          },
+          url: reservation.record.sourcePage
+        } satisfies StrategyDomainEvent
+        if (reservation.newlyCreated) {
+          publish({
+            sequence: 0,
+            type: 'download-failed',
+            timestamp: new Date().toISOString(),
+            url: reservation.record.sourcePage,
+            detail: `${reservation.record.safeFileName}; ${detail}`,
+            projectId: reservation.record.projectId,
+            runtimeId: reservation.record.runtimeId
+          })
+          setImmediate(() => {
+            void Promise.resolve(
+              handleStrategyDomainEvent?.(failureEvent)
+            ).catch((error: unknown) => {
+              console.error('投递下载预检失败事件失败', error)
+            })
+          })
+        }
+        return {
+          kind: 'rejected',
+          downloadId: reservation.record.downloadId,
+          category: 'disk',
+          detail,
+          newlyCreated: reservation.newlyCreated
         }
       }
       if (reservation.kind === 'in-progress') {
@@ -3498,6 +3563,7 @@ async function runProjectDownloadRecoverySmokeChild(
     recovered.runtime.status === 'completed' &&
     recovered.runtime.trigger === 'resume' &&
     recovered.runtime.counters.downloaded === 1 &&
+    recovered.runtime.counters.failed === 1 &&
     recovered.runtime.counters.downloadedBytes === expectedBytes
 
   const result = {
@@ -3616,6 +3682,268 @@ function readFileSize(path: string): number {
   } catch {
     return -1
   }
+}
+
+async function runProjectDownloadFaultSmokeChild(
+  runtime: MainWindowRuntime,
+  projectRuntimeStore: ProjectRuntimeStore,
+  profileId: string
+): Promise<void> {
+  const networkPageUrl = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_URL'
+  )
+  const diskPageUrl = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_URL'
+  )
+  const outputRoot = requireEnvironmentValue(
+    'AGENTIC_PROJECT_DOWNLOAD_FAULT_OUTPUT_ROOT'
+  )
+  const networkBytes = parsePositiveInteger(
+    requireEnvironmentValue(
+      'AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_BYTES'
+    ),
+    'AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_BYTES'
+  )
+  const diskBytes = parsePositiveInteger(
+    requireEnvironmentValue(
+      'AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_BYTES'
+    ),
+    'AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_BYTES'
+  )
+  const networkOutputRoot = join(outputRoot, 'network')
+  const diskOutputRoot = join(outputRoot, 'disk')
+  const networkManager = new ProjectDownloadManager(
+    join(networkOutputRoot, 'records', 'downloads.json')
+  )
+  const diskManager = new ProjectDownloadManager(
+    join(diskOutputRoot, 'records', 'downloads.json')
+  )
+  const networkStrategy = createProjectDownloadFaultStrategyDraft(
+    'network',
+    networkPageUrl,
+    networkBytes
+  )
+  const diskStrategy = createProjectDownloadFaultStrategyDraft(
+    'disk',
+    diskPageUrl,
+    diskBytes
+  )
+  const networkProject = createProjectDownloadFaultProjectDraft('network', {
+    profileId,
+    pageUrl: networkPageUrl,
+    outputRoot: networkOutputRoot,
+    expectedBytes: networkBytes
+  })
+  const diskProject = createProjectDownloadFaultProjectDraft('disk', {
+    profileId,
+    pageUrl: diskPageUrl,
+    outputRoot: diskOutputRoot,
+    expectedBytes: diskBytes
+  })
+
+  for (const strategy of [networkStrategy, diskStrategy]) {
+    await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.saveStrategy(${JSON.stringify(strategy)})`
+    )
+  }
+  for (const project of [networkProject, diskProject]) {
+    await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.saveProject(${JSON.stringify(project)})`
+    )
+  }
+
+  runtime.supervisor.armManagedDownloadNetworkDropForDiagnostics(
+    32 * 1024
+  )
+  let networkWorkspace: ProjectWorkspaceSnapshot
+  let networkDiagnostics
+  let networkSummary
+  try {
+    await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+        PROJECT_DOWNLOAD_NETWORK_PROJECT_ID
+      )})`
+    )
+    networkWorkspace = await waitForProjectRuns(
+      runtime,
+      PROJECT_DOWNLOAD_NETWORK_PROJECT_ID,
+      1,
+      60_000
+    )
+    networkDiagnostics =
+      runtime.supervisor.getNetworkFaultDiagnostics()
+    networkSummary = runtime.supervisor.getDownloadSummary()
+  } finally {
+    runtime.supervisor.disableNetworkEmulationForDiagnostics()
+  }
+
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+      PROJECT_DOWNLOAD_DISK_PROJECT_ID
+    )})`
+  )
+  const diskWorkspace = await waitForProjectRuns(
+    runtime,
+    PROJECT_DOWNLOAD_DISK_PROJECT_ID,
+    1,
+    30_000
+  )
+  const [networkDownloadState, diskDownloadState, runtimeState] =
+    await Promise.all([
+      networkManager.read(),
+      diskManager.read(),
+      projectRuntimeStore.read()
+    ])
+  const networkRecord = networkDownloadState.records[0] ?? null
+  const diskRecord = diskDownloadState.records[0] ?? null
+  const networkRuntime = runtimeState.runtimes.find(
+    ({ runtime: candidate }) =>
+      candidate.projectId === PROJECT_DOWNLOAD_NETWORK_PROJECT_ID
+  )?.runtime
+  const diskRuntime = runtimeState.runtimes.find(
+    ({ runtime: candidate }) =>
+      candidate.projectId === PROJECT_DOWNLOAD_DISK_PROJECT_ID
+  )?.runtime
+  const networkTemporaryBytes =
+    networkRecord && existsSync(networkRecord.temporaryPath)
+      ? statSync(networkRecord.temporaryPath).size
+      : null
+  const networkDownloads = readDirectoryNames(
+    join(networkOutputRoot, 'downloads')
+  )
+  const networkTemporary = readDirectoryNames(
+    join(networkOutputRoot, 'tmp')
+  )
+  const diskDownloads = readDirectoryNames(
+    join(diskOutputRoot, 'downloads')
+  )
+  const diskTemporary = readDirectoryNames(join(diskOutputRoot, 'tmp'))
+  const networkEventTypes = runtime.events
+    .filter((event) => event.runtimeId === networkRuntime?.runtimeId)
+    .map((event) => event.type)
+  const diskEventTypes = runtime.events
+    .filter((event) => event.runtimeId === diskRuntime?.runtimeId)
+    .map((event) => event.type)
+  const finalNetworkDiagnostics =
+    runtime.supervisor.getNetworkFaultDiagnostics()
+  const networkTemporaryConsistent =
+    (networkTemporaryBytes === null &&
+      networkTemporary.length === 0) ||
+    (networkTemporaryBytes !== null &&
+      networkTemporaryBytes >= 32 * 1024 &&
+      networkTemporaryBytes < networkBytes &&
+      networkTemporary.length === 1)
+  const passed =
+    networkWorkspace.runtimes.some(
+      (candidate) =>
+        candidate.projectId === PROJECT_DOWNLOAD_NETWORK_PROJECT_ID &&
+        candidate.status === 'completed'
+    ) &&
+    diskWorkspace.runtimes.some(
+      (candidate) =>
+        candidate.projectId === PROJECT_DOWNLOAD_DISK_PROJECT_ID &&
+        candidate.status === 'completed'
+    ) &&
+    networkDownloadState.records.length === 1 &&
+    networkRecord?.status === 'failed' &&
+    networkRecord.errorCategory === 'network' &&
+    networkRecord.error === 'diagnostic-offline' &&
+    networkRecord.retryCount === 1 &&
+    networkDownloads.length === 0 &&
+    networkTemporaryConsistent &&
+    networkRuntime?.status === 'completed' &&
+    networkRuntime.counters.failed === 1 &&
+    getCheckpointFailureCategory(networkRuntime) === 'network' &&
+    networkDiagnostics.offline &&
+    networkDiagnostics.armedAfterBytes === null &&
+    networkDiagnostics.injectedDrops === 1 &&
+    networkSummary.active === 0 &&
+    networkSummary.failed === 1 &&
+    networkSummary.receivedBytes >= 32 * 1024 &&
+    networkEventTypes.includes('download-started') &&
+    networkEventTypes.includes('download-progress') &&
+    networkEventTypes.includes('download-failed') &&
+    diskDownloadState.records.length === 1 &&
+    diskRecord?.status === 'failed' &&
+    diskRecord.errorCategory === 'disk' &&
+    diskRecord.retryCount === 1 &&
+    diskDownloads.length === 0 &&
+    diskTemporary.length === 0 &&
+    diskRuntime?.status === 'completed' &&
+    diskRuntime.counters.failed === 1 &&
+    getCheckpointFailureCategory(diskRuntime) === 'disk' &&
+    diskEventTypes.includes('download-failed') &&
+    !diskEventTypes.includes('download-started') &&
+    !finalNetworkDiagnostics.offline &&
+    finalNetworkDiagnostics.injectedDrops === 1
+
+  const result = {
+    passed,
+    networkPageUrl,
+    diskPageUrl,
+    networkBytes,
+    diskBytes,
+    networkWorkspace,
+    diskWorkspace,
+    networkDownloadState,
+    diskDownloadState,
+    networkRuntime,
+    diskRuntime,
+    networkTemporaryBytes,
+    networkTemporaryConsistent,
+    networkDownloads,
+    networkTemporary,
+    diskDownloads,
+    diskTemporary,
+    networkDiagnostics,
+    finalNetworkDiagnostics,
+    networkSummary,
+    networkEventTypes,
+    diskEventTypes
+  }
+  writeProjectDownloadFaultSmokeChildResult(result)
+  console.log(
+    `AGENTIC_BROWSER_PROJECT_DOWNLOAD_FAULT_CHILD ${JSON.stringify(
+      result
+    )}`
+  )
+  await closeSmokeRuntime(runtime)
+  app.exit(passed ? 0 : 1)
+}
+
+function getCheckpointFailureCategory(
+  runtime: ProjectRuntimeSnapshot
+): WorkflowFailureCategory | null {
+  const lastEvent = runtime.checkpointData.lastEvent
+  if (
+    typeof lastEvent !== 'object' ||
+    lastEvent === null ||
+    Array.isArray(lastEvent)
+  ) {
+    return null
+  }
+  const payload = lastEvent.payload
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    Array.isArray(payload)
+  ) {
+    return null
+  }
+  const category = payload.category
+  return typeof category === 'string' &&
+    [
+      'network',
+      'timeout',
+      'authentication',
+      'page-changed',
+      'renderer',
+      'disk',
+      'cancelled',
+      'unknown'
+    ].includes(category)
+    ? (category as WorkflowFailureCategory)
+    : null
 }
 
 async function runAutomationPlaygroundSmoke(
@@ -5023,9 +5351,14 @@ if (runApplication) {
   if (watchdogSmokeChild && !watchdogSmokeUrl && !compatibleCheckpoint) {
     throw new Error('Watchdog smoke 缺少初始 URL')
   }
+  const projectDownloadFaultSmokeUrl =
+    process.env.AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_URL
 
   const initialUrl =
-    phaseZeroProbe?.topUrl ?? compatibleCheckpoint?.url ?? watchdogSmokeUrl
+    phaseZeroProbe?.topUrl ??
+    projectDownloadFaultSmokeUrl ??
+    compatibleCheckpoint?.url ??
+    watchdogSmokeUrl
   const strategyDefinitions = smokeTest
     ? createStrategySmokeDefinitions()
     : strategyFaultSmokeTest
@@ -5045,6 +5378,7 @@ if (runApplication) {
     show:
       !watchdogSmokeChild &&
       !projectDownloadRecoverySmokeChild &&
+      !projectDownloadFaultSmokeChild &&
       !recoverySmokeTest &&
       !strategyFaultSmokeTest &&
       !strategyWorkspaceSmokeTest &&
@@ -5409,6 +5743,15 @@ if (runApplication) {
     return
   }
 
+  if (projectDownloadFaultSmokeChild) {
+    await runProjectDownloadFaultSmokeChild(
+      runtime,
+      projectRuntimeStore,
+      profileId
+    )
+    return
+  }
+
   app.on('activate', () => {
     if (!mainWindow) {
       void createMainWindow()
@@ -5427,6 +5770,7 @@ if (runApplication) {
     writeProjectConcurrencySmokeResult(result)
     writeProjectTakeoverSmokeResult(result)
     writeAutomationPlaygroundSmokeResult(result)
+    writeProjectDownloadFaultSmokeChildResult(result)
     void phaseZeroProbe?.close()
     phaseZeroProbe = null
     cleanupAutomatedDownloads()
