@@ -17,6 +17,7 @@ import type {
   BrowserEvent,
   BrowserEventType,
   BrowserSnapshot,
+  CapabilityPolicy,
   CapabilitySettings,
   DownloadSummary,
   PageHealthSnapshot,
@@ -27,7 +28,12 @@ import {
   type BrowserCheckpoint,
   type BrowserCheckpointStore
 } from './checkpoint-store'
-import { DEFAULT_CAPABILITIES } from './capability-store'
+import {
+  cloneCapabilityPolicy,
+  createCapabilityPolicy,
+  normalizeCapabilityOrigin,
+  resolveCapabilitySettings
+} from './capability-store'
 import {
   CaptureRingBuffer,
   type CaptureRingSnapshot
@@ -142,7 +148,7 @@ export interface BrowserSupervisorOptions {
   checkpointStore?: BrowserCheckpointStore
   healthMonitoring?: boolean
   recoveryEnabled?: boolean
-  capabilities?: CapabilitySettings
+  capabilityPolicy?: CapabilityPolicy
   downloadDirectory?: string
   manageSessionHandlers?: boolean
 }
@@ -152,7 +158,7 @@ export class BrowserSupervisor {
   private readonly profileId: string
   private readonly healthMonitor: HealthMonitor
   private readonly recoveryPolicy = new RecoveryPolicy()
-  private capabilities: CapabilitySettings
+  private capabilityPolicy: CapabilityPolicy
   private readonly downloads: DownloadSummary = {
     active: 0,
     completed: 0,
@@ -162,9 +168,10 @@ export class BrowserSupervisor {
   private downloadSequence = 0
   private readonly onWillDownload = (
     _event: ElectronEvent,
-    item: DownloadItem
+    item: DownloadItem,
+    webContents: WebContents
   ): void => {
-    this.handleDownload(item)
+    this.handleDownload(item, webContents)
   }
   private sessionHandlersEnabled = false
   private pageView: WebContentsView | null = null
@@ -196,9 +203,9 @@ export class BrowserSupervisor {
     private readonly options: BrowserSupervisorOptions = {}
   ) {
     this.currentUrl = options.initialUrl ?? DEFAULT_URL
-    this.capabilities = {
-      ...(options.capabilities ?? DEFAULT_CAPABILITIES)
-    }
+    this.capabilityPolicy = cloneCapabilityPolicy(
+      options.capabilityPolicy ?? createCapabilityPolicy()
+    )
     this.profileId = options.profileId ?? DEFAULT_PROFILE_ID
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(this.profileId)) {
       throw new Error('Profile ID 格式无效')
@@ -256,13 +263,22 @@ export class BrowserSupervisor {
     }
   }
 
-  getCapabilities(): CapabilitySettings {
-    return { ...this.capabilities }
+  getCapabilityPolicy(): CapabilityPolicy {
+    return cloneCapabilityPolicy(this.capabilityPolicy)
   }
 
-  setCapabilities(settings: CapabilitySettings): CapabilitySettings {
-    this.capabilities = { ...settings }
-    return this.getCapabilities()
+  setCapabilityPolicy(policy: CapabilityPolicy): CapabilityPolicy {
+    this.capabilityPolicy = cloneCapabilityPolicy(policy)
+    return this.getCapabilityPolicy()
+  }
+
+  getEffectiveCapabilities(
+    requestingUrlOrOrigin: string = this.currentUrl
+  ): CapabilitySettings {
+    return resolveCapabilitySettings(
+      this.capabilityPolicy,
+      requestingUrlOrOrigin
+    )
   }
 
   getDownloadSummary(): DownloadSummary {
@@ -283,6 +299,10 @@ export class BrowserSupervisor {
     } else {
       this.profileSession.removeListener('will-download', this.onWillDownload)
     }
+  }
+
+  takePermissionHandlerOwnership(): void {
+    this.configurePermissionHandlers()
   }
 
   async navigate(input: string): Promise<BrowserSnapshot> {
@@ -394,6 +414,16 @@ export class BrowserSupervisor {
     await this.requireContents().executeJavaScript(
       `{ window.open(${JSON.stringify(normalized)}, '_blank'); true; }`
     )
+  }
+
+  async queryPermissionForDiagnostics(
+    permission: 'geolocation' | 'notifications'
+  ): Promise<string> {
+    return this.requireContents().executeJavaScript(
+      `navigator.permissions.query({ name: ${JSON.stringify(
+        permission
+      )} }).then((status) => status.state)`
+    ) as Promise<string>
   }
 
   async flushCheckpoint(reason: string): Promise<BrowserCheckpoint | null> {
@@ -771,12 +801,31 @@ export class BrowserSupervisor {
       })
     }
 
+    this.configurePermissionHandlers()
+  }
+
+  private configurePermissionHandlers(): void {
     this.profileSession.setPermissionCheckHandler(
-      (_contents, permission) => this.isPermissionAllowed(permission)
+      (contents, permission, requestingOrigin, details) =>
+        this.isPermissionAllowed(
+          permission,
+          details.securityOrigin ??
+            requestingOrigin ??
+            details.requestingUrl ??
+            contents?.getURL()
+        )
     )
     this.profileSession.setPermissionRequestHandler(
-      (_contents, permission, callback) => {
-        callback(this.isPermissionAllowed(permission))
+      (contents, permission, callback, details) => {
+        const requestingOrigin =
+          ('securityOrigin' in details ? details.securityOrigin : undefined) ??
+          details.requestingUrl ??
+          contents.getURL()
+        const allowed = this.isPermissionAllowed(
+          permission,
+          requestingOrigin
+        )
+        callback(allowed)
       }
     )
   }
@@ -810,7 +859,8 @@ export class BrowserSupervisor {
     const { webContents } = view
 
     webContents.setWindowOpenHandler(({ url }) => {
-      if (!this.capabilities.popups) {
+      const sourceUrl = webContents.getURL() || this.currentUrl
+      if (!this.getEffectiveCapabilities(sourceUrl).popups) {
         this.emit('popup-blocked', url)
         return { action: 'deny' }
       }
@@ -904,26 +954,40 @@ export class BrowserSupervisor {
     })
   }
 
-  private isPermissionAllowed(permission: string): boolean {
+  private isPermissionAllowed(
+    permission: string,
+    requestingUrlOrOrigin: string | undefined
+  ): boolean {
+    const origin = requestingUrlOrOrigin
+      ? normalizeCapabilityOrigin(requestingUrlOrOrigin)
+      : null
+    if (!origin) {
+      return false
+    }
+    const capabilities = this.getEffectiveCapabilities(origin)
     switch (permission) {
       case 'notifications':
-        return this.capabilities.notifications
+        return capabilities.notifications
       case 'geolocation':
-        return this.capabilities.geolocation
+        return capabilities.geolocation
       case 'media':
-        return this.capabilities.media
+        return capabilities.media
       case 'clipboard-read':
-        return this.capabilities.clipboardRead
+        return capabilities.clipboardRead
       case 'fullscreen':
-        return this.capabilities.fullscreen
+        return capabilities.fullscreen
       default:
         return false
     }
   }
 
-  private handleDownload(item: DownloadItem): void {
+  private handleDownload(item: DownloadItem, webContents?: WebContents): void {
     const downloadDirectory = this.options.downloadDirectory
-    if (!this.capabilities.downloads || !downloadDirectory) {
+    const sourceUrl = webContents?.getURL() || item.getURL()
+    if (
+      !this.getEffectiveCapabilities(sourceUrl).downloads ||
+      !downloadDirectory
+    ) {
       item.cancel()
       this.downloads.failed += 1
       this.emit('download-blocked', item.getFilename())

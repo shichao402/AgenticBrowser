@@ -4,7 +4,8 @@ import type {
   BrowserEvent,
   BrowserSnapshot,
   BrowserTab,
-  CapabilitySettings,
+  CapabilityPolicy,
+  CapabilityPolicySnapshot,
   DownloadSummary,
   ReloadOptions
 } from '../shared/contracts'
@@ -19,6 +20,10 @@ import {
   type MultiViewCaptureBenchmark
 } from './browser-supervisor'
 import type { BrowserCheckpoint } from './checkpoint-store'
+import {
+  normalizeCapabilityOrigin,
+  resolveCapabilitySettings
+} from './capability-store'
 
 interface TabRuntime {
   id: string
@@ -29,6 +34,7 @@ export class BrowserTabManager {
   private readonly tabs = new Map<string, TabRuntime>()
   private activeTabId = ''
   private sessionHandlerOwnerId = ''
+  private permissionHandlerOwnerId = ''
   private sequence = 0
   private tabSequence = 0
   private bounds: Rectangle = { x: 320, y: 104, width: 960, height: 696 }
@@ -91,6 +97,8 @@ export class BrowserTabManager {
       this.tabs.delete(tab.id)
       tab.supervisor.dispose()
       this.activeTabId = this.findTabId(previous)
+      previous.takePermissionHandlerOwnership()
+      this.permissionHandlerOwnerId = this.activeTabId
       previous.setVisible(true)
       throw error
     }
@@ -128,6 +136,14 @@ export class BrowserTabManager {
       nextOwner.supervisor.setSessionHandlerOwnership(true)
       this.sessionHandlerOwnerId = nextOwner.id
     }
+    if (tabId === this.permissionHandlerOwnerId) {
+      const nextOwner = remaining[0]
+      if (!nextOwner) {
+        throw new Error('无法转移 permission handler')
+      }
+      nextOwner.supervisor.takePermissionHandlerOwnership()
+      this.permissionHandlerOwnerId = nextOwner.id
+    }
 
     const wasActive = tabId === this.activeTabId
     this.tabs.delete(tabId)
@@ -147,15 +163,28 @@ export class BrowserTabManager {
     return this.listTabs()
   }
 
-  getCapabilities(): CapabilitySettings {
-    return this.activeSupervisor().getCapabilities()
+  getCapabilityPolicy(): CapabilityPolicy {
+    return this.activeSupervisor().getCapabilityPolicy()
   }
 
-  setCapabilities(settings: CapabilitySettings): CapabilitySettings {
-    for (const tab of this.tabs.values()) {
-      tab.supervisor.setCapabilities(settings)
+  getCapabilityPolicySnapshot(): CapabilityPolicySnapshot {
+    const supervisor = this.activeSupervisor()
+    const policy = supervisor.getCapabilityPolicy()
+    const currentOrigin = normalizeCapabilityOrigin(
+      supervisor.getSnapshot().url
+    )
+    return {
+      policy,
+      currentOrigin,
+      effective: resolveCapabilitySettings(policy, currentOrigin)
     }
-    return { ...settings }
+  }
+
+  setCapabilityPolicy(policy: CapabilityPolicy): CapabilityPolicySnapshot {
+    for (const tab of this.tabs.values()) {
+      tab.supervisor.setCapabilityPolicy(policy)
+    }
+    return this.getCapabilityPolicySnapshot()
   }
 
   getDownloadSummary(): DownloadSummary {
@@ -191,6 +220,12 @@ export class BrowserTabManager {
 
   triggerPopup(url: string): Promise<void> {
     return this.activeSupervisor().triggerPopup(url)
+  }
+
+  queryPermissionForDiagnostics(
+    permission: 'geolocation' | 'notifications'
+  ): Promise<string> {
+    return this.activeSupervisor().queryPermissionForDiagnostics(permission)
   }
 
   collectDiagnostics(shellWebContentsId: number): Promise<BrowserDiagnostics> {
@@ -263,6 +298,9 @@ export class BrowserTabManager {
     const supervisor = new BrowserSupervisor(
       this.window,
       (event) => {
+        if (!this.tabs.has(id)) {
+          return
+        }
         this.publish({
           ...event,
           sequence: ++this.sequence,
@@ -278,6 +316,7 @@ export class BrowserTabManager {
         manageSessionHandlers: isFirst
       }
     )
+    this.permissionHandlerOwnerId = id
     const tab = { id, supervisor }
     this.tabs.set(id, tab)
     return tab

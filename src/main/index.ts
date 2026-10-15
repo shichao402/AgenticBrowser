@@ -7,7 +7,7 @@ import { app, BaseWindow, ipcMain, session, WebContentsView } from 'electron'
 import {
   IPC_CHANNELS,
   type BrowserEvent,
-  type CapabilitySettings,
+  type CapabilityPolicy,
   type MonitorSnapshot,
   type ProfileSummary,
   type ReloadOptions
@@ -16,7 +16,7 @@ import { writeJsonAtomic } from './atomic-file'
 import { BrowserTabManager } from './browser-tab-manager'
 import {
   CapabilityStore,
-  DEFAULT_CAPABILITIES
+  createCapabilityPolicy
 } from './capability-store'
 import {
   BrowserCheckpointStore,
@@ -100,7 +100,7 @@ interface CreateMainWindowOptions {
   checkpointStore?: BrowserCheckpointStore
   eventLog?: StructuredEventLog
   capabilityStore?: CapabilityStore
-  capabilities?: CapabilitySettings
+  capabilityPolicy?: CapabilityPolicy
   downloadRoot?: string
   profileStore?: ProfileStore
 }
@@ -114,7 +114,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     checkpointStore,
     eventLog,
     capabilityStore,
-    capabilities,
+    capabilityPolicy,
     downloadRoot,
     profileStore
   } = options
@@ -159,7 +159,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   }
 
   let activeProfileId = profileId ?? 'profile-default'
-  let activeCapabilities = capabilities
+  let activeCapabilityPolicy = capabilityPolicy
   const createSupervisor = (
     nextProfileId: string,
     nextInitialUrl?: string
@@ -173,7 +173,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       phaseZeroProbe,
       healthMonitoring: !phaseZeroProbe,
       recoveryEnabled: !phaseZeroProbe,
-      ...(activeCapabilities ? { capabilities: activeCapabilities } : {}),
+      ...(activeCapabilityPolicy
+        ? { capabilityPolicy: activeCapabilityPolicy }
+        : {}),
       ...(downloadRoot
         ? { downloadDirectory: join(downloadRoot, nextProfileId) }
         : {}),
@@ -227,22 +229,27 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     )
   })
 
-  ipcMain.handle(IPC_CHANNELS.getCapabilities, async (event) => {
+  ipcMain.handle(IPC_CHANNELS.getCapabilityPolicy, async (event) => {
     assertTrustedSender(event.sender.id)
-    return readSupervisor((current) => current.getCapabilities())
+    return readSupervisor((current) =>
+      current.getCapabilityPolicySnapshot()
+    )
   })
 
-  ipcMain.handle(IPC_CHANNELS.setCapabilities, async (event, value: unknown) => {
-    assertTrustedSender(event.sender.id)
-    if (!capabilityStore) {
-      throw new Error('Capability Store 当前不可用')
+  ipcMain.handle(
+    IPC_CHANNELS.setCapabilityPolicy,
+    async (event, value: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (!capabilityStore) {
+        throw new Error('Capability Store 当前不可用')
+      }
+      return enqueueSupervisorOperation(async () => {
+        const policy = await capabilityStore.write(value)
+        activeCapabilityPolicy = policy
+        return supervisor.setCapabilityPolicy(policy)
+      })
     }
-    return enqueueSupervisorOperation(async () => {
-      const settings = await capabilityStore.write(value)
-      activeCapabilities = settings
-      return supervisor.setCapabilities(settings)
-    })
-  })
+  )
 
   ipcMain.handle(IPC_CHANNELS.listTabs, async (event) => {
     assertTrustedSender(event.sender.id)
@@ -392,8 +399,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     const removeIpcHandlers = (): void => {
       ipcMain.removeHandler(IPC_CHANNELS.getSnapshot)
       ipcMain.removeHandler(IPC_CHANNELS.getMonitorSnapshot)
-      ipcMain.removeHandler(IPC_CHANNELS.getCapabilities)
-      ipcMain.removeHandler(IPC_CHANNELS.setCapabilities)
+      ipcMain.removeHandler(IPC_CHANNELS.getCapabilityPolicy)
+      ipcMain.removeHandler(IPC_CHANNELS.setCapabilityPolicy)
       ipcMain.removeHandler(IPC_CHANNELS.listTabs)
       ipcMain.removeHandler(IPC_CHANNELS.createTab)
       ipcMain.removeHandler(IPC_CHANNELS.switchTab)
@@ -612,10 +619,30 @@ async function runRecoverySmoke(
     (event) => event.type === 'popup-blocked'
   )
 
-  runtime.supervisor.setCapabilities({
-    ...runtime.supervisor.getCapabilities(),
-    popups: true
-  })
+  const capabilityOrigin = new URL(probe.topUrl).origin
+  const permissionDeniedBeforeOverride =
+    (await runtime.supervisor.queryPermissionForDiagnostics('geolocation')) ===
+    'denied'
+  const allowOriginPolicy = {
+    ...runtime.supervisor.getCapabilityPolicy(),
+    origins: [
+      {
+        origin: capabilityOrigin,
+        overrides: {
+          popups: true,
+          geolocation: true
+        }
+      }
+    ]
+  }
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.setCapabilityPolicy(${JSON.stringify(
+      allowOriginPolicy
+    )})`
+  )
+  const permissionAllowedByOrigin =
+    (await runtime.supervisor.queryPermissionForDiagnostics('geolocation')) ===
+    'granted'
   await runtime.supervisor.triggerPopup(popupUrl)
   await waitUntil(
     () => runtime.supervisor.getSnapshot().url === popupUrl,
@@ -632,10 +659,27 @@ async function runRecoverySmoke(
     5_000
   )
   const allowedDownload = runtime.supervisor.getDownloadSummary()
-  runtime.supervisor.setCapabilities({
-    ...runtime.supervisor.getCapabilities(),
-    downloads: false
-  })
+  const denyOriginPolicy = {
+    ...runtime.supervisor.getCapabilityPolicy(),
+    origins: [
+      {
+        origin: capabilityOrigin,
+        overrides: {
+          popups: true,
+          geolocation: false,
+          downloads: false
+        }
+      }
+    ]
+  }
+  await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.setCapabilityPolicy(${JSON.stringify(
+      denyOriginPolicy
+    )})`
+  )
+  const permissionDeniedByOrigin =
+    (await runtime.supervisor.queryPermissionForDiagnostics('geolocation')) ===
+    'denied'
   runtime.supervisor.requestDownload(`${downloadUrl}?blocked=1`)
   await waitUntil(
     () => runtime.events.some((event) => event.type === 'download-blocked'),
@@ -644,6 +688,38 @@ async function runRecoverySmoke(
   const downloadBlocked = runtime.events.some(
     (event) => event.type === 'download-blocked'
   )
+  const capabilityOriginPolicyPassed =
+    permissionDeniedBeforeOverride &&
+    permissionAllowedByOrigin &&
+    permissionDeniedByOrigin &&
+    runtime.supervisor.getCapabilityPolicySnapshot().currentOrigin ===
+      capabilityOrigin &&
+    runtime.supervisor.getCapabilityPolicySnapshot().effective.popups &&
+    !runtime.supervisor.getCapabilityPolicySnapshot().effective.downloads
+  const tabsWithTemporaryPermissionOwner =
+    await runtime.supervisor.createTab(popupUrl)
+  const temporaryPermissionOwner = tabsWithTemporaryPermissionOwner.find(
+    (tab) => tab.active
+  )
+  if (!temporaryPermissionOwner) {
+    throw new Error('恢复冒烟：无法创建 permission handler 临时所有者')
+  }
+  const tabsAfterPermissionOwnerClose = runtime.supervisor.closeTab(
+    temporaryPermissionOwner.id
+  )
+  const eventSequenceAfterPermissionOwnerClose =
+    runtime.events.at(-1)?.sequence ?? 0
+  await new Promise((resolve) => setTimeout(resolve, 750))
+  const closedTabStoppedPublishing = !runtime.events.some(
+    (event) =>
+      event.tabId === temporaryPermissionOwner.id &&
+      event.sequence > eventSequenceAfterPermissionOwnerClose
+  )
+  const permissionHandlerTransferPassed =
+    tabsAfterPermissionOwnerClose.length === 1 &&
+    closedTabStoppedPublishing &&
+    (await runtime.supervisor.queryPermissionForDiagnostics('geolocation')) ===
+      'denied'
 
   let navigationRejected = false
   const failedUrl = new URL('/disconnect', probe.topUrl).toString()
@@ -675,6 +751,8 @@ async function runRecoverySmoke(
     profileIsolationPassed &&
     profileDeletionClearedSession &&
     multiTabPassed &&
+    capabilityOriginPolicyPassed &&
+    permissionHandlerTransferPassed &&
     popupBlocked &&
     popupRouted &&
     allowedDownload.completed === 1 &&
@@ -695,6 +773,12 @@ async function runRecoverySmoke(
     navigationRejected,
     profileIsolationPassed,
     profileDeletionClearedSession,
+    capabilityOriginPolicyPassed,
+    permissionDeniedBeforeOverride,
+    permissionAllowedByOrigin,
+    permissionDeniedByOrigin,
+    permissionHandlerTransferPassed,
+    closedTabStoppedPublishing,
     multiTabPassed,
     tabsAfterCreate,
     tabsAfterOwnerClose,
@@ -773,9 +857,9 @@ app.whenReady().then(async () => {
       'capabilities.json'
     )
   )
-  const capabilities =
+  const capabilityPolicy =
     smokeTest || recoverySmokeTest
-      ? { ...DEFAULT_CAPABILITIES }
+      ? createCapabilityPolicy()
       : await capabilityStore.read()
   phaseZeroProbe =
     smokeTest || recoverySmokeTest ? await startPhaseZeroProbeServer() : null
@@ -794,7 +878,7 @@ app.whenReady().then(async () => {
     ...(checkpointStore ? { checkpointStore } : {}),
     ...(eventLog ? { eventLog } : {}),
     capabilityStore,
-    capabilities,
+    capabilityPolicy,
     downloadRoot: join(
       automatedDownloadDirectory ?? app.getPath('userData'),
       'downloads'

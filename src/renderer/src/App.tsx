@@ -4,6 +4,7 @@ import type {
   BrowserEvent,
   BrowserSnapshot,
   BrowserTab,
+  CapabilityPolicySnapshot,
   CapabilitySettings,
   MonitorSnapshot,
   ProfileSummary
@@ -52,8 +53,8 @@ const CAPABILITY_ITEMS: Array<{
 export function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null)
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null)
-  const [capabilities, setCapabilities] =
-    useState<CapabilitySettings | null>(null)
+  const [capabilityPolicy, setCapabilityPolicy] =
+    useState<CapabilityPolicySnapshot | null>(null)
   const [tabs, setTabs] = useState<BrowserTab[]>([])
   const [profiles, setProfiles] = useState<ProfileSummary[]>([])
   const [newProfileName, setNewProfileName] = useState('')
@@ -71,8 +72,8 @@ export function App(): React.JSX.Element {
     setMonitor(await window.agenticBrowser.getMonitorSnapshot())
   }, [])
 
-  const refreshCapabilities = useCallback(async (): Promise<void> => {
-    setCapabilities(await window.agenticBrowser.getCapabilities())
+  const refreshCapabilityPolicy = useCallback(async (): Promise<void> => {
+    setCapabilityPolicy(await window.agenticBrowser.getCapabilityPolicy())
   }, [])
 
   const refreshTabs = useCallback(async (): Promise<void> => {
@@ -87,7 +88,7 @@ export function App(): React.JSX.Element {
     void Promise.all([
       refreshSnapshot(),
       refreshMonitor(),
-      refreshCapabilities(),
+      refreshCapabilityPolicy(),
       refreshTabs(),
       refreshProfiles()
     ]).catch((cause: unknown) => {
@@ -96,18 +97,26 @@ export function App(): React.JSX.Element {
 
     return window.agenticBrowser.onBrowserEvent((event) => {
       setEvents((current) => [event, ...current].slice(0, 12))
-      void Promise.all([
+      const refreshes: Array<Promise<void>> = [
         refreshSnapshot(),
         refreshMonitor(),
         refreshTabs()
-      ]).catch(
+      ]
+      if (
+        event.type === 'created' ||
+        event.type === 'recreated' ||
+        event.type === 'navigation-finished'
+      ) {
+        refreshes.push(refreshCapabilityPolicy())
+      }
+      void Promise.all(refreshes).catch(
         (cause: unknown) => {
           setError(cause instanceof Error ? cause.message : String(cause))
         }
       )
     })
   }, [
-    refreshCapabilities,
+    refreshCapabilityPolicy,
     refreshMonitor,
     refreshProfiles,
     refreshSnapshot,
@@ -131,6 +140,7 @@ export function App(): React.JSX.Element {
       const next = await window.agenticBrowser.navigate(address)
       setSnapshot(next)
       setAddress(next.url)
+      await refreshCapabilityPolicy()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -147,18 +157,58 @@ export function App(): React.JSX.Element {
     }
   }
 
-  const toggleCapability = async (
+  const toggleDefaultCapability = async (
     key: keyof CapabilitySettings
   ): Promise<void> => {
-    if (!capabilities) {
+    if (!capabilityPolicy) {
       return
     }
 
     try {
-      setCapabilities(
-        await window.agenticBrowser.setCapabilities({
-          ...capabilities,
-          [key]: !capabilities[key]
+      setCapabilityPolicy(
+        await window.agenticBrowser.setCapabilityPolicy({
+          ...capabilityPolicy.policy,
+          defaults: {
+            ...capabilityPolicy.policy.defaults,
+            [key]: !capabilityPolicy.policy.defaults[key]
+          }
+        })
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const setOriginCapability = async (
+    key: keyof CapabilitySettings,
+    decision: 'inherit' | 'allow' | 'deny'
+  ): Promise<void> => {
+    const currentOrigin = capabilityPolicy?.currentOrigin
+    if (!capabilityPolicy || !currentOrigin) {
+      return
+    }
+
+    const currentRule = capabilityPolicy.policy.origins.find(
+      (rule) => rule.origin === currentOrigin
+    )
+    const overrides = { ...(currentRule?.overrides ?? {}) }
+    if (decision === 'inherit') {
+      delete overrides[key]
+    } else {
+      overrides[key] = decision === 'allow'
+    }
+    const origins = capabilityPolicy.policy.origins.filter(
+      (rule) => rule.origin !== currentOrigin
+    )
+    if (Object.keys(overrides).length > 0) {
+      origins.push({ origin: currentOrigin, overrides })
+    }
+
+    try {
+      setCapabilityPolicy(
+        await window.agenticBrowser.setCapabilityPolicy({
+          ...capabilityPolicy.policy,
+          origins
         })
       )
     } catch (cause) {
@@ -169,7 +219,7 @@ export function App(): React.JSX.Element {
   const createTab = async (): Promise<void> => {
     try {
       setTabs(await window.agenticBrowser.createTab())
-      await refreshSnapshot()
+      await Promise.all([refreshSnapshot(), refreshCapabilityPolicy()])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -178,7 +228,7 @@ export function App(): React.JSX.Element {
   const switchTab = async (tabId: string): Promise<void> => {
     try {
       setTabs(await window.agenticBrowser.switchTab(tabId))
-      await refreshSnapshot()
+      await Promise.all([refreshSnapshot(), refreshCapabilityPolicy()])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -187,7 +237,7 @@ export function App(): React.JSX.Element {
   const closeTab = async (tabId: string): Promise<void> => {
     try {
       setTabs(await window.agenticBrowser.closeTab(tabId))
-      await refreshSnapshot()
+      await Promise.all([refreshSnapshot(), refreshCapabilityPolicy()])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -210,7 +260,12 @@ export function App(): React.JSX.Element {
   const activateProfile = async (profileId: string): Promise<void> => {
     try {
       setProfiles(await window.agenticBrowser.activateProfile(profileId))
-      await Promise.all([refreshTabs(), refreshSnapshot(), refreshMonitor()])
+      await Promise.all([
+        refreshTabs(),
+        refreshSnapshot(),
+        refreshMonitor(),
+        refreshCapabilityPolicy()
+      ])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -358,20 +413,55 @@ export function App(): React.JSX.Element {
         <section className="capability-panel">
           <div className="panel-heading">
             <h2>能力中心</h2>
-            <span>默认拒绝</span>
+            <span>
+              {capabilityPolicy?.currentOrigin ?? '非 HTTP(S) 页面'}
+            </span>
           </div>
+          <p className="capability-help">
+            默认策略可被当前精确 Origin 覆盖；子域不会继承。
+          </p>
           <div className="capability-list">
-            {CAPABILITY_ITEMS.map((item) => (
-              <label key={item.key}>
-                <span>{item.label}</span>
-                <input
-                  type="checkbox"
-                  checked={capabilities?.[item.key] ?? false}
-                  disabled={!capabilities}
-                  onChange={() => void toggleCapability(item.key)}
-                />
-              </label>
-            ))}
+            {CAPABILITY_ITEMS.map((item) => {
+              const decision = getOriginDecision(capabilityPolicy, item.key)
+              const effective =
+                capabilityPolicy?.effective[item.key] ?? false
+              return (
+                <div className="capability-rule" key={item.key}>
+                  <span>
+                    {item.label}
+                    <small>{effective ? '当前允许' : '当前拒绝'}</small>
+                  </span>
+                  <label title={`${item.label}的默认策略`}>
+                    <input
+                      type="checkbox"
+                      checked={
+                        capabilityPolicy?.policy.defaults[item.key] ?? false
+                      }
+                      disabled={!capabilityPolicy}
+                      onChange={() =>
+                        void toggleDefaultCapability(item.key)
+                      }
+                    />
+                    默认
+                  </label>
+                  <select
+                    aria-label={`${item.label}的当前 Origin 策略`}
+                    value={decision}
+                    disabled={!capabilityPolicy?.currentOrigin}
+                    onChange={(event) =>
+                      void setOriginCapability(
+                        item.key,
+                        event.target.value as 'inherit' | 'allow' | 'deny'
+                      )
+                    }
+                  >
+                    <option value="inherit">继承</option>
+                    <option value="allow">允许</option>
+                    <option value="deny">拒绝</option>
+                  </select>
+                </div>
+              )
+            })}
           </div>
         </section>
 
@@ -483,4 +573,18 @@ function formatTime(value: string | null | undefined): string {
     return '—'
   }
   return new Date(value).toLocaleTimeString()
+}
+
+function getOriginDecision(
+  snapshot: CapabilityPolicySnapshot | null,
+  key: keyof CapabilitySettings
+): 'inherit' | 'allow' | 'deny' {
+  if (!snapshot?.currentOrigin) {
+    return 'inherit'
+  }
+  const rule = snapshot.policy.origins.find(
+    (candidate) => candidate.origin === snapshot.currentOrigin
+  )
+  const value = rule?.overrides[key]
+  return value === undefined ? 'inherit' : value ? 'allow' : 'deny'
 }

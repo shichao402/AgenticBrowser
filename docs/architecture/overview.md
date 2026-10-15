@@ -16,14 +16,14 @@
 - `src/main/watchdog.ts`：应用外进程监督、心跳超时、重启预算和状态记录。
 - `src/main/health-monitor.ts`：短超时主动页面探针、连续失败阈值与恢复通知。
 - `src/main/recovery-policy.ts`：时间窗预算、指数退避、分级恢复与熔断决策。
-- `src/main/capability-store.ts`：完整布尔 schema 的能力开关持久化。
+- `src/main/capability-store.ts`：版本化默认策略、精确 Origin 覆盖、旧配置迁移和能力解析。
 - `src/main/structured-event-log.ts`：串行 JSONL 领域事件日志。
 - `src/main/download-path.ts`：跨平台下载文件名清理。
 - `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
 - `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
 - `src/preload/index.ts`：最小 BrowserShell API。
 - `src/preload/strategy-bootstrap.ts`：session 级 frame preload 的 Phase 0 注入探针。
-- `src/renderer/`：Phase 0 BrowserShell、地址栏、刷新和生命周期事件面板。
+- `src/renderer/`：BrowserShell、地址栏、tabs、Profile、Capability Center、监控和生命周期事件面板。
 - `src/shared/contracts.ts`：跨进程结构化契约。
 
 尚未实现：
@@ -119,7 +119,7 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 
 成功导航后，BrowserSupervisor 将当前 URL 与 Profile ID 写入浏览器检查点。应用启动时先校验检查点，再用其中的 Profile 与 URL 创建页面。检查点损坏时隔离原文件并退回安全初始页，不能形成启动崩溃循环。
 
-BrowserTabManager 为每个 tab 持有独立 BrowserSupervisor/WebContentsView；非活动 view 保持存活但不可见，仍接受健康监督。所有 tab 共享同一命名 Profile session 和 capability 配置。session 下载 listener 始终只有一个所有者；关闭所有者 tab 时先转移到另一个 tab，避免重复处理或失去下载。浏览器检查点当前只保存最近激活 tab，不保存完整 tab 集合。
+BrowserTabManager 为每个 tab 持有独立 BrowserSupervisor/WebContentsView；非活动 view 保持存活但不可见，仍接受健康监督。所有 tab 共享同一命名 Profile session 和 capability 配置。session 下载 listener 始终只有一个所有者；permission handler 也记录最后注册的所有者。关闭对应所有者 tab 时先把 handler 转移到另一个 tab，避免重复处理、失去下载或继续引用已销毁 supervisor。浏览器检查点当前只保存最近激活 tab，不保存完整 tab 集合。
 
 BrowserShell 可创建、激活和删除 Profile。激活时主进程销毁旧 BrowserTabManager，在目标命名 session 中以最近活动 URL 重建首个 tab，成功后才持久化活动 Profile；创建失败则重建并恢复原 Profile。Profile 切换、tab、导航、刷新和能力修改通过同一主进程队列串行化，避免操作落到已销毁的 manager。默认 Profile 和活动 Profile 不可删除；删除其他 Profile 时同时清理其 session storage、HTTP cache 和 auth cache。Project 模型尚未落地，因此被 Project 引用的 Profile 删除保护仍属于 Phase 3。
 
@@ -141,7 +141,9 @@ BrowserShell 可创建、激活和删除 Profile。激活时主进程销毁旧 B
 
 ### Capability Center 与 Download Manager
 
-Capability Store 当前保存 popup、download、notification、geolocation、media、clipboard-read 和 fullscreen 开关。除下载外默认拒绝；远程页面不能直接修改。弹窗始终先由宿主拦截，允许时只把经过 HTTP/HTTPS 校验的 URL 转入当前受控 view。
+Capability Policy schema v1 保存 popup、download、notification、geolocation、media、clipboard-read 和 fullscreen 的完整默认值，以及最多 256 个精确 HTTP(S) Origin 覆盖。规则不支持通配符或隐式子域继承；非 HTTP(S)、不透明来源和未知权限一律拒绝。Chromium 权限按 requesting/security origin 判断，弹窗按 opener 页面 Origin 判断，下载按发起 WebContents Origin 判断。远程页面不能读取或修改策略；BrowserShell 经受信 IPC 更新完整策略。设计依据见 [ADR-0004](../ADR/0004-exact-origin-capability-policy.md)。
+
+当前策略文件仍属于应用运行上下文。Phase 3 创建 Project 后，Project Runtime 必须提供 Project 自己的默认值和 Origin 规则，不能继续把所有项目合并到这一个文件。
 
 session 级 `will-download` 统一接管下载。禁止时立即取消；允许时清理路径分隔符、Windows 非法字符与设备保留名，再写入 Profile 下载目录。Phase 1 只维护 active/completed/failed/bytes 汇总；临时目录、原子完成、哈希、业务幂等和 manifest 属于 Phase 3。
 

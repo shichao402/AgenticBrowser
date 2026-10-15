@@ -2,8 +2,8 @@ export const IPC_CHANNELS = {
   browserEvent: 'browser:event',
   getSnapshot: 'browser:get-snapshot',
   getMonitorSnapshot: 'monitor:get-snapshot',
-  getCapabilities: 'capability:get',
-  setCapabilities: 'capability:set',
+  getCapabilityPolicy: 'capability:get-policy',
+  setCapabilityPolicy: 'capability:set-policy',
   listTabs: 'tabs:list',
   createTab: 'tabs:create',
   switchTab: 'tabs:switch',
@@ -140,11 +140,30 @@ export interface CapabilitySettings {
   fullscreen: boolean
 }
 
+export interface OriginCapabilityRule {
+  origin: string
+  overrides: Partial<CapabilitySettings>
+}
+
+export interface CapabilityPolicy {
+  schemaVersion: 1
+  defaults: CapabilitySettings
+  origins: OriginCapabilityRule[]
+}
+
+export interface CapabilityPolicySnapshot {
+  policy: CapabilityPolicy
+  currentOrigin: string | null
+  effective: CapabilitySettings
+}
+
 export interface BrowserShellApi {
   getSnapshot(): Promise<BrowserSnapshot>
   getMonitorSnapshot(): Promise<MonitorSnapshot>
-  getCapabilities(): Promise<CapabilitySettings>
-  setCapabilities(settings: CapabilitySettings): Promise<CapabilitySettings>
+  getCapabilityPolicy(): Promise<CapabilityPolicySnapshot>
+  setCapabilityPolicy(
+    policy: CapabilityPolicy
+  ): Promise<CapabilityPolicySnapshot>
   listTabs(): Promise<BrowserTab[]>
   createTab(url?: string): Promise<BrowserTab[]>
   switchTab(tabId: string): Promise<BrowserTab[]>

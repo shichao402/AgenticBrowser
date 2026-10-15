@@ -56,8 +56,14 @@ runtime:
 output:
   root: user-selected-directory
 capabilities:
-  popups: deny
-  downloads: allow
+  defaults:
+    popups: false
+    downloads: true
+    media: false
+  origins:
+    - origin: https://example.com
+      overrides:
+        popups: true
   agent: optional
 ```
 

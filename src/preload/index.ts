@@ -5,7 +5,8 @@ import {
   type BrowserEvent,
   type BrowserShellApi,
   type BrowserTab,
-  type CapabilitySettings,
+  type CapabilityPolicy,
+  type CapabilityPolicySnapshot,
   type MonitorSnapshot,
   type ProfileSummary,
   type ReloadOptions
@@ -15,10 +16,12 @@ const api: BrowserShellApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getSnapshot),
   getMonitorSnapshot: (): Promise<MonitorSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.getMonitorSnapshot),
-  getCapabilities: (): Promise<CapabilitySettings> =>
-    ipcRenderer.invoke(IPC_CHANNELS.getCapabilities),
-  setCapabilities: (settings: CapabilitySettings): Promise<CapabilitySettings> =>
-    ipcRenderer.invoke(IPC_CHANNELS.setCapabilities, settings),
+  getCapabilityPolicy: (): Promise<CapabilityPolicySnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getCapabilityPolicy),
+  setCapabilityPolicy: (
+    policy: CapabilityPolicy
+  ): Promise<CapabilityPolicySnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setCapabilityPolicy, policy),
   listTabs: (): Promise<BrowserTab[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.listTabs),
   createTab: (url?: string): Promise<BrowserTab[]> =>
