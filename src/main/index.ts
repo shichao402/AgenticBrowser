@@ -1,15 +1,27 @@
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { app, BaseWindow, ipcMain, WebContentsView } from 'electron'
 
 import { IPC_CHANNELS, type BrowserEvent, type ReloadOptions } from '../shared/contracts'
+import { writeJsonAtomic } from './atomic-file'
 import { BrowserSupervisor } from './browser-supervisor'
+import {
+  BrowserCheckpointStore,
+  type BrowserCheckpoint
+} from './checkpoint-store'
+import { MainProcessHeartbeat } from './main-process-heartbeat'
 import {
   startPhaseZeroProbeServer,
   type PhaseZeroProbeServer
 } from './phase0-probe-server'
+
+const managedUserDataPath = process.env.AGENTIC_USER_DATA_PATH
+if (managedUserDataPath) {
+  mkdirSync(managedUserDataPath, { recursive: true })
+  app.setPath('userData', managedUserDataPath)
+}
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
 const SIDEBAR_WIDTH = 320
@@ -18,8 +30,20 @@ const MIN_PAGE_SIZE = 240
 
 let mainWindow: BaseWindow | null = null
 const smokeTest = process.argv.includes('--smoke-test')
+const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
+const watchdogRestartCount = parseNonNegativeInteger(
+  process.env.AGENTIC_WATCHDOG_RESTART_COUNT
+)
+const mainProcessHeartbeat = process.env.AGENTIC_WATCHDOG_HEARTBEAT_PATH
+  ? new MainProcessHeartbeat(
+      process.env.AGENTIC_WATCHDOG_HEARTBEAT_PATH,
+      process.env.AGENTIC_WATCHDOG_LAUNCH_ID ?? `unmanaged-${process.pid}`,
+      watchdogRestartCount
+    )
+  : null
+mainProcessHeartbeat?.start()
 
 function writeSmokeResult(result: unknown): void {
   if (smokeTest) {
@@ -38,10 +62,18 @@ interface CreateMainWindowOptions {
   show?: boolean
   initialUrl?: string
   phaseZeroProbe?: boolean
+  profileId?: string
+  checkpointStore?: BrowserCheckpointStore
 }
 
 async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<MainWindowRuntime> {
-  const { show = true, initialUrl, phaseZeroProbe = false } = options
+  const {
+    show = true,
+    initialUrl,
+    phaseZeroProbe = false,
+    profileId,
+    checkpointStore
+  } = options
   const window = new BaseWindow({
     width: 1440,
     height: 900,
@@ -73,7 +105,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   const supervisor = new BrowserSupervisor(window, publish, {
     ...(initialUrl ? { initialUrl } : {}),
     strategyPreloadPath: join(currentDirectory, '../preload/strategy-bootstrap.cjs'),
-    phaseZeroProbe
+    phaseZeroProbe,
+    ...(profileId ? { profileId } : {}),
+    ...(checkpointStore ? { checkpointStore } : {})
   })
 
   const layout = (): void => {
@@ -157,13 +191,94 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   }
 }
 
+function createCheckpointStore(): BrowserCheckpointStore | undefined {
+  if (smokeTest) {
+    return undefined
+  }
+
+  return new BrowserCheckpointStore(
+    process.env.AGENTIC_CHECKPOINT_PATH ??
+      join(app.getPath('userData'), 'runtime', 'browser-checkpoint.json')
+  )
+}
+
+async function runWatchdogSmokeChild(
+  runtime: MainWindowRuntime,
+  restoredCheckpoint: BrowserCheckpoint | null,
+  requestedUrl: string | undefined
+): Promise<void> {
+  const resultPath = process.env.AGENTIC_WATCHDOG_CHILD_RESULT_PATH
+  if (!resultPath) {
+    throw new Error('Watchdog smoke 缺少结果文件路径')
+  }
+
+  const checkpoint = await runtime.supervisor.flushCheckpoint(
+    watchdogRestartCount === 0 ? 'watchdog-smoke-ready' : 'watchdog-smoke-restored'
+  )
+  const snapshot = runtime.supervisor.getSnapshot()
+  const profileCookiePresent =
+    await runtime.supervisor.hasProfileCookie('agentic_watchdog_session')
+  const targetUrl = restoredCheckpoint?.url ?? requestedUrl
+  const passed =
+    watchdogRestartCount > 0 &&
+    restoredCheckpoint !== null &&
+    checkpoint !== null &&
+    targetUrl !== undefined &&
+    snapshot.url === targetUrl &&
+    checkpoint.url === targetUrl &&
+    profileCookiePresent
+  const result = {
+    ready: true,
+    passed: watchdogRestartCount === 0 ? null : passed,
+    pid: process.pid,
+    restartCount: watchdogRestartCount,
+    restoredFromCheckpoint: restoredCheckpoint !== null,
+    restoredCheckpoint,
+    checkpoint,
+    snapshot,
+    profileCookiePresent,
+    heartbeatActive: mainProcessHeartbeat !== null
+  }
+
+  await writeJsonAtomic(resultPath, result)
+  console.log(`AGENTIC_BROWSER_WATCHDOG_CHILD ${JSON.stringify(result)}`)
+
+  if (watchdogRestartCount > 0) {
+    runtime.window.close()
+    await mainProcessHeartbeat?.stop()
+    app.exit(passed ? 0 : 1)
+  }
+}
+
+function parseNonNegativeInteger(value: string | undefined): number {
+  if (!value) {
+    return 0
+  }
+
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
+}
+
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.firoyang.agenticbrowser')
+  const checkpointStore = createCheckpointStore()
+  const restoredCheckpoint = checkpointStore
+    ? await checkpointStore.read()
+    : null
   phaseZeroProbe = smokeTest ? await startPhaseZeroProbeServer() : null
+  const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
+  if (watchdogSmokeChild && !watchdogSmokeUrl && !restoredCheckpoint) {
+    throw new Error('Watchdog smoke 缺少初始 URL')
+  }
+
+  const initialUrl =
+    phaseZeroProbe?.topUrl ?? restoredCheckpoint?.url ?? watchdogSmokeUrl
   const runtime = await createMainWindow({
-    show: true,
+    show: !watchdogSmokeChild,
     phaseZeroProbe: smokeTest,
-    ...(phaseZeroProbe ? { initialUrl: phaseZeroProbe.topUrl } : {})
+    ...(initialUrl ? { initialUrl } : {}),
+    ...(restoredCheckpoint ? { profileId: restoredCheckpoint.profileId } : {}),
+    ...(checkpointStore ? { checkpointStore } : {})
   })
 
   if (smokeTest) {
@@ -263,6 +378,11 @@ app.whenReady().then(async () => {
     return
   }
 
+  if (watchdogSmokeChild) {
+    await runWatchdogSmokeChild(runtime, restoredCheckpoint, watchdogSmokeUrl)
+    return
+  }
+
   app.on('activate', () => {
     if (!mainWindow) {
       void createMainWindow()
@@ -275,8 +395,13 @@ app.whenReady().then(async () => {
   })
   void phaseZeroProbe?.close()
   phaseZeroProbe = null
+  void mainProcessHeartbeat?.stop()
   console.error(error)
   app.exit(1)
+})
+
+app.on('before-quit', () => {
+  void mainProcessHeartbeat?.stop()
 })
 
 app.on('window-all-closed', () => {

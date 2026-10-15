@@ -11,6 +11,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "smoke:electron": "npm run build && electron . --smoke-test",
+    "smoke:watchdog": "npm run build && node scripts/watchdog-smoke.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -8,6 +8,9 @@
 
 - `src/main/index.ts`：`BaseWindow`、BrowserShell `WebContentsView`、远程页面布局和受信 IPC 注册。
 - `src/main/browser-supervisor.ts`：Named Profile session、页面生命周期事件、导航/刷新、主动心跳探针和 renderer 消失后的重建入口。
+- `src/main/checkpoint-store.ts`：版本化浏览器检查点、串行原子写入、读取校验和损坏文件隔离。
+- `src/main/main-process-heartbeat.ts`：Electron main 的外部存活心跳。
+- `src/main/watchdog.ts`：应用外进程监督、心跳超时、重启预算和状态记录。
 - `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
 - `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
 - `src/preload/index.ts`：最小 BrowserShell API。
@@ -17,8 +20,8 @@
 
 尚未实现：
 
-- 外部 Watchdog 和持久化检查点。
-- Strategy/Workflow/Project Runtime。
+- 安装包 Watchdog 启动入口与系统开机启动集成。
+- workflow/业务检查点、Strategy/Workflow/Project Runtime。
 - Content Filter、Download Manager 和完整监控。
 - 示教录制与 Agent sidecar。
 
@@ -56,6 +59,10 @@ flowchart LR
 - 独立于 Electron 生命周期。
 - 只监控主进程心跳、记录退出原因并按预算重启。
 - 不执行网页操作，也不保存业务密钥。
+
+当前 Watchdog 是构建为 `out/main/watchdog.js` 的纯 Node 入口。它读取本机受信 JSON 配置，启动 Electron 子进程，并向子进程下发 launch ID、restart count 和 heartbeat 路径。main process 周期性原子更新 heartbeat；Watchdog 校验 PID、launch ID 和时间戳，启动宽限期后超时则强杀并按预算重启。Watchdog 自身将 phase、PID、启动次数、退出历史和预算状态原子写入状态文件。
+
+Phase 0 smoke 已证明 Watchdog 与 Electron 是独立进程，强杀 main 后能重新启动。安装后的 launcher/sidecar 承载方式、Windows 登录启动和 macOS launchd/签名尚未落地。
 
 ### Electron 主进程
 
@@ -100,6 +107,8 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 
 页面健康不能只依赖 Chromium 的 `unresponsive`/`responsive` 事件。这些事件触发较慢，并可能因页面隐藏或缺少用户输入而不触发。HealthMonitor 以主进程发起的短超时主动 ping、加载状态和业务断言为主信号；原生无响应事件只作为辅助证据。连续失败必须进入有预算的 RecoveryEngine，不能无限 reload。
 
+成功导航后，BrowserSupervisor 将当前 URL 与 Profile ID 写入浏览器检查点。应用启动时先校验检查点，再用其中的 Profile 与 URL 创建页面。检查点损坏时隔离原文件并退回安全初始页，不能形成启动崩溃循环。
+
 ### StrategyEngine
 
 根据 URL、frame 和 Project allowlist 选择固定版本 Strategy，在指定 `runAt` 执行。默认使用隔离 world；访问 main world 需要显式能力。
@@ -136,11 +145,13 @@ Agent 负责分析新状态、提出恢复动作或生成候选 workflow。Tool 
 
 Profile/Cookie 使用 Electron session partition 存储，不提交仓库，也不进入项目导出包。
 
+当前浏览器检查点 schema v1 只保存 `profileId`、URL、保存原因和时间，使用同目录临时文件加 rename 原子替换。这是 main process 重启恢复的最小切片；workflow 步骤、幂等键、下载事务和业务游标必须由 Phase 3 的 Project Runtime 独立持久化，不能塞入该文件冒充业务恢复。
+
 ## 可观测性
 
 监控按层级区分：
 
-- App/Supervisor 心跳。
+- Watchdog/Electron main 与 App/Supervisor 心跳。
 - Project Runtime 心跳与当前 workflow 步骤。
 - Page 心跳、URL、加载和 renderer 状态。
 - Strategy 心跳、执行时间、结果和错误。

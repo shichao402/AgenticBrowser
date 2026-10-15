@@ -51,6 +51,13 @@ npm run dev
 npm run check
 ```
 
+验证 renderer 故障与应用外 Watchdog 恢复：
+
+```bash
+npm run smoke:electron
+npm run smoke:watchdog
+```
+
 构建本地安装包：
 
 ```bash
@@ -67,4 +74,4 @@ npm run dist
 
 ## 当前状态
 
-项目处于 Phase 0：已建立 Electron/TypeScript/React 工程基线、BrowserShell/远程页面分离、frame/OOPIF 注入探针、最小导航与生命周期事件流、renderer 重建、主动心跳停顿检测和单页面 10 FPS 采集基准。应用外 Watchdog、持久化检查点、长时录制和双平台验证仍待完成。证据见 [Phase 0 验证记录](docs/research/phase0-validation.md)。
+项目处于 Phase 0：已建立 Electron/TypeScript/React 工程基线、BrowserShell/远程页面分离、frame/OOPIF 注入探针、最小导航与生命周期事件流、renderer 重建、主动心跳停顿检测、应用外 Watchdog 强杀恢复、URL/Profile 检查点和单页面 10 FPS 采集基准。安装包 Watchdog 入口、workflow 业务检查点、长时录制和双平台验证仍待完成。证据见 [Phase 0 验证记录](docs/research/phase0-validation.md)。

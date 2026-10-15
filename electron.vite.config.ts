@@ -7,7 +7,10 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        input: resolve('src/main/index.ts')
+        input: {
+          index: resolve('src/main/index.ts'),
+          watchdog: resolve('src/main/watchdog.ts')
+        }
       }
     }
   },

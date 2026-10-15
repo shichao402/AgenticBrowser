@@ -12,10 +12,14 @@ import type {
   BrowserSnapshot,
   ReloadOptions
 } from '../shared/contracts'
+import {
+  type BrowserCheckpoint,
+  type BrowserCheckpointStore
+} from './checkpoint-store'
 import { normalizeNavigationUrl } from './navigation'
 
 const DEFAULT_URL = 'https://example.com/'
-const PROFILE_PARTITION = 'persist:profile-default'
+const DEFAULT_PROFILE_ID = 'profile-default'
 export const REMOTE_PAGE_SECURITY = {
   sandbox: true,
   contextIsolation: true,
@@ -79,10 +83,13 @@ export interface BrowserSupervisorOptions {
   initialUrl?: string
   strategyPreloadPath?: string
   phaseZeroProbe?: boolean
+  profileId?: string
+  checkpointStore?: BrowserCheckpointStore
 }
 
 export class BrowserSupervisor {
   private readonly profileSession: Session
+  private readonly profileId: string
   private pageView: WebContentsView | null = null
   private bounds: Rectangle = { x: 320, y: 72, width: 960, height: 728 }
   private currentUrl: string
@@ -99,7 +106,11 @@ export class BrowserSupervisor {
     private readonly options: BrowserSupervisorOptions = {}
   ) {
     this.currentUrl = options.initialUrl ?? DEFAULT_URL
-    this.profileSession = session.fromPartition(PROFILE_PARTITION, {
+    this.profileId = options.profileId ?? DEFAULT_PROFILE_ID
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(this.profileId)) {
+      throw new Error('Profile ID 格式无效')
+    }
+    this.profileSession = session.fromPartition(`persist:${this.profileId}`, {
       cache: true
     })
     this.configureSession()
@@ -204,6 +215,28 @@ export class BrowserSupervisor {
       name
     })
     return cookies.length > 0
+  }
+
+  async flushCheckpoint(reason: string): Promise<BrowserCheckpoint | null> {
+    if (!this.options.checkpointStore) {
+      return null
+    }
+
+    try {
+      const checkpoint = await this.options.checkpointStore.write({
+        profileId: this.profileId,
+        url: this.currentUrl,
+        reason
+      })
+      this.emit('checkpoint-saved', reason)
+      return checkpoint
+    } catch (error) {
+      this.emit(
+        'checkpoint-failed',
+        error instanceof Error ? error.message : String(error)
+      )
+      throw error
+    }
   }
 
   async benchmarkCapture(frameCount = 20, intervalMs = 100): Promise<CaptureBenchmark> {
@@ -426,6 +459,7 @@ export class BrowserSupervisor {
     webContents.on('did-navigate', (_event, url) => {
       this.currentUrl = url
       this.emit('navigation-finished')
+      void this.flushCheckpoint('navigation-finished').catch(() => undefined)
     })
 
     webContents.on('did-start-loading', () => {

@@ -12,7 +12,9 @@ const EVENT_LABELS: Record<BrowserEvent['type'], string> = {
   unresponsive: '页面无响应',
   responsive: '页面恢复响应',
   'renderer-gone': 'Renderer 已退出',
-  recreated: '页面已重建'
+  recreated: '页面已重建',
+  'checkpoint-saved': '检查点已保存',
+  'checkpoint-failed': '检查点保存失败'
 }
 
 export function App(): React.JSX.Element {

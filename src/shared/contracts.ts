@@ -16,6 +16,8 @@ export type BrowserEventType =
   | 'responsive'
   | 'renderer-gone'
   | 'recreated'
+  | 'checkpoint-saved'
+  | 'checkpoint-failed'
 
 export interface BrowserEvent {
   sequence: number

@@ -35,8 +35,8 @@
 - [x] renderer 崩溃后重建 `WebContentsView`
 - [x] 重建后 Profile/session 保持
 - [x] 主动页面心跳检测 renderer 事件循环阻塞与恢复
-- [ ] main process 被杀后 Watchdog 重启
-- [ ] 从持久化检查点恢复
+- [x] main process 被杀后 Watchdog 重启
+- [x] 从持久化浏览器检查点恢复
 
 ## 注入与 frame
 
@@ -71,6 +71,8 @@
 - session frame preload 注入探针
 - 主动 renderer 心跳停顿探针
 - `capturePage` 10 FPS 基准
+- 原子持久化的浏览器 URL/Profile 检查点
+- 应用外 Watchdog、main process heartbeat 与重启预算
 - URL 安全校验与单元测试
 
 每次勾选项目时，在下方追加命令、环境、版本和观察结果。
@@ -128,3 +130,26 @@ npm run smoke:electron
 `webContents` 的 `unresponsive` 事件继续保留为辅助信号，但它不适合作为后台监督主信号：触发延迟通常约 30 秒，并受用户输入与页面可见性影响。Phase 1 的 HealthMonitor 必须以短周期主动心跳和业务断言为主，`unresponsive`/`responsive` 只补充故障时间线。
 
 当前 10 FPS 结果只证明单个可见 `WebContentsView` 的短时采集能力；尚未证明环形缓冲上限、长时间稳定性、多页面并发或交互延迟，因此这些验收项保持未完成。
+
+### 2026-10-15：应用外 Watchdog 与持久化检查点
+
+命令：
+
+```bash
+npm run smoke:watchdog
+```
+
+该探针由独立 Node Watchdog 进程启动 Electron，Electron main 每 500 ms 原子写 heartbeat。测试页面设置 Profile Cookie；BrowserSupervisor 将 Profile ID、当前 URL、原因和时间写入版本化 JSON 检查点。测试驱动等待首个子进程就绪后，从 Watchdog 外部强制终止 Electron main。
+
+结果：
+
+- 首次 Electron main PID 为 `93288`，Watchdog PID 为 `89700`；首次检查点与 Profile Cookie 均已建立。
+- 强杀后 Watchdog 记录一次异常退出，在 250 ms backoff 后启动第二个 Electron main，PID 变为 `6424`。
+- 第二个进程读取磁盘检查点并恢复到相同 URL，Profile Cookie 仍存在。
+- Watchdog 最终状态为 `stopped`、`launches: 2`、`restartCount: 1`，子进程正常退出；总结果 `passed: true`。
+- 检查点写入使用同目录临时文件加 rename；损坏 JSON 会被隔离为 `.corrupt-*`，避免启动崩溃循环。
+- 新增检查点测试后，`npm test` 为 2 个测试文件、12 项测试通过。
+- 原有 `npm run smoke:electron` 回归继续 `passed: true`，本轮采集达到 9.99 FPS。
+- `npx electron-builder --win --dir` 重新打包成功；`app.asar` 已包含 `out/main/watchdog.js` 及其共享原子文件 chunk。
+
+这证明了开发环境中的独立进程重启和最小浏览器状态恢复。当前检查点只包含 URL 与 Profile ID，不等同于 Phase 3 的 workflow 步骤、幂等键和业务记录。Watchdog 产物已经由构建生成，但安装包入口、开机启动和 macOS launchd/签名集成仍属于 Phase 1 与双平台发布验证，不能按已交付能力宣称。
