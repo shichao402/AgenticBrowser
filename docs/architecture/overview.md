@@ -23,7 +23,8 @@
 - `src/main/strategy-runtime.ts`：执行令牌、独立 world 分配、权限、宿主调用、心跳、超时和故障归因。
 - `src/main/project-store.ts`：Project schema v1、固定 Strategy 版本、Profile/调度/workflow/输出/Filter 配置和原子存储。
 - `src/main/project-runtime-store.ts`：持久化 Runtime 状态机、项目单实例、检查点、计数器、恢复和幂等记录。
-- `src/main/project-scheduler.ts`：手动/自启/常驻/定时/恢复队列、时区、优先级、单槽预算和运行时长限制。
+- `src/main/project-scheduler.ts`：手动/自启/常驻/定时/恢复队列、时区、优先级、双槽预算、Profile 互斥和运行时长限制。
+- `src/main/background-project-runtime.ts`：独立后台 BrowserTabManager、workflow、Strategy、下载事务与终态生命周期。
 - `src/main/project-workflow-engine.ts`：navigate/delay/wait-for-event/complete 状态机、重试、补偿转移和检查点。
 - `src/main/project-download-manager.ts`：下载意图、临时文件、哈希、配额、原子提交、manifest 和业务去重。
 - `src/main/content-filter.ts`：Project 网络资源规则和 CSS selector 规则。
@@ -39,7 +40,7 @@
 尚未实现或尚未完成：
 
 - 真实知识星球与第二站点策略。
-- 多浏览器宿主上的真正多 Project 并行；当前预算固定为 1。
+- 两槽以上并发的资源压测与用户可配置预算；当前 Windows 验证预算固定为 2。
 - 下载中强杀、断网、结构变化和磁盘不足的完整 Electron 故障门禁。
 - 示教录制与 Agent sidecar。
 
@@ -104,6 +105,7 @@ BrowserShell 可显式启停系统登录启动。Windows 登录项固定为当�
 - `contextIsolation: true`
 - `nodeIntegration: false`
 - `nodeIntegrationInSubFrames: true`，仅用于让受沙箱约束的 preload 覆盖所有 frame。
+- `backgroundThrottling: false`，保证隐藏执行槽的健康探针、Strategy 心跳和 workflow timer 不因不可见而停摆。
 - 与 BrowserShell renderer 分离。
 - 只能运行经过项目授权的 Strategy 和页面探针。
 
@@ -121,11 +123,11 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 
 ### ProjectRuntimeManager
 
-负责项目清单、命名 Profile、调度、并发上限、前后台切换和资源预算。主进程维护时间与超时，不依赖后台 renderer timer。
+负责项目清单、命名 Profile、调度、并发上限、前后台切换和资源预算。主进程维护时间与超时，不依赖后台 renderer timer。当前前台主槽和一个隐藏后台槽可以并行运行不同 Profile；共享 Profile 的 Project 由 Scheduler 互斥排队。选择运行中的 Project 会切换对应 view，可见性不改变后台执行状态。
 
 Project 与 Runtime 使用独立的 schema v1 注册表。每个 Runtime 持有 Project 完整快照和固定 Strategy 版本；应用启动时把中断状态恢复成 queued，并从最后 workflow 检查点重新进入。Scheduler 支持 manual、autostart、resident、schedule 和 resume，daily 调度使用 IANA 时区，interval 调度从项目更新时间或上次定时运行计算。
 
-当前单个 BrowserTabManager 同时承载 Profile、Capability、Filter 和下载接管，因此全局并发预算固定为 1。多个 Runtime 可以持久化排队并按优先级顺序执行，但不并行。真正并行必须先拆成多个独立浏览器宿主，详见 [ADR-0006](../ADR/0006-persistent-project-runtime-and-download-intent.md)。
+全局并发预算当前固定为 2。前台槽与隐藏后台槽分别拥有独立 BrowserTabManager、Capability、Filter、Strategy 和下载上下文；不同 Profile 可并行，共享 Profile 由 Scheduler 互斥排队。事件带 Project/Runtime 归属，全局监控聚合两个槽。详见 [ADR-0006](../ADR/0006-persistent-project-runtime-and-download-intent.md)。
 
 ### BrowserSupervisor
 

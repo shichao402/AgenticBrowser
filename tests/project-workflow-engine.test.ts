@@ -38,6 +38,25 @@ describe('ProjectWorkflowEngine', () => {
     await rm(temporaryRoot, { recursive: true, force: true })
   })
 
+  it('completes a workflow whose entry node is complete', async () => {
+    const project = await createProject([
+      node({ id: 'finished', kind: 'complete', checkpoint: true })
+    ], temporaryRoot)
+    const envelope = await runtimeStore.create(project, 'manual')
+    const engine = new ProjectWorkflowEngine(
+      envelope.runtime.runtimeId,
+      runtimeStore,
+      host(),
+      () => now
+    )
+
+    expect(await engine.start()).toMatchObject({
+      status: 'completed',
+      currentNodeId: 'finished',
+      checkpointNodeId: 'finished'
+    })
+  })
+
   it('navigates, checkpoints, waits for a domain event, and completes', async () => {
     const project = await createProject([
       node({

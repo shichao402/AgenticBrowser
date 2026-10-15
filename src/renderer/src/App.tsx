@@ -391,10 +391,18 @@ export function App(): React.JSX.Element {
 
   const selectProject = async (projectId: string): Promise<void> => {
     try {
+      const workspace =
+        await window.agenticBrowser.setActiveProject(projectId)
       applyProjectWorkspace(
-        await window.agenticBrowser.setActiveProject(projectId),
+        workspace,
         projectId
       )
+      await Promise.all([
+        refreshSnapshot(),
+        refreshTabs(),
+        refreshCapabilityPolicy(),
+        refreshMonitor()
+      ])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -463,11 +471,11 @@ export function App(): React.JSX.Element {
     }
   }
 
-  const stopProject = async (): Promise<void> => {
+  const stopProject = async (projectId: string): Promise<void> => {
     setError(null)
     try {
       applyProjectWorkspace(
-        await window.agenticBrowser.stopProjectRuntime()
+        await window.agenticBrowser.stopProjectRuntime(projectId)
       )
       await Promise.all([
         refreshSnapshot(),
@@ -709,7 +717,11 @@ export function App(): React.JSX.Element {
                 <button
                   type="button"
                   disabled={activeProjectRuntime === null}
-                  onClick={() => void stopProject()}
+                  onClick={() =>
+                    activeProject
+                      ? void stopProject(activeProject.id)
+                      : undefined
+                  }
                 >
                   停止
                 </button>
@@ -968,8 +980,24 @@ export function App(): React.JSX.Element {
               <dd>{monitor?.activeStrategyCount ?? '—'}</dd>
             </div>
             <div>
+              <dt>运行项目</dt>
+              <dd>{monitor?.activeProjectCount ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>排队项目</dt>
+              <dd>{monitor?.queuedProjectCount ?? '—'}</dd>
+            </div>
+            <div>
               <dt>活动下载</dt>
               <dd>{monitor?.downloads.active ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>扫描 / 下载</dt>
+              <dd>
+                {latestProjectRuntime
+                  ? `${latestProjectRuntime.counters.scanned} / ${latestProjectRuntime.counters.downloaded}`
+                  : '—'}
+              </dd>
             </div>
             <div>
               <dt>Chromium 进程</dt>

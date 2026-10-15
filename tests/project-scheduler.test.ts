@@ -197,6 +197,55 @@ describe('ProjectScheduler', () => {
     scheduler.dispose()
   })
 
+  it('does not launch autostart again after resuming an interrupted run', async () => {
+    await projectStore.save(createDraft('autostart-project', 'autostart'))
+    const project = (await projectStore.read()).projects[0]!
+    const interrupted = await runtimeStore.create(project, 'autostart')
+    await runtimeStore.transition(
+      interrupted.runtime.runtimeId,
+      'starting'
+    )
+    await runtimeStore.transition(
+      interrupted.runtime.runtimeId,
+      'running'
+    )
+    await runtimeStore.recoverInterrupted()
+    const starts: ProjectRuntimeEnvelope[] = []
+    const scheduler = new ProjectScheduler(
+      projectStore,
+      runtimeStore,
+      {
+        startRuntime: async (envelope) => {
+          starts.push(envelope)
+          await runtimeStore.transition(
+            envelope.runtime.runtimeId,
+            'starting'
+          )
+          await runtimeStore.transition(
+            envelope.runtime.runtimeId,
+            'running'
+          )
+        },
+        timeoutRuntime: async () => undefined
+      },
+      { tickIntervalMs: null, now: () => now }
+    )
+
+    await scheduler.start()
+    const completed = (
+      await runtimeStore.transition(
+        starts[0]!.runtime.runtimeId,
+        'completed'
+      )
+    ).runtime
+    scheduler.notifyRuntimeTerminal(completed)
+    await scheduler.tick()
+
+    expect(starts).toHaveLength(1)
+    expect(starts[0]?.runtime.trigger).toBe('resume')
+    scheduler.dispose()
+  })
+
   it('restarts a resident runtime only after its backoff', async () => {
     await projectStore.save(createDraft('resident-project', 'resident'))
     const starts: ProjectRuntimeEnvelope[] = []
@@ -270,6 +319,47 @@ describe('ProjectScheduler', () => {
 
     expect(timeoutRuntime).toHaveBeenCalledTimes(1)
     expect(timeoutRuntime.mock.calls[0]?.[1]).toContain('60000ms')
+    scheduler.dispose()
+  })
+
+  it('retries timeout delivery when the host rejects it', async () => {
+    await projectStore.save(createDraft('bounded-project', 'manual'))
+    const timeoutRuntime = vi
+      .fn<
+        (
+          envelope: ProjectRuntimeEnvelope,
+          reason: string
+        ) => Promise<void>
+      >()
+      .mockRejectedValueOnce(new Error('host busy'))
+      .mockResolvedValue(undefined)
+    const scheduler = new ProjectScheduler(
+      projectStore,
+      runtimeStore,
+      {
+        startRuntime: async (envelope) => {
+          await runtimeStore.transition(
+            envelope.runtime.runtimeId,
+            'starting'
+          )
+          await runtimeStore.transition(
+            envelope.runtime.runtimeId,
+            'running'
+          )
+        },
+        timeoutRuntime
+      },
+      { tickIntervalMs: null, now: () => now }
+    )
+    await scheduler.start()
+    await scheduler.requestManual('bounded-project')
+    now += 60_001
+
+    await scheduler.tick()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await scheduler.tick()
+
+    expect(timeoutRuntime).toHaveBeenCalledTimes(2)
     scheduler.dispose()
   })
 })

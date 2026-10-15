@@ -105,7 +105,7 @@ Runtime 表示 Project 的一次活跃执行：
 
 常驻 Project 可以长期保持同一个 Runtime；定时 Project 每次运行生成新的 Runtime 记录。
 
-当前 Scheduler 的全局并发预算为 1。Runtime 可同时处于 queued，但只有一个可以进入 starting/running/waiting/recovering；这是单浏览器宿主的明确限制，不等于最终的多项目并行目标。
+当前 Scheduler 的全局并发预算为 2。前台槽与隐藏后台槽可让不同 Profile 的 Runtime 同时进入 starting/running/waiting/recovering；共享 Profile 的 Runtime 保持 queued，避免 session handler 和身份状态争用。
 
 ## Workflow
 

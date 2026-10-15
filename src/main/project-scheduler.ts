@@ -164,12 +164,19 @@ export class ProjectScheduler {
 
   async getSnapshot(): Promise<ProjectSchedulerSnapshot> {
     const state = await this.runtimeStore.read()
+    const executingRuntimeIds = new Set(
+      state.runtimes
+        .filter(({ runtime }) =>
+          EXECUTING_STATUSES.has(runtime.status)
+        )
+        .map(({ runtime }) => runtime.runtimeId)
+    )
+    for (const runtimeId of this.dispatchingRuntimeIds) {
+      executingRuntimeIds.add(runtimeId)
+    }
     return {
       maxConcurrent: this.maxConcurrent,
-      executing:
-        state.runtimes.filter(({ runtime }) =>
-          EXECUTING_STATUSES.has(runtime.status)
-        ).length + this.dispatchingRuntimeIds.size,
+      executing: executingRuntimeIds.size,
       queued: state.runtimes.filter(
         ({ runtime }) => runtime.status === 'queued'
       ).length,
@@ -209,8 +216,7 @@ export class ProjectScheduler {
     for (const project of projectState.projects) {
       if (
         !project.enabled ||
-        this.suspendedProjectIds.has(project.id) ||
-        activeProjectIds.has(project.id)
+        this.suspendedProjectIds.has(project.id)
       ) {
         continue
       }
@@ -222,7 +228,12 @@ export class ProjectScheduler {
           continue
         }
         this.autostartAttemptedProjectIds.add(project.id)
+        if (activeProjectIds.has(project.id)) {
+          continue
+        }
         trigger = 'autostart'
+      } else if (activeProjectIds.has(project.id)) {
+        continue
       } else if (mode === 'resident') {
         if ((this.residentRetryAt.get(project.id) ?? 0) > this.now()) {
           continue
@@ -268,6 +279,7 @@ export class ProjectScheduler {
         structuredClone(envelope),
         reason
       ).catch((error: unknown) => {
+        this.timingOutRuntimeIds.delete(runtime.runtimeId)
         this.host.reportError?.('scheduler-timeout', error)
       })
     }
@@ -332,15 +344,40 @@ export class ProjectScheduler {
       (candidate) =>
         candidate.runtime.runtimeId === envelope.runtime.runtimeId
     )
-    if (current?.runtime.status === 'queued') {
-      await this.runtimeStore.transition(
-        current.runtime.runtimeId,
-        'cancelled',
-        {
-          lastError: `Project Runtime 调度启动失败：${reason}`,
-          lastFailureCategory: 'unknown'
-        }
+    if (
+      current &&
+      !TERMINAL_STATUSES.has(current.runtime.status)
+    ) {
+      if (current.runtime.status === 'queued') {
+        await this.runtimeStore.transition(
+          current.runtime.runtimeId,
+          'starting'
+        )
+      }
+      const refreshed = (await this.runtimeStore.read()).runtimes.find(
+        (candidate) =>
+          candidate.runtime.runtimeId === envelope.runtime.runtimeId
       )
+      if (
+        refreshed &&
+        !TERMINAL_STATUSES.has(refreshed.runtime.status)
+      ) {
+        const terminalStatus =
+          refreshed.runtime.status === 'paused'
+            ? 'cancelled'
+            : 'failed'
+        await this.runtimeStore.transition(
+          refreshed.runtime.runtimeId,
+          terminalStatus,
+          {
+            lastError: `Project Runtime 调度启动失败：${reason}`,
+            lastFailureCategory: 'unknown',
+            ...(terminalStatus === 'failed'
+              ? { counters: { failed: 1 } }
+              : {})
+          }
+        )
+      }
     }
     if (
       envelope.projectSnapshot.runtime.mode === 'resident' &&

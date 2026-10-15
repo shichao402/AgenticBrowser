@@ -29,6 +29,7 @@ import {
   type StartupSettings
 } from '../shared/contracts'
 import { writeJsonAtomic } from './atomic-file'
+import { BackgroundProjectRuntime } from './background-project-runtime'
 import { BrowserTabManager } from './browser-tab-manager'
 import type {
   BrowserDownloadAdapter,
@@ -48,7 +49,10 @@ import {
   type ProjectDownloadReservation
 } from './project-download-manager'
 import { ProjectScheduler } from './project-scheduler'
-import { ProjectRuntimeStore } from './project-runtime-store'
+import {
+  ProjectRuntimeStore,
+  type ProjectRuntimeEnvelope
+} from './project-runtime-store'
 import {
   parseProjectDraft,
   ProjectStore,
@@ -105,6 +109,9 @@ const strategyWorkspaceSmokeTest = process.argv.includes(
 const projectDownloadSmokeTest = process.argv.includes(
   '--project-download-smoke-test'
 )
+const projectConcurrencySmokeTest = process.argv.includes(
+  '--project-concurrency-smoke-test'
+)
 const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
 const recoverySmokeResultPath = join(
@@ -122,6 +129,10 @@ const strategyWorkspaceSmokeResultPath = join(
 const projectDownloadSmokeResultPath = join(
   process.cwd(),
   'phase3-project-download-smoke-result.json'
+)
+const projectConcurrencySmokeResultPath = join(
+  process.cwd(),
+  'phase3-project-concurrency-smoke-result.json'
 )
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
 let automatedDownloadDirectory: string | null = null
@@ -206,6 +217,16 @@ function writeProjectDownloadSmokeResult(result: unknown): void {
   if (projectDownloadSmokeTest) {
     writeFileSync(
       projectDownloadSmokeResultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
+  }
+}
+
+function writeProjectConcurrencySmokeResult(result: unknown): void {
+  if (projectConcurrencySmokeTest) {
+    writeFileSync(
+      projectConcurrencySmokeResultPath,
       `${JSON.stringify(result, null, 2)}\n`,
       'utf8'
     )
@@ -342,13 +363,13 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       )
     }
     if (
-      projectDownloadSmokeTest &&
+      (projectDownloadSmokeTest || projectConcurrencySmokeTest) &&
       (event.type.startsWith('strategy-') ||
         event.type.startsWith('download-') ||
         event.type.startsWith('project-runtime-'))
     ) {
       console.log(
-        `AGENTIC_BROWSER_PROJECT_DOWNLOAD_EVENT ${JSON.stringify(globalEvent)}`
+        `AGENTIC_BROWSER_PROJECT_EVENT ${JSON.stringify(globalEvent)}`
       )
     }
     void eventLog?.append(globalEvent).catch((error: unknown) => {
@@ -390,6 +411,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   > = []
   let currentProjectRuntime: ProjectRuntimeSnapshot | null = null
   let projectScheduler: ProjectScheduler | null = null
+  const backgroundProjectRuntimes = new Map<
+    string,
+    BackgroundProjectRuntime
+  >()
   let handleStrategyDomainEvent:
     | ((event: {
         strategyId: string
@@ -406,7 +431,20 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     nextProfileId: string,
     nextInitialUrl?: string
   ): BrowserTabManager =>
-    new BrowserTabManager(window, publish, {
+    new BrowserTabManager(window, (event) => {
+      if (
+        currentProjectRuntime &&
+        !isTerminalProjectRuntime(currentProjectRuntime)
+      ) {
+        publish({
+          ...event,
+          projectId: currentProjectRuntime.projectId,
+          runtimeId: currentProjectRuntime.runtimeId
+        })
+        return
+      }
+      publish(event)
+    }, {
       ...(nextInitialUrl ? { initialUrl: nextInitialUrl } : {}),
       strategyPreloadPath: join(
         currentDirectory,
@@ -434,16 +472,59 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         handleStrategyDomainEvent?.(event)
     })
   let supervisor = createSupervisor(activeProfileId, initialUrl)
+  let visibleBackgroundRuntimeId: string | null = null
 
-  const layout = (): void => {
+  const getVisibleSupervisor = (): BrowserTabManager => {
+    if (visibleBackgroundRuntimeId) {
+      const runtime = backgroundProjectRuntimes.get(
+        visibleBackgroundRuntimeId
+      )
+      if (runtime) {
+        return runtime.supervisor
+      }
+      visibleBackgroundRuntimeId = null
+    }
+    return supervisor
+  }
+  const showProjectSupervisor = (projectId: string | null): void => {
+    const background = projectId
+      ? [...backgroundProjectRuntimes.entries()].find(
+          ([, runtime]) =>
+            runtime.getRuntime().projectId === projectId
+        )
+      : undefined
+    if (background) {
+      supervisor.setVisible(false)
+      for (const [runtimeId, runtime] of backgroundProjectRuntimes) {
+        runtime.setVisible(runtimeId === background[0])
+      }
+      visibleBackgroundRuntimeId = background[0]
+      return
+    }
+    for (const runtime of backgroundProjectRuntimes.values()) {
+      runtime.setVisible(false)
+    }
+    visibleBackgroundRuntimeId = null
+    supervisor.setVisible(true)
+  }
+
+  const browserBounds = () => {
     const { width, height } = window.getContentBounds()
-    shellView.setBounds({ x: 0, y: 0, width, height })
-    supervisor.setBounds({
+    return {
       x: SIDEBAR_WIDTH,
       y: TOOLBAR_HEIGHT,
       width: Math.max(MIN_PAGE_SIZE, width - SIDEBAR_WIDTH),
       height: Math.max(MIN_PAGE_SIZE, height - TOOLBAR_HEIGHT)
-    })
+    }
+  }
+  const layout = (): void => {
+    const { width, height } = window.getContentBounds()
+    shellView.setBounds({ x: 0, y: 0, width, height })
+    const bounds = browserBounds()
+    supervisor.setBounds(bounds)
+    for (const runtime of backgroundProjectRuntimes.values()) {
+      runtime.setBounds(bounds)
+    }
   }
 
   const assertTrustedSender = (senderId: number): void => {
@@ -466,7 +547,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   const readSupervisor = <T>(
     read: (current: BrowserTabManager) => T
   ): Promise<T> =>
-    enqueueSupervisorOperation(() => read(supervisor))
+    enqueueSupervisorOperation(() => read(getVisibleSupervisor()))
   const getStrategyWorkspaceSnapshot = (): StrategyWorkspaceSnapshot => ({
     strategies: cloneStrategyDefinitions(registryStrategyDefinitions),
     developmentAllowedStrategyIds: [
@@ -554,18 +635,28 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       type,
       timestamp: new Date().toISOString(),
       url: supervisor.getSnapshot().url,
-      detail
+      detail,
+      ...(currentProjectRuntime
+        ? {
+            projectId: currentProjectRuntime.projectId,
+            runtimeId: currentProjectRuntime.runtimeId
+          }
+        : {})
     })
   }
   const createProjectDownloadAdapter = (
     manager: ProjectDownloadManager
   ): BrowserDownloadAdapter => ({
     reserve: async (request: BrowserDownloadRequest) => {
-      const requestUrl = normalizeComparableUrl(request.sourceUrl)
+      const requestUrls = new Set(
+        [request.sourceUrl, ...request.urlChain].map(
+          normalizeComparableUrl
+        )
+      )
       const index = pendingManagedDownloads.findIndex((reservation) => {
         const record = reservation.record
         return (
-          normalizeComparableUrl(record.sourceUrl) === requestUrl ||
+          requestUrls.has(normalizeComparableUrl(record.sourceUrl)) ||
           (record.originalFileName === request.originalFileName &&
             normalizeComparableUrl(record.sourcePage) ===
               normalizeComparableUrl(request.sourcePage))
@@ -649,19 +740,6 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     if (!project.enabled) {
       throw new Error(`Project 已禁用：${project.name}`)
     }
-    const executing = runtimeState.runtimes.filter(
-      ({ runtime }) =>
-        runtime.status !== 'queued' &&
-        runtime.status !== 'paused' &&
-        !isTerminalProjectRuntime(runtime)
-    )
-    if (executing.length > 0) {
-      throw new Error(
-        `已有 Project Runtime 占用全局并发槽：${
-          executing[0]!.runtime.projectId
-        }`
-      )
-    }
     const runtimeProject = queued.projectSnapshot
     const startupUrl = runtimeProject.startupPages[0]
     if (!startupUrl) {
@@ -720,14 +798,15 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       )
 
       if (runtimeProject.profileId === activeProfileId) {
+        await supervisor.setStrategyConfiguration([], new Set())
         supervisor.setCapabilityPolicy(activeCapabilityPolicy)
         supervisor.setContentFilter(activeContentFilter)
         supervisor.setDownloadAdapter(activeDownloadAdapter)
+        await supervisor.navigate(startupUrl)
         await supervisor.setStrategyConfiguration(
           activeStrategyDefinitions,
           activeAllowedStrategyIds
         )
-        await supervisor.navigate(startupUrl)
       } else {
         supervisor.dispose()
         activeProfileId = runtimeProject.profileId
@@ -735,6 +814,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           runtimeProject.profileId,
           startupUrl
         )
+        if (visibleBackgroundRuntimeId) {
+          supervisor.setVisible(false)
+        }
         await supervisor.start()
         layout()
         await profileStore.setActive(runtimeProject.profileId)
@@ -816,6 +898,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           supervisor.dispose()
           activeProfileId = previousProfileId
           supervisor = createSupervisor(previousProfileId, previousUrl)
+          if (visibleBackgroundRuntimeId) {
+            supervisor.setVisible(false)
+          }
           await supervisor.start()
           layout()
           await profileStore.setActive(previousProfileId)
@@ -1068,7 +1153,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     await finalizeProjectRuntime(runtime, envelope.projectSnapshot.name)
   }
   const stopProjectRuntime =
-    async (): Promise<ProjectWorkspaceSnapshot> => {
+    async (projectId: string): Promise<ProjectWorkspaceSnapshot> => {
       if (!projectStore || !projectRuntimeStore) {
         throw new Error('Project Runtime 依赖当前不可用')
       }
@@ -1076,11 +1161,14 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       const running =
         runtimeState.runtimes.find(
           ({ runtime }) =>
+            runtime.projectId === projectId &&
             runtime.status !== 'queued' &&
             !isTerminalProjectRuntime(runtime)
         ) ??
         runtimeState.runtimes.find(
-          ({ runtime }) => runtime.status === 'queued'
+          ({ runtime }) =>
+            runtime.projectId === projectId &&
+            runtime.status === 'queued'
         )
       if (!running) {
         throw new Error('没有正在运行的 Project Runtime')
@@ -1091,6 +1179,14 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           (project) => project.id === running.runtime.projectId
         )?.name ?? running.projectSnapshot.name
       try {
+        const background = backgroundProjectRuntimes.get(
+          running.runtime.runtimeId
+        )
+        if (background) {
+          const runtime = await background.cancel()
+          await finalizeBackgroundProjectRuntime(runtime, projectName)
+          return readProjectWorkspace()
+        }
         const runtime =
           activeWorkflowEngine?.runtimeId === running.runtime.runtimeId
             ? await activeWorkflowEngine.cancel()
@@ -1104,7 +1200,24 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
                   }
                 )
               ).runtime
-        await finalizeProjectRuntime(runtime, projectName)
+        if (activeWorkflowEngine?.runtimeId === runtime.runtimeId) {
+          await finalizeProjectRuntime(runtime, projectName)
+        } else {
+          publish({
+            sequence: 0,
+            type: 'project-runtime-stopped',
+            timestamp: new Date().toISOString(),
+            url:
+              running.projectSnapshot.startupPages[0] ??
+              supervisor.getSnapshot().url,
+            detail:
+              `${projectName}; status=${runtime.status}; ` +
+              `runtimeId=${runtime.runtimeId}; queued=true`,
+            projectId: runtime.projectId,
+            runtimeId: runtime.runtimeId
+          })
+          projectScheduler?.notifyRuntimeTerminal(runtime)
+        }
         return readProjectWorkspace()
       } catch (error) {
         const reason = formatUnknownError(error)
@@ -1121,24 +1234,132 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       }
     }
 
+  const finalizeBackgroundProjectRuntime = async (
+    runtime: ProjectRuntimeSnapshot,
+    projectName: string
+  ): Promise<void> => {
+    const context = backgroundProjectRuntimes.get(runtime.runtimeId)
+    if (!context) {
+      return
+    }
+    backgroundProjectRuntimes.delete(runtime.runtimeId)
+    const url = context.supervisor.getSnapshot().url
+    if (visibleBackgroundRuntimeId === runtime.runtimeId) {
+      visibleBackgroundRuntimeId = null
+      supervisor.setVisible(true)
+    }
+    context.dispose()
+    publish({
+      sequence: 0,
+      type:
+        runtime.status === 'failed'
+          ? 'project-runtime-failed'
+          : 'project-runtime-stopped',
+      timestamp: new Date().toISOString(),
+      url,
+      detail:
+        `${projectName}; status=${runtime.status}; ` +
+        `runtimeId=${runtime.runtimeId}`,
+      projectId: runtime.projectId,
+      runtimeId: runtime.runtimeId
+    })
+    projectScheduler?.notifyRuntimeTerminal(runtime)
+  }
+  const startBackgroundProjectRuntime = async (
+    envelope: ProjectRuntimeEnvelope
+  ): Promise<void> => {
+    if (!profileStore || !projectRuntimeStore) {
+      throw new Error('后台 Project Runtime 依赖当前不可用')
+    }
+    const profileState = await profileStore.read()
+    if (
+      !profileState.profiles.some(
+        (profile) =>
+          profile.id === envelope.projectSnapshot.profileId
+      )
+    ) {
+      throw new Error(
+        `Project 绑定的 Profile 不存在：${envelope.projectSnapshot.profileId}`
+      )
+    }
+    const context = new BackgroundProjectRuntime({
+      window,
+      envelope,
+      runtimeStore: projectRuntimeStore,
+      strategyDefinitions: registryStrategyDefinitions,
+      strategyPreloadPath: join(
+        currentDirectory,
+        '../preload/strategy-bootstrap.cjs'
+      ),
+      publish,
+      bounds: browserBounds(),
+      visible: false,
+      onTerminal: (runtime) =>
+        finalizeBackgroundProjectRuntime(
+          runtime,
+          envelope.projectSnapshot.name
+        )
+    })
+    backgroundProjectRuntimes.set(
+      envelope.runtime.runtimeId,
+      context
+    )
+    try {
+      const runtime = await context.start()
+      publish({
+        sequence: 0,
+        type: 'project-runtime-started',
+        timestamp: new Date().toISOString(),
+        url: context.supervisor.getSnapshot().url,
+        detail:
+          `${envelope.projectSnapshot.name}; ` +
+          `runtimeId=${runtime.runtimeId}; background=true`,
+        projectId: runtime.projectId,
+        runtimeId: runtime.runtimeId
+      })
+    } catch (error) {
+      backgroundProjectRuntimes.delete(
+        envelope.runtime.runtimeId
+      )
+      context.dispose()
+      throw error
+    }
+  }
+
   if (projectStore && projectRuntimeStore) {
     projectScheduler = new ProjectScheduler(
       projectStore,
       projectRuntimeStore,
       {
-        startRuntime: (envelope) =>
-          enqueueSupervisorOperation(() =>
-            startProjectRuntime(envelope.runtime.runtimeId)
-          ).then(() => undefined),
-        timeoutRuntime: (envelope, reason) =>
-          enqueueSupervisorOperation(() =>
+        startRuntime: (envelope) => {
+          if (
+            activeWorkflowEngine === null &&
+            (currentProjectRuntime === null ||
+              isTerminalProjectRuntime(currentProjectRuntime))
+          ) {
+            return enqueueSupervisorOperation(() =>
+              startProjectRuntime(envelope.runtime.runtimeId)
+            ).then(() => undefined)
+          }
+          return startBackgroundProjectRuntime(envelope)
+        },
+        timeoutRuntime: async (envelope, reason) => {
+          const background = backgroundProjectRuntimes.get(
+            envelope.runtime.runtimeId
+          )
+          if (background) {
+            await background.fail('timeout', reason)
+            return
+          }
+          await enqueueSupervisorOperation(() =>
             timeoutProjectRuntime(envelope.runtime.runtimeId, reason)
-          ),
+          )
+        },
         reportError: (operation, error) => {
           console.error(`Project Scheduler ${operation} 失败`, error)
         }
       },
-      { maxConcurrent: 1 }
+      { maxConcurrent: 2 }
     )
   }
 
@@ -1149,13 +1370,34 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
 
   ipcMain.handle(IPC_CHANNELS.getMonitorSnapshot, async (event) => {
     assertTrustedSender(event.sender.id)
-    return readSupervisor((current) =>
-      collectMonitorSnapshot(
-        current,
+    return enqueueSupervisorOperation(async () => {
+      const projectRuntimes = projectRuntimeStore
+        ? (await projectRuntimeStore.read()).runtimes.map(
+            ({ runtime }) => structuredClone(runtime)
+          )
+        : []
+      const visibleSupervisor = getVisibleSupervisor()
+      const allSupervisors = [
+        supervisor,
+        ...[...backgroundProjectRuntimes.values()].map(
+          (runtime) => runtime.supervisor
+        )
+      ]
+      const visibleRuntime = visibleBackgroundRuntimeId
+        ? backgroundProjectRuntimes
+            .get(visibleBackgroundRuntimeId)
+            ?.getRuntime() ?? null
+        : currentProjectRuntime
+      return collectMonitorSnapshot(
+        visibleSupervisor,
         eventCount,
-        currentProjectRuntime
+        visibleRuntime,
+        allSupervisors.filter(
+          (current) => current !== visibleSupervisor
+        ),
+        projectRuntimes
       )
-    )
+    })
   })
 
   ipcMain.handle(IPC_CHANNELS.getCapabilityPolicy, async (event) => {
@@ -1192,7 +1434,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     if (url !== undefined && typeof url !== 'string') {
       throw new TypeError('新标签页 URL 必须是字符串')
     }
-    return enqueueSupervisorOperation(() => supervisor.createTab(url))
+    return enqueueSupervisorOperation(() =>
+      getVisibleSupervisor().createTab(url)
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.switchTab, async (event, tabId: unknown) => {
@@ -1200,7 +1444,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     if (typeof tabId !== 'string') {
       throw new TypeError('标签页 ID 必须是字符串')
     }
-    return enqueueSupervisorOperation(() => supervisor.switchTab(tabId))
+    return enqueueSupervisorOperation(() =>
+      getVisibleSupervisor().switchTab(tabId)
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.closeTab, async (event, tabId: unknown) => {
@@ -1208,7 +1454,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     if (typeof tabId !== 'string') {
       throw new TypeError('标签页 ID 必须是字符串')
     }
-    return enqueueSupervisorOperation(() => supervisor.closeTab(tabId))
+    return enqueueSupervisorOperation(() =>
+      getVisibleSupervisor().closeTab(tabId)
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.listProfiles, async (event) => {
@@ -1356,11 +1604,11 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       if (!projectStore || typeof projectId !== 'string') {
         throw new TypeError('Project ID 必须是字符串')
       }
-      return enqueueSupervisorOperation(async () =>
-        buildProjectWorkspaceSnapshot(
-          await projectStore.setActive(projectId)
-        )
-      )
+      return enqueueSupervisorOperation(async () => {
+        const state = await projectStore.setActive(projectId)
+        showProjectSupervisor(projectId)
+        return buildProjectWorkspaceSnapshot(state)
+      })
     }
   )
 
@@ -1391,14 +1639,23 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         throw new Error('Project Scheduler 当前不可用')
       }
       await projectScheduler.requestManual(projectId)
+      showProjectSupervisor(projectId)
       return readProjectWorkspace()
     }
   )
 
-  ipcMain.handle(IPC_CHANNELS.stopProjectRuntime, (event) => {
+  ipcMain.handle(
+    IPC_CHANNELS.stopProjectRuntime,
+    (event, projectId: unknown) => {
     assertTrustedSender(event.sender.id)
-    return enqueueSupervisorOperation(stopProjectRuntime)
-  })
+      if (typeof projectId !== 'string') {
+        throw new TypeError('Project ID 必须是字符串')
+      }
+      return enqueueSupervisorOperation(() =>
+        stopProjectRuntime(projectId)
+      )
+    }
+  )
 
   ipcMain.handle(IPC_CHANNELS.getStartupSettings, (event) => {
     assertTrustedSender(event.sender.id)
@@ -1516,7 +1773,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       throw new TypeError('导航 URL 必须是字符串')
     }
 
-    return enqueueSupervisorOperation(() => supervisor.navigate(url))
+    return enqueueSupervisorOperation(() =>
+      getVisibleSupervisor().navigate(url)
+    )
   })
 
   ipcMain.handle(IPC_CHANNELS.reload, async (event, options: unknown) => {
@@ -1528,7 +1787,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         'ignoreCache' in options &&
         options.ignoreCache === true
     }
-    return enqueueSupervisorOperation(() => supervisor.reload(normalized))
+    return enqueueSupervisorOperation(() =>
+      getVisibleSupervisor().reload(normalized)
+    )
   })
 
   window.on('resize', layout)
@@ -1538,7 +1799,6 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     projectScheduler?.dispose()
     projectScheduler = null
     handleStrategyDomainEvent = null
-    supervisor.dispose(true)
     void eventLog?.flush()
     const removeIpcHandlers = (): void => {
       ipcMain.removeHandler(IPC_CHANNELS.getSnapshot)
@@ -1577,6 +1837,14 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       shellView.webContents.close()
     }
 
+    void enqueueSupervisorOperation(() => {
+      for (const runtime of backgroundProjectRuntimes.values()) {
+        runtime.dispose(true)
+      }
+      backgroundProjectRuntimes.clear()
+      supervisor.dispose(true)
+    })
+
     if (mainWindow === window) {
       mainWindow = null
     }
@@ -1592,6 +1860,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   layout()
   await supervisor.start()
   await projectScheduler?.start()
+  if (projectStore) {
+    showProjectSupervisor((await projectStore.read()).activeProjectId)
+  }
   if (show) {
     window.show()
   }
@@ -1909,6 +2180,73 @@ await agenticStrategy.log('project download intent', reservation)
   }
 }
 
+function createProjectConcurrencySmokeDefinition(): StrategyDefinition {
+  return {
+    manifest: {
+      id: 'smoke-project-concurrency',
+      name: 'Smoke Project Concurrency',
+      version: '0.1.0',
+      matches: ['<all_urls>'],
+      excludes: [],
+      runAt: 'document-idle',
+      frames: 'top',
+      permissions: [
+        'dom.read',
+        'dom.write',
+        'project.emit-event',
+        'log'
+      ],
+      networkMatches: [],
+      config: {},
+      timeouts: {
+        startupMs: 5_000,
+        heartbeatMs: 2_000
+      }
+    },
+    source: `
+const projectId = new URL(location.href).searchParams.get(
+  'concurrency-project'
+)
+if (!projectId) {
+  return
+}
+document.cookie =
+  'agentic_runtime=' + encodeURIComponent(projectId) +
+  '; Path=/; SameSite=Lax'
+await agenticStrategy.emit('runtime.ready', {
+  projectId,
+  cookie: document.cookie,
+  href: location.href
+})
+const sourceUrl = new URL('/sample.mp3', location.href).toString()
+const reservation = await agenticStrategy.emit('download.intent', {
+  businessItemId: projectId,
+  attachmentId: 'audio-1',
+  sourceUrl,
+  fileName: projectId + '.mp3',
+  mime: 'audio/mpeg',
+  expectedBytes: 4096
+})
+if (reservation.kind === 'reserved') {
+  const link = document.createElement('a')
+  link.href = sourceUrl
+  link.download = projectId + '.mp3'
+  document.body.append(link)
+  link.click()
+  link.remove()
+} else if (reservation.kind === 'duplicate') {
+  await agenticStrategy.emit('download.completed', {
+    downloadId: reservation.downloadId,
+    duplicate: true
+  })
+}
+await agenticStrategy.log('concurrency runtime ready', { projectId })
+`,
+    enabled: true,
+    updatedAt: '2026-10-15T00:00:00.000Z'
+  }
+}
+
 function createStrategyWorkspaceSmokeDraft(
   version: string,
   marker: string
@@ -1942,9 +2280,44 @@ await agenticStrategy.log(${JSON.stringify(`workspace ${marker}`)})
 function collectMonitorSnapshot(
   supervisor: BrowserTabManager,
   browserEventCount: number,
-  projectRuntime: ProjectRuntimeSnapshot | null = null
+  projectRuntime: ProjectRuntimeSnapshot | null = null,
+  additionalSupervisors: BrowserTabManager[] = [],
+  projectRuntimes: ProjectRuntimeSnapshot[] = []
 ): MonitorSnapshot {
-  const strategies = supervisor.getStrategyRuntimeSnapshot()
+  const supervisors = [supervisor, ...additionalSupervisors]
+  const strategySnapshots = supervisors.map((current) =>
+    current.getStrategyRuntimeSnapshot()
+  )
+  const strategies = {
+    activeCount: strategySnapshots.reduce(
+      (total, snapshot) => total + snapshot.activeCount,
+      0
+    ),
+    quarantinedStrategyIds: [
+      ...new Set(
+        strategySnapshots.flatMap(
+          (snapshot) => snapshot.quarantinedStrategyIds
+        )
+      )
+    ].sort(),
+    entries: strategySnapshots.flatMap((snapshot) => snapshot.entries)
+  }
+  const downloads = supervisors.reduce(
+    (summary, current) => {
+      const next = current.getDownloadSummary()
+      summary.active += next.active
+      summary.completed += next.completed
+      summary.failed += next.failed
+      summary.receivedBytes += next.receivedBytes
+      return summary
+    },
+    {
+      active: 0,
+      completed: 0,
+      failed: 0,
+      receivedBytes: 0
+    }
+  )
   const processes = app.getAppMetrics().map((metric) => ({
     pid: metric.pid,
     type: metric.type,
@@ -1956,8 +2329,23 @@ function collectMonitorSnapshot(
     generatedAt: new Date().toISOString(),
     browser: supervisor.getSnapshot(),
     projectRuntime,
+    projectRuntimes: projectRuntimes.map((runtime) =>
+      structuredClone(runtime)
+    ),
+    activeProjectCount: projectRuntimes.filter(
+      (runtime) =>
+        runtime.status !== 'queued' &&
+        runtime.status !== 'paused' &&
+        !isTerminalProjectRuntime(runtime)
+    ).length,
+    queuedProjectCount: projectRuntimes.filter(
+      (runtime) => runtime.status === 'queued'
+    ).length,
     browserEventCount,
-    activePageCount: supervisor.listTabs().length,
+    activePageCount: supervisors.reduce(
+      (total, current) => total + current.listTabs().length,
+      0
+    ),
     activeStrategyCount: strategies.activeCount,
     strategies,
     totalCpuPercent: processes.reduce(
@@ -1969,7 +2357,7 @@ function collectMonitorSnapshot(
       0
     ),
     processes,
-    downloads: supervisor.getDownloadSummary()
+    downloads
   }
 }
 
@@ -2003,7 +2391,8 @@ function createCheckpointStore(): BrowserCheckpointStore | undefined {
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest
+    projectDownloadSmokeTest ||
+    projectConcurrencySmokeTest
   ) {
     return undefined
   }
@@ -2380,6 +2769,319 @@ async function runProjectDownloadSmoke(
       ...new Set(runtime.events.map((event) => event.type))
     ]
   }
+}
+
+async function runProjectConcurrencySmoke(
+  runtime: MainWindowRuntime,
+  probe: PhaseZeroProbeServer,
+  outputRoot: string
+): Promise<Record<string, unknown>> {
+  const profiles = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.createProfile('Concurrency A')`
+  )) as ProfileSummary[]
+  const withSecond = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.createProfile('Concurrency B')`
+  )) as ProfileSummary[]
+  const profileA =
+    profiles.find((profile) => profile.name === 'Concurrency A') ??
+    withSecond.find((profile) => profile.name === 'Concurrency A')
+  const profileB = withSecond.find(
+    (profile) => profile.name === 'Concurrency B'
+  )
+  if (!profileA || !profileB) {
+    throw new Error('Project concurrency smoke 未能创建 Profile')
+  }
+
+  const projects = [
+    { id: 'concurrency-alpha', profileId: profileA.id, priority: 10 },
+    { id: 'concurrency-beta', profileId: profileB.id, priority: 9 },
+    { id: 'concurrency-gamma', profileId: profileA.id, priority: 8 },
+    { id: 'concurrency-delta', profileId: profileB.id, priority: 7 }
+  ]
+  for (const project of projects) {
+    const url = new URL(probe.topUrl)
+    url.searchParams.set('concurrency-project', project.id)
+    const draft: ProjectDraft = {
+      id: project.id,
+      name: project.id,
+      profileId: project.profileId,
+      startupPages: [url.toString()],
+      strategies: [
+        { id: 'smoke-project-concurrency', version: '0.1.0' }
+      ],
+      runtime: {
+        mode: 'manual',
+        timezone: 'Asia/Shanghai',
+        priority: project.priority,
+        maxRunMs: 15_000
+      },
+      workflow: {
+        version: 1,
+        entryNodeId: 'open',
+        nodes: [
+          {
+            id: 'open',
+            kind: 'navigate',
+            url: url.toString(),
+            next: 'ready',
+            timeoutMs: 5_000,
+            maxAttempts: 1,
+            checkpoint: true
+          },
+          {
+            id: 'ready',
+            kind: 'wait-for-event',
+            eventName: 'runtime.ready',
+            next: 'downloaded',
+            timeoutMs: 5_000,
+            maxAttempts: 1,
+            checkpoint: true
+          },
+          {
+            id: 'downloaded',
+            kind: 'wait-for-event',
+            eventName: 'download.completed',
+            next: 'hold',
+            timeoutMs: 10_000,
+            maxAttempts: 1,
+            checkpoint: true
+          },
+          {
+            id: 'hold',
+            kind: 'delay',
+            delayMs: 2_500,
+            next: 'finished',
+            timeoutMs: 5_000,
+            maxAttempts: 1,
+            checkpoint: true
+          },
+          {
+            id: 'finished',
+            kind: 'complete',
+            timeoutMs: 1_000,
+            maxAttempts: 1,
+            checkpoint: true
+          }
+        ]
+      },
+      output: {
+        root: join(outputRoot, project.id),
+        maxBytes: 1024 * 1024,
+        fileNameTemplate: '{postId}-{fileName}'
+      },
+      capabilities: createCapabilityPolicy(),
+      filter: {
+        enabled: false,
+        networkRules: [],
+        cssRules: []
+      },
+      retry: {
+        maxConsecutiveFailures: 2,
+        baseBackoffMs: 250,
+        maxBackoffMs: 1_000
+      },
+      enabled: true
+    }
+    await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.saveProject(${JSON.stringify(draft)})`
+    )
+  }
+
+  for (const project of projects) {
+    await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.startProjectRuntime(${JSON.stringify(project.id)})`
+    )
+  }
+
+  const overlap = await waitForProjectConcurrency(runtime)
+  const stoppedWorkspace =
+    (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.stopProjectRuntime('concurrency-delta')`
+    )) as ProjectWorkspaceSnapshot
+  const stoppedRuntime = stoppedWorkspace.runtimes.find(
+    (candidate) => candidate.projectId === 'concurrency-delta'
+  )
+  const afterQueuedStop = await waitForProjectConcurrency(
+    runtime,
+    15_000,
+    1
+  )
+  const [alphaCookie, betaCookie] = await Promise.all([
+    waitForProfileCookie(
+      profileA.id,
+      probe.topUrl,
+      'concurrency-alpha'
+    ),
+    waitForProfileCookie(
+      profileB.id,
+      probe.topUrl,
+      'concurrency-beta'
+    )
+  ])
+  const completed = await waitForProjectSet(
+    runtime,
+    projects.map((project) => project.id)
+  )
+  const completedProjectIds = new Set([
+    'concurrency-alpha',
+    'concurrency-beta',
+    'concurrency-gamma'
+  ])
+  const downloadStates = await Promise.all(
+    projects
+      .filter((project) => completedProjectIds.has(project.id))
+      .map(async (project) => {
+        const root = join(outputRoot, project.id)
+        const manager = new ProjectDownloadManager(
+          join(root, 'records', 'downloads.json')
+        )
+        return {
+          projectId: project.id,
+          root,
+          state: await waitForCompletedDownloads(manager, 1),
+          downloads: readDirectoryNames(join(root, 'downloads')),
+          temporary: readDirectoryNames(join(root, 'tmp'))
+        }
+      })
+  )
+  const runtimes = completed.runtimes.filter((candidate) =>
+    projects.some((project) => project.id === candidate.projectId)
+  )
+  const gammaCookie = await waitForProfileCookie(
+    profileA.id,
+    probe.topUrl,
+    'concurrency-gamma'
+  )
+  const passed =
+    overlap.activeProjectCount === 2 &&
+    overlap.queuedProjectCount === 2 &&
+    stoppedRuntime?.status === 'cancelled' &&
+    afterQueuedStop.activeProjectCount === 2 &&
+    afterQueuedStop.queuedProjectCount === 1 &&
+    overlap.activePageCount >= 2 &&
+    afterQueuedStop.activePageCount >= 2 &&
+    runtimes.length === 4 &&
+    runtimes.every((candidate) =>
+      candidate.projectId === 'concurrency-delta'
+        ? candidate.status === 'cancelled'
+        : candidate.status === 'completed'
+    ) &&
+    alphaCookie.includes('concurrency-alpha') &&
+    !alphaCookie.includes('concurrency-beta') &&
+    betaCookie.includes('concurrency-beta') &&
+    !betaCookie.includes('concurrency-alpha') &&
+    gammaCookie.includes('concurrency-gamma') &&
+    downloadStates.every((download) => {
+      const records = download.state.records.filter(
+        (record) => record.status === 'completed'
+      )
+      return (
+        records.length === 1 &&
+        records[0]?.projectId === download.projectId &&
+        records[0].size === 4096 &&
+        records[0].finalPath.startsWith(
+          join(download.root, 'downloads')
+        ) &&
+        download.downloads.length === 1 &&
+        download.temporary.length === 0
+      )
+    })
+
+  return {
+    passed,
+    overlap,
+    afterQueuedStop,
+    completed,
+    cookies: {
+      alpha: alphaCookie,
+      beta: betaCookie,
+      gamma: gammaCookie
+    },
+    downloadStates,
+    observedEventTypes: [
+      ...new Set(runtime.events.map((event) => event.type))
+    ]
+  }
+}
+
+async function waitForProjectConcurrency(
+  runtime: MainWindowRuntime,
+  timeoutMs = 15_000,
+  expectedQueued = 2
+): Promise<MonitorSnapshot> {
+  const deadline = Date.now() + timeoutMs
+  let latest: MonitorSnapshot | null = null
+  while (Date.now() < deadline) {
+    latest = (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getMonitorSnapshot()'
+    )) as MonitorSnapshot
+    if (
+      latest.activeProjectCount === 2 &&
+      latest.queuedProjectCount === expectedQueued &&
+      latest.activePageCount >= 2
+    ) {
+      return latest
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(
+    `等待 Project 并发执行超时：${JSON.stringify(latest)}`
+  )
+}
+
+async function waitForProjectSet(
+  runtime: MainWindowRuntime,
+  projectIds: string[],
+  timeoutMs = 20_000
+): Promise<ProjectWorkspaceSnapshot> {
+  const deadline = Date.now() + timeoutMs
+  let latest: ProjectWorkspaceSnapshot | null = null
+  while (Date.now() < deadline) {
+    latest = (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getProjectWorkspace()'
+    )) as ProjectWorkspaceSnapshot
+    const selected = latest.runtimes.filter((candidate) =>
+      projectIds.includes(candidate.projectId)
+    )
+    if (
+      selected.length === projectIds.length &&
+      selected.every((candidate) =>
+        isTerminalProjectRuntime(candidate)
+      )
+    ) {
+      return latest
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error(
+    `等待并发 Project 完成超时：${JSON.stringify(latest)}`
+  )
+}
+
+async function waitForProfileCookie(
+  profileId: string,
+  url: string,
+  expectedValue: string,
+  timeoutMs = 10_000
+): Promise<string> {
+  const profileSession = session.fromPartition(`persist:${profileId}`)
+  const deadline = Date.now() + timeoutMs
+  let latest = ''
+  while (Date.now() < deadline) {
+    const cookies = await profileSession.cookies.get({
+      url,
+      name: 'agentic_runtime'
+    })
+    latest = cookies[0]?.value ?? ''
+    if (latest === expectedValue) {
+      return latest
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(
+    `等待 Profile Cookie 超时：${profileId}; ` +
+    `expected=${expectedValue}; actual=${latest}`
+  )
 }
 
 async function waitForProjectRuns(
@@ -2792,7 +3494,12 @@ function parseNonNegativeInteger(value: string | undefined): number {
 
 function cleanupAutomatedDownloads(): void {
   if (automatedDownloadDirectory) {
-    rmSync(automatedDownloadDirectory, { recursive: true, force: true })
+    rmSync(automatedDownloadDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100
+    })
     automatedDownloadDirectory = null
   }
 }
@@ -2804,6 +3511,7 @@ async function closeSmokeRuntime(runtime: MainWindowRuntime): Promise<void> {
     new Promise((resolve) => setTimeout(resolve, 250))
   ])
   runtime.window.close()
+  await new Promise((resolve) => setTimeout(resolve, 250))
 }
 
 if (runApplication) {
@@ -2816,7 +3524,8 @@ if (runApplication) {
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest
+    projectDownloadSmokeTest ||
+    projectConcurrencySmokeTest
       ? undefined
       : new StructuredEventLog(
           join(app.getPath('userData'), 'logs', 'browser-events.jsonl')
@@ -2829,7 +3538,8 @@ if (runApplication) {
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest
+    projectDownloadSmokeTest ||
+    projectConcurrencySmokeTest
       ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
       : null
   const profileStore = new ProfileStore(
@@ -2870,7 +3580,8 @@ if (runApplication) {
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest
+    projectDownloadSmokeTest ||
+    projectConcurrencySmokeTest
       ? createCapabilityPolicy()
       : await capabilityStore.read()
   const strategyStore = new StrategyStore(
@@ -2894,7 +3605,8 @@ if (runApplication) {
     recoverySmokeTest ||
     strategyFaultSmokeTest ||
     strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest
+    projectDownloadSmokeTest ||
+    projectConcurrencySmokeTest
       ? await startPhaseZeroProbeServer()
       : null
   const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
@@ -2910,7 +3622,9 @@ if (runApplication) {
       ? [createStrategyFaultSmokeDefinition()]
       : projectDownloadSmokeTest
         ? [createProjectDownloadSmokeDefinition()]
-      : strategyState.strategies
+        : projectConcurrencySmokeTest
+          ? [createProjectConcurrencySmokeDefinition()]
+          : strategyState.strategies
   const allowedStrategyIds =
     smokeTest || strategyFaultSmokeTest
       ? new Set(strategyDefinitions.map((item) => item.manifest.id))
@@ -2921,7 +3635,8 @@ if (runApplication) {
       !recoverySmokeTest &&
       !strategyFaultSmokeTest &&
       !strategyWorkspaceSmokeTest &&
-      !projectDownloadSmokeTest,
+      !projectDownloadSmokeTest &&
+      !projectConcurrencySmokeTest,
     phaseZeroProbe: smokeTest,
     healthMonitoring: !smokeTest && !strategyFaultSmokeTest,
     ...(initialUrl ? { initialUrl } : {}),
@@ -3053,6 +3768,7 @@ if (runApplication) {
       beforeCrash.preferences.contextIsolation &&
       !beforeCrash.preferences.nodeIntegration &&
       beforeCrash.preferences.nodeIntegrationInSubFrames &&
+      !beforeCrash.preferences.backgroundThrottling &&
       !beforeCrash.pageWorld.hasNodeProcess &&
       !beforeCrash.pageWorld.hasRequire &&
       !beforeCrash.pageWorld.hasBrowserShellBridge &&
@@ -3128,6 +3844,27 @@ if (runApplication) {
     phaseZeroProbe = null
     cleanupAutomatedDownloads()
     app.exit(passed ? 0 : 1)
+    return
+  }
+
+  if (projectConcurrencySmokeTest) {
+    if (!phaseZeroProbe || !automatedDownloadDirectory) {
+      throw new Error('Project concurrency smoke 环境未初始化')
+    }
+    const result = await runProjectConcurrencySmoke(
+      runtime,
+      phaseZeroProbe,
+      join(automatedDownloadDirectory, 'concurrency-output')
+    )
+    writeProjectConcurrencySmokeResult(result)
+    console.log(
+      `AGENTIC_BROWSER_PROJECT_CONCURRENCY_SMOKE ${JSON.stringify(result)}`
+    )
+    await closeSmokeRuntime(runtime)
+    await phaseZeroProbe.close()
+    phaseZeroProbe = null
+    cleanupAutomatedDownloads()
+    app.exit(result.passed === true ? 0 : 1)
     return
   }
 
@@ -3221,6 +3958,8 @@ if (runApplication) {
     writeRecoverySmokeResult(result)
     writeStrategyFaultSmokeResult(result)
     writeStrategyWorkspaceSmokeResult(result)
+    writeProjectDownloadSmokeResult(result)
+    writeProjectConcurrencySmokeResult(result)
     void phaseZeroProbe?.close()
     phaseZeroProbe = null
     cleanupAutomatedDownloads()

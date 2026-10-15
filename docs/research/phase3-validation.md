@@ -15,7 +15,7 @@
 - 项目级网络/CSS Content Filter。
 - Project 工作台、JSON 编辑、策略版本解析、启动/停止和 Runtime 监控。
 
-当前只有一个受控浏览器宿主，因此全局并发预算为 1：多个项目可以排队和自动执行，但不会并行运行。该限制已经固化在 [ADR-0006](../ADR/0006-persistent-project-runtime-and-download-intent.md)，不能把当前状态描述成真正的多项目并行。
+当前全局并发预算为 2：前台主槽与独立后台 BrowserTabManager 可以同时执行不同 Profile 的 Project；共享 Profile 的 Project 由调度器保持排队。前台选择会切换对应 view，可见性不会停止后台健康监督和 workflow。
 
 ## 自动化验证
 
@@ -27,14 +27,14 @@ npm run typecheck
 
 npm test
 => 21 test files passed
-=> 101 tests passed
+=> 104 tests passed
 ```
 
 覆盖：
 
 - Project 严格解析、原子存储、revision、时区和悬空 workflow 转移拒绝。
 - Runtime 状态机、单实例、检查点恢复和跨重启幂等。
-- Scheduler 单槽预算、优先级、自动启动、常驻退避、定时到期和 maxRunMs。
+- Scheduler 单/双槽预算、Profile 互斥、优先级、自动启动、常驻退避、定时到期和 maxRunMs。
 - Workflow 导航、领域事件、delay、超时重试、补偿转移和幂等跳过。
 - Download Manager 临时提交、文件名、哈希、重复去重、并发预留、配额、磁盘不足、中断记录和 Runtime 下载计数。
 - Content Filter allow 优先、资源类型边界和 CSS selector 规则。
@@ -67,6 +67,19 @@ npm run smoke:project-download
 - 两次 Runtime 均为 completed，检查点都包含 `download.completed`。
 - 项目 Profile 保持活动，Filter 命中事件可见。
 
+### Electron 多 Project 并发
+
+```text
+npm run smoke:project-concurrency
+=> passed
+```
+
+- 两个不同 Profile 的 Project 在两个独立 BrowserTabManager 中同时处于运行态。
+- 全局监控在重叠窗口观测到 2 个活动 Project、2 个页面和 2 个排队 Project。
+- 停止其中一个排队 Project 不会打断两个活动执行槽；另一个共享 Profile 的 Project 保持排队，并在前序实例终态后启动。
+- 三个执行 Runtime 均完成、被停止的排队 Runtime 正确取消；两个 session partition 的 Cookie 证明并行 Profile 未互相读取身份状态。
+- 三个项目各自完成 4,096-byte MP3，manifest、最终目录与临时目录互不串扰。
+
 ### 既有回归
 
 ```text
@@ -85,7 +98,7 @@ npm run smoke:strategy-fault
 - 下载过程中强杀 renderer / Electron main 后的端到端续传或安全重试。
 - 断网、页面结构变化、登录失效和磁盘不足的 Electron 级故障注入。
 - 第二个真实目标站点。
-- 多浏览器宿主上的真正多项目并行与资源隔离。
+- 两槽以上的资源预算压测与可配置并发上限。
 - macOS DMG、签名、公证、Watchdog 和 login item。
 
 上述项目完成前，Phase 3 和知识星球试点仍保持进行中。

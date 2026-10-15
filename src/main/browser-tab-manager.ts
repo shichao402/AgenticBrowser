@@ -44,6 +44,7 @@ export class BrowserTabManager {
   private strategyDefinitions: StrategyDefinition[]
   private allowedStrategyIds: ReadonlySet<string>
   private readonly quarantinedStrategyIds: Set<string>
+  private visible: boolean
   private bounds: Rectangle = { x: 320, y: 104, width: 960, height: 696 }
 
   constructor(
@@ -55,6 +56,7 @@ export class BrowserTabManager {
     this.allowedStrategyIds = new Set(options.allowedStrategyIds ?? [])
     this.quarantinedStrategyIds =
       options.quarantinedStrategyIds ?? new Set<string>()
+    this.visible = options.visible ?? true
   }
 
   async start(): Promise<void> {
@@ -63,12 +65,20 @@ export class BrowserTabManager {
     this.sessionHandlerOwnerId = tab.id
     await tab.supervisor.start()
     tab.supervisor.setBounds(this.bounds)
+    tab.supervisor.setVisible(this.visible)
   }
 
   setBounds(bounds: Rectangle): void {
     this.bounds = bounds
     for (const tab of this.tabs.values()) {
       tab.supervisor.setBounds(bounds)
+    }
+  }
+
+  setVisible(visible: boolean): void {
+    this.visible = visible
+    for (const [id, tab] of this.tabs) {
+      tab.supervisor.setVisible(visible && id === this.activeTabId)
     }
   }
 
@@ -103,7 +113,7 @@ export class BrowserTabManager {
     try {
       await tab.supervisor.start()
       tab.supervisor.setBounds(this.bounds)
-      tab.supervisor.setVisible(true)
+      tab.supervisor.setVisible(this.visible)
       await this.persistActiveTab('tab-created')
     } catch (error) {
       this.tabs.delete(tab.id)
@@ -111,7 +121,7 @@ export class BrowserTabManager {
       this.activeTabId = this.findTabId(previous)
       previous.takePermissionHandlerOwnership()
       this.permissionHandlerOwnerId = this.activeTabId
-      previous.setVisible(true)
+      previous.setVisible(this.visible)
       throw error
     }
 
@@ -127,7 +137,7 @@ export class BrowserTabManager {
     this.activeSupervisor().setVisible(false)
     this.activeTabId = tabId
     next.supervisor.setBounds(this.bounds)
-    next.supervisor.setVisible(true)
+    next.supervisor.setVisible(this.visible)
     void this.persistActiveTab('tab-switched')
     return this.listTabs()
   }
@@ -168,7 +178,7 @@ export class BrowserTabManager {
       }
       this.activeTabId = next.id
       next.supervisor.setBounds(this.bounds)
-      next.supervisor.setVisible(true)
+      next.supervisor.setVisible(this.visible)
     }
     void this.persistActiveTab('tab-closed')
 

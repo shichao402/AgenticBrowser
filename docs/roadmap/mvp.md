@@ -71,7 +71,7 @@ Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy �
 
 ## Phase 3：Project Runtime 与试点
 
-当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、单槽全局预算和 Project 工作台已经落地。Windows 模拟站点的两轮 MP3 下载/去重闭环通过；真实知识星球、下载中强杀恢复和真正多项目并行尚未通过。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
+当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽和 Project 工作台已经落地。Windows 模拟站点的两轮 MP3 下载/去重闭环、不同 Profile 并行与共享 Profile 排队均通过；真实知识星球、人工接管和下载中强杀恢复尚未通过。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
 
 ### 交付
 
@@ -87,7 +87,7 @@ Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy �
 ### 通过条件
 
 - 知识星球流程满足 [试点验收](knowledge-planet-pilot.md)。
-- 多宿主并发落地后，常驻与定时项目可并行且 Profile 和目录不串扰；当前单槽调度只验证排队隔离。
+- 常驻与定时项目可在双宿主中并行，共享 Profile 保持互斥且输出目录不串扰。
 - 重启、补跑不会重复下载。
 - 断网、页面变化、renderer 崩溃和磁盘不足均能分类处理。
 

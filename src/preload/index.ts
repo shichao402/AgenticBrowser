@@ -61,8 +61,10 @@ const api: BrowserShellApi = {
     projectId: string
   ): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.startProjectRuntime, projectId),
-  stopProjectRuntime: (): Promise<ProjectWorkspaceSnapshot> =>
-    ipcRenderer.invoke(IPC_CHANNELS.stopProjectRuntime),
+  stopProjectRuntime: (
+    projectId: string
+  ): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.stopProjectRuntime, projectId),
   getStartupSettings: (): Promise<StartupSettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.getStartupSettings),
   setOpenAtLogin: (enabled: boolean): Promise<StartupSettings> =>

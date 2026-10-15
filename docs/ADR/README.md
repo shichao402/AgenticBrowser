@@ -7,7 +7,7 @@
 | [0003](0003-deterministic-recovery-before-agent.md) | Accepted | 确定性恢复优先，Agent 作为受限升级路径 |
 | [0004](0004-exact-origin-capability-policy.md) | Accepted | 使用默认策略与精确 Origin 覆盖控制页面能力 |
 | [0005](0005-isolated-strategy-runtime.md) | Accepted | Strategy 使用独立 world、宿主能力门与 renderer 级故障终止 |
-| [0006](0006-persistent-project-runtime-and-download-intent.md) | Accepted | 持久化 Project Runtime、单槽调度与下载意图协议 |
+| [0006](0006-persistent-project-runtime-and-download-intent.md) | Accepted | 持久化 Project Runtime、双槽/Profile 互斥调度与下载意图协议 |
 
 ## 模板
 

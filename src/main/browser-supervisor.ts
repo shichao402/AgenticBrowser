@@ -72,7 +72,8 @@ export const REMOTE_PAGE_SECURITY = {
   sandbox: true,
   contextIsolation: true,
   nodeIntegration: false,
-  nodeIntegrationInSubFrames: true
+  nodeIntegrationInSubFrames: true,
+  backgroundThrottling: false
 } as const
 
 export interface BrowserDiagnostics {
@@ -84,6 +85,7 @@ export interface BrowserDiagnostics {
     contextIsolation: boolean
     nodeIntegration: boolean
     nodeIntegrationInSubFrames: boolean
+    backgroundThrottling: boolean
   }
   pageWorld: {
     hasNodeProcess: boolean
@@ -177,6 +179,7 @@ export interface BrowserSupervisorOptions {
   checkpointStore?: BrowserCheckpointStore
   healthMonitoring?: boolean
   recoveryEnabled?: boolean
+  visible?: boolean
   capabilityPolicy?: CapabilityPolicy
   downloadDirectory?: string
   manageSessionHandlers?: boolean
@@ -193,6 +196,7 @@ export interface BrowserSupervisorOptions {
 export interface BrowserDownloadRequest {
   sourcePage: string
   sourceUrl: string
+  urlChain: string[]
   originalFileName: string
   mime: string | null
   expectedBytes: number | null
@@ -316,6 +320,7 @@ export class BrowserSupervisor {
       }
     )
     this.downloadAdapter = options.downloadAdapter
+    this.visible = options.visible ?? true
     this.profileId = options.profileId ?? DEFAULT_PROFILE_ID
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(this.profileId)) {
       throw new Error('Profile ID 格式无效')
@@ -460,7 +465,7 @@ export class BrowserSupervisor {
     const url = normalizeNavigationUrl(input)
     const contents = this.requireContents()
     this.resetRecovery()
-    this.pageView?.setVisible(true)
+    this.pageView?.setVisible(this.visible)
     this.currentUrl = url
     await contents.loadURL(url)
     return this.getSnapshot()
@@ -469,7 +474,7 @@ export class BrowserSupervisor {
   async reload(options: ReloadOptions): Promise<BrowserSnapshot> {
     const contents = this.requireContents()
     this.resetRecovery()
-    this.pageView?.setVisible(true)
+    this.pageView?.setVisible(this.visible)
 
     if (options.ignoreCache) {
       contents.reloadIgnoringCache()
@@ -1462,6 +1467,7 @@ export class BrowserSupervisor {
       .reserve({
         sourcePage,
         sourceUrl: item.getURL(),
+        urlChain: item.getURLChain(),
         originalFileName: item.getFilename(),
         mime: item.getMimeType() || null,
         expectedBytes: totalBytes >= 0 ? totalBytes : null
@@ -1644,7 +1650,7 @@ export class BrowserSupervisor {
           attemptsInWindow: this.recoveryPolicy.getAttempts(),
           lastRecoveryAt: new Date().toISOString()
         }
-        this.pageView?.setVisible(true)
+        this.pageView?.setVisible(this.visible)
         this.emit(
           'recovery-succeeded',
           `${decision.action}; attempt=${decision.attempt}`

@@ -81,6 +81,8 @@ export interface BrowserEvent {
   url: string
   detail?: string
   tabId?: string
+  projectId?: string
+  runtimeId?: string
 }
 
 export interface BrowserSnapshot {
@@ -131,6 +133,9 @@ export interface MonitorSnapshot {
   generatedAt: string
   browser: BrowserSnapshot
   projectRuntime: ProjectRuntimeSnapshot | null
+  projectRuntimes: ProjectRuntimeSnapshot[]
+  activeProjectCount: number
+  queuedProjectCount: number
   browserEventCount: number
   activePageCount: number
   activeStrategyCount: number
@@ -608,7 +613,7 @@ export interface BrowserShellApi {
   setActiveProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
   deleteProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
   startProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
-  stopProjectRuntime(): Promise<ProjectWorkspaceSnapshot>
+  stopProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
   getStartupSettings(): Promise<StartupSettings>
   setOpenAtLogin(enabled: boolean): Promise<StartupSettings>
   getStrategyWorkspace(): Promise<StrategyWorkspaceSnapshot>

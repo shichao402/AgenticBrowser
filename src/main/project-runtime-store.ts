@@ -65,6 +65,7 @@ const TRANSITIONS: Record<ProjectRuntimeStatus, ReadonlySet<ProjectRuntimeStatus
     'waiting',
     'recovering',
     'failed',
+    'completed',
     'cancelled'
   ]),
   running: new Set([
