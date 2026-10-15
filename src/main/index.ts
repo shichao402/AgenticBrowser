@@ -52,6 +52,7 @@ import {
   AUTOMATION_PLAYGROUND_FORM_URL,
   AUTOMATION_PLAYGROUND_MISSING_URL,
   AUTOMATION_PLAYGROUND_PROJECT_ID,
+  AUTOMATION_PLAYGROUND_SECOND_SITE_URL,
   AUTOMATION_PLAYGROUND_STRATEGY_ID,
   createAutomationPlaygroundProjectDraft,
   createAutomationPlaygroundStrategyDraft
@@ -2294,11 +2295,6 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         (runtime) => runtime.prepareForShutdown()
       )
     ])
-    for (const runtime of backgroundProjectRuntimes.values()) {
-      runtime.dispose()
-    }
-    backgroundProjectRuntimes.clear()
-    supervisor.dispose()
   }
 
   window.on('resize', layout)
@@ -2351,7 +2347,13 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       shellView.webContents.close()
     }
 
-    if (!shutdownPrepared) {
+    if (shutdownPrepared) {
+      for (const runtime of backgroundProjectRuntimes.values()) {
+        runtime.dispose(true)
+      }
+      backgroundProjectRuntimes.clear()
+      supervisor.dispose(true)
+    } else {
       void enqueueSupervisorOperation(() => {
         for (const runtime of backgroundProjectRuntimes.values()) {
           runtime.dispose(true)
@@ -2692,7 +2694,10 @@ const reservation = await agenticStrategy.emit('download.intent', {
   expectedBytes: 4096
 })
 document.documentElement.dataset.agenticDownloadIntent = reservation.kind
-if (reservation.kind === 'reserved') {
+if (
+  reservation.kind === 'reserved' ||
+  (reservation.kind === 'in-progress' && reservation.canStart === true)
+) {
   const link = document.createElement('a')
   link.href = sourceUrl
   link.download = 'meeting:sample?.mp3'
@@ -2760,7 +2765,10 @@ const reservation = await agenticStrategy.emit('download.intent', {
   mime: 'audio/mpeg',
   expectedBytes: 4096
 })
-if (reservation.kind === 'reserved') {
+if (
+  reservation.kind === 'reserved' ||
+  (reservation.kind === 'in-progress' && reservation.canStart === true)
+) {
   const link = document.createElement('a')
   link.href = sourceUrl
   link.download = projectId + '.mp3'
@@ -3347,13 +3355,13 @@ async function runAutomationPlaygroundSmoke(
   outputRoot: string
 ): Promise<Record<string, unknown>> {
   const profiles = (await runtime.shellView.webContents.executeJavaScript(
-    `window.agenticBrowser.createProfile('Selenium Automation Pilot')`
+    `window.agenticBrowser.createProfile('Public Automation Pilot')`
   )) as ProfileSummary[]
   const projectProfile = profiles.find(
-    (profile) => profile.name === 'Selenium Automation Pilot'
+    (profile) => profile.name === 'Public Automation Pilot'
   )
   if (!projectProfile) {
-    throw new Error('Selenium 自动化验收未能创建 Profile')
+    throw new Error('公开站点自动化验收未能创建 Profile')
   }
 
   const installed =
@@ -3496,13 +3504,13 @@ async function runAutomationPlaygroundSmoke(
         definition.manifest.id ===
         AUTOMATION_PLAYGROUND_STRATEGY_ID
     ) &&
-    firstItems.records.length === 3 &&
+    firstItems.records.length === 4 &&
     firstItems.records.every((record) => record.seenCount === 1) &&
     firstDownloads.records.length === 1 &&
-    secondItems.records.length === 3 &&
+    secondItems.records.length === 4 &&
     secondItems.records.every((record) => record.seenCount === 2) &&
     secondDownloads.records.length === 1 &&
-    finalItems.records.length === 3 &&
+    finalItems.records.length === 4 &&
     finalItems.records.every(
       (record) =>
         record.classification === 'matched' &&
@@ -3526,8 +3534,8 @@ async function runAutomationPlaygroundSmoke(
     projectRuntimes.every(
       (candidate) =>
         candidate.status === 'completed' &&
-        candidate.counters.scanned === 3 &&
-        candidate.counters.matched === 3 &&
+        candidate.counters.scanned === 4 &&
+        candidate.counters.matched === 4 &&
         candidate.counters.skipped === 0
     ) &&
     projectRuntimes.reduce(
@@ -3546,6 +3554,7 @@ async function runAutomationPlaygroundSmoke(
     site: {
       formUrl: AUTOMATION_PLAYGROUND_FORM_URL,
       downloadFileUrl: AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL,
+      secondSiteUrl: AUTOMATION_PLAYGROUND_SECOND_SITE_URL,
       accountRequired: false,
       writesRemoteData: false
     },
@@ -4619,10 +4628,7 @@ function cleanupAutomatedDownloads(): void {
 
 async function closeSmokeRuntime(runtime: MainWindowRuntime): Promise<void> {
   runtime.suppressShellEvents()
-  await Promise.all([
-    runtime.prepareForShutdown(),
-    new Promise((resolve) => setTimeout(resolve, 250))
-  ])
+  await runtime.prepareForShutdown()
   runtime.window.close()
   await new Promise((resolve) => setTimeout(resolve, 250))
 }
@@ -5016,7 +5022,7 @@ if (runApplication) {
 
   if (automationPlaygroundSmokeTest) {
     if (!automatedDownloadDirectory) {
-      throw new Error('Selenium 自动化验收 smoke 环境未初始化')
+      throw new Error('公开站点自动化验收 smoke 环境未初始化')
     }
     const result = await runAutomationPlaygroundSmoke(
       runtime,

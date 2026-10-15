@@ -1,6 +1,6 @@
 # Phase 0 验证记录
 
-- Status: In progress
+- Status: Windows gates complete; macOS external gate pending
 - Started: 2026-10-15
 - Current host: Windows 10.0.26100
 
@@ -57,11 +57,11 @@
 ## 目标站点
 
 - [x] 目标站点 A：Selenium 官方公开测试页面（表单、动态 DOM、下载与恢复）
-- [ ] 目标站点 B：待确定
+- [x] 目标站点 B：Test Pages 自动化练习页面（跨域导航与四阶段延迟按钮）
 
 ## 当前实现切片
 
-正在建立：
+已建立：
 
 - `BaseWindow + BrowserShell WebContentsView + remote WebContentsView`
 - Named Profile session 基础
@@ -164,7 +164,7 @@ npm run smoke:watchdog
 - 无录制时 renderer 往返延迟 p95 为 1.00 ms；10 FPS 录制期间 p95 为 1.06 ms，增加 0.06 ms。
 - 两个同时可见且具有不同 WebContents ID 的页面保持运行；辅助页面的 50 ms tick 在测试期间持续前进。第二页面负载存在时，主页面 20 帧采集达到 9.97 FPS，p95 18.96 ms，全部非空。该结果验证“活动页面录制 + 另一活动页面”的影响，不外推为所有页面同时录制。
 - renderer JavaScript 事件循环阻塞期间，主进程在 29.06 ms 内仍取得 23,720 bytes 的合成器画面；同时冻结的故障前环形缓冲保留 3 帧、71,160 bytes。即使实时截图失败，冻结缓冲也不依赖页面脚本存活。
-- `CaptureRingBuffer` 对帧数、字节数、超大帧和冻结行为有单元测试；当前总计 3 个测试文件、15 项测试通过。
+- `CaptureRingBuffer` 对帧数、字节数、超大帧和冻结行为有单元测试；该阶段当时总计 3 个测试文件、15 项测试通过，最新总数见 Phase 3 验证。
 - Windows 上 `capturePage` 在窗口没有可用显示合成表面时会报告 `Current display surface not available for capture`/`UnknownVizError`。Smoke 明确前置并聚焦测试窗口后稳定通过；正式 Recorder 必须把页面可见性作为运行前置条件，并将该错误分类为“当前不可录制”，不能无限重试。
 
 这些数据是当前 Windows 主机上的短时 Phase 0 基准，不代表所有硬件的长期容量结论。Phase 4 仍需实现变化抽帧、磁盘证据包、保留期限和长时间压力测试。
@@ -178,12 +178,11 @@ npm run smoke:watchdog
 
 本次验证使用默认 Electron 图标和未配置发布证书的开发构建；正式图标、代码签名、SmartScreen、升级和回滚仍是发布前工作。
 
-### 2026-10-15：首个公开真实站点
+### 2026-10-15：两个公开真实站点
 
-Selenium 官方测试资源 `https://www.selenium.dev/selenium/web/` 已通过 Electron 真实网络闭环：表单提交、延迟 DOM、固定文件下载、renderer 崩溃重建，以及页面漂移后的暂停/人工恢复均成功。该站点无需账号且不写入远程业务数据。详细过程、哈希和结论边界见 [Phase 3 验证](phase3-validation.md) 与 [Selenium 自动化验收试点](../roadmap/automation-playground-pilot.md)。
+Selenium 官方测试资源 `https://www.selenium.dev/selenium/web/` 与 Test Pages 动态同步挑战已通过同一个 Electron Project 的真实网络闭环：表单提交、延迟 DOM、固定文件下载、跨域导航、四阶段延迟按钮、renderer 崩溃重建，以及页面漂移后的暂停/人工恢复均成功。两站均无需账号，流程不写入远程业务数据。详细过程、哈希和结论边界见 [Phase 3 验证](phase3-validation.md) 与 [公开自动化测试站点验收试点](../roadmap/automation-playground-pilot.md)。
 
 ## 当前主机无法闭合的 Phase 0 项
 
 - 当前只有 Windows 主机，不能把 Windows 交叉产物当作 macOS 构建、签名、公证或启动证据；需要 macOS runner 或真实设备。
-- 第二个公开真实目标站点尚未确定；`the-internet.herokuapp.com` 在当前主机不可达，不作为门禁依赖。
 - Chromium `unresponsive`/`responsive` 事件本身没有可靠、可配置的短超时触发方式；后台监督已经改用主动 heartbeat，原生事件只保留辅助观测，不伪造完成证据。

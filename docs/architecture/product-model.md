@@ -46,7 +46,7 @@ Project 是用户直接启动、停止、调度和监控的单元。
 
 ```yaml
 id: selenium-automation-playground
-name: Selenium 自动化验收
+name: 公开站点自动化验收
 profile: public-playground
 startupPages:
   - https://www.selenium.dev/selenium/web/web-form.html

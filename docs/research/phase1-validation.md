@@ -1,6 +1,6 @@
 # Phase 1 验证记录
 
-- Status: In progress
+- Status: Windows implementation complete; macOS external gate pending
 - Started: 2026-10-15
 - Current host: Windows 10.0.26100
 
@@ -19,9 +19,9 @@
 - [x] JSONL 结构化浏览器事件日志
 - [x] 多 tab 创建、切换、关闭与 session handler 转移
 - [x] Profile 创建、激活、删除 UI、命名 session 隔离与删除清理
-- [ ] Profile 删除的 Project 引用保护
+- [x] Profile 删除的 Project 引用保护（由 Phase 3 Project Store 补齐）
 - [x] 默认策略 + 精确 HTTP(S) Origin 的能力规则
-- [ ] 下载元数据、哈希、临时目录和原子完成
+- [x] 下载元数据、哈希、临时目录和原子完成（由 Phase 3 Download Manager 补齐）
 - [x] 打包应用 Watchdog launcher、重复启动锁与登录启动开关（Windows 验证）
 
 ## 2026-10-15：监督恢复、能力和下载故障探针
@@ -64,7 +64,7 @@ npm run smoke:recovery
 - `StructuredEventLog`：并发 append 后仍保持有序、完整 JSONL。
 - `ProfileStore`：默认状态、创建/激活/删除保护、损坏文件回退和并发写入串行化。
 
-当前共 10 个测试文件、38 项测试通过。
+该阶段当时共 10 个测试文件、38 项测试通过；最新总数见 [Phase 3 验证](phase3-validation.md)。
 
 ## 2026-10-15：打包应用 Watchdog 入口
 
@@ -88,10 +88,10 @@ npm run smoke:watchdog:packaged
 ## 证据边界
 
 - popup capability 当前采用“阻断网站新窗口并将 URL 转入当前受控 tab”；产品 tab 由 BrowserShell 显式创建，网站不能绕过策略自行增加 tab。
-- 当前 Download Manager 是 Phase 1 接管切片，还没有 Phase 3 所需的业务幂等键、临时文件事务、哈希、磁盘配额和下载 manifest。
-- Capability 已实现 origin + permission，但当前仍是应用级策略；Phase 3 必须把同一策略结构归入 Project，形成最终的 Project + origin + permission 授权模型。
+- Phase 1 的基础 Download Manager 只负责 session 接管；Phase 3 已在其上补齐业务幂等键、临时文件事务、哈希、磁盘配额和下载 manifest，证据见 [Phase 3 验证](phase3-validation.md)。
+- Phase 1 首先实现应用级 origin + permission；Phase 3 已把同一策略结构纳入 Project 快照，形成 Project + origin + permission 授权模型。
 - Profile 切换会销毁当前 tab 集合，在新命名 session 中以最近活动 URL 创建首个 tab；切回后 Cookie/session 数据保留，但完整 tab 集合恢复属于 Phase 3。
-- 当前只能禁止删除默认或活动 Profile；Project 尚未落地，因此也还没有“被 Project 引用时禁止删除”的校验。
+- 当前禁止删除默认、活动或被 Project 引用的 Profile；Profile 共享仍必须由 Project 显式声明。
 - Windows 打包 Watchdog 与系统登录项接入已验证；macOS 的 login item、DMG、签名、公证和实际启动必须在 macOS 环境闭合。
-- 浏览器检查点只保存最近激活 tab 的 URL/Profile，不保存完整 tab 集合；完整 Runtime 恢复属于 Phase 3。
+- 浏览器检查点仍只保存最近激活 tab 的 URL/Profile，不保存完整 tab 集合；Phase 3 另行持久化 Project Runtime/workflow 检查点，但不承诺恢复任意 tab 集合。
 - 进程 CPU/工作集来自 Electron `app.getAppMetrics()`；无法可靠归属到单个 Strategy 的共享消耗没有伪造拆分。

@@ -429,7 +429,7 @@ export function App(): React.JSX.Element {
     }
     if (
       !window.confirm(
-        '安装禁用状态的 Selenium 官方自动化验收模板？该模板无需账号，只访问公开测试页面。'
+        '安装禁用状态的公开站点自动化验收模板？该模板无需账号，只访问 Selenium 与 Test Pages 的自动化测试页面。'
       )
     ) {
       return

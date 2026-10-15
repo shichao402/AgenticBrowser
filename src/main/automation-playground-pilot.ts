@@ -17,6 +17,8 @@ export const AUTOMATION_PLAYGROUND_MISSING_URL =
   `${AUTOMATION_PLAYGROUND_ROOT}/agentic-browser-missing-page.html`
 export const AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL =
   `${AUTOMATION_PLAYGROUND_ROOT}/downloads/file_1.txt`
+export const AUTOMATION_PLAYGROUND_SECOND_SITE_URL =
+  'https://testpages.eviltester.com/challenges/synchronization/dynamic-buttons-01/'
 export const AUTOMATION_PLAYGROUND_PROJECT_ID =
   'selenium-automation-playground'
 export const AUTOMATION_PLAYGROUND_STRATEGY_ID =
@@ -36,9 +38,12 @@ export function createAutomationPlaygroundStrategyDraft(): StrategyDraft {
   return {
     manifest: {
       id: AUTOMATION_PLAYGROUND_STRATEGY_ID,
-      name: 'Selenium 官方自动化验收',
+      name: '公开站点自动化验收',
       version: AUTOMATION_PLAYGROUND_STRATEGY_VERSION,
-      matches: [`${AUTOMATION_PLAYGROUND_ROOT}/*`],
+      matches: [
+        `${AUTOMATION_PLAYGROUND_ROOT}/*`,
+        `${AUTOMATION_PLAYGROUND_SECOND_SITE_URL}*`
+      ],
       excludes: [],
       runAt: 'document-idle',
       frames: 'top',
@@ -67,7 +72,7 @@ export function createAutomationPlaygroundProjectDraft(
   const entryUrl = options.entryUrl ?? AUTOMATION_PLAYGROUND_FORM_URL
   return {
     id: AUTOMATION_PLAYGROUND_PROJECT_ID,
-    name: 'Selenium 官方自动化验收',
+    name: '公开站点自动化验收',
     profileId: options.profileId,
     startupPages: [entryUrl],
     strategies: [
@@ -135,8 +140,26 @@ export function createAutomationPlaygroundProjectDraft(
           id: 'wait-download',
           kind: 'wait-for-event',
           eventName: 'download.completed',
-          next: 'finished',
+          next: 'open-second-site',
           timeoutMs: 30_000,
+          maxAttempts: 2,
+          checkpoint: true
+        },
+        {
+          id: 'open-second-site',
+          kind: 'navigate',
+          url: AUTOMATION_PLAYGROUND_SECOND_SITE_URL,
+          next: 'wait-second-site',
+          timeoutMs: 30_000,
+          maxAttempts: 3,
+          checkpoint: true
+        },
+        {
+          id: 'wait-second-site',
+          kind: 'wait-for-event',
+          eventName: 'playground.second-site.completed',
+          next: 'finished',
+          timeoutMs: 45_000,
           maxAttempts: 2,
           checkpoint: true
         },
@@ -340,7 +363,51 @@ if (location.pathname.endsWith('/downloads/download.html')) {
   return
 }
 
+if (
+  location.hostname === 'testpages.eviltester.com' &&
+  location.pathname.endsWith(
+    '/challenges/synchronization/dynamic-buttons-01/'
+  )
+) {
+  const buttonIds = ['button00', 'button01', 'button02', 'button03']
+  for (const buttonId of buttonIds) {
+    const available = await waitUntil(
+      () => document.getElementById(buttonId) instanceof HTMLButtonElement,
+      10_000
+    )
+    const button = document.getElementById(buttonId)
+    if (!available || !(button instanceof HTMLButtonElement)) {
+      await reportPageChanged(
+        'Test Pages 动态按钮未在预算内出现：' + buttonId
+      )
+      return
+    }
+    button.click()
+  }
+  const completed = await waitUntil(
+    () =>
+      document.querySelector('#buttonmessage')?.textContent?.trim() ===
+      'All Buttons Clicked',
+    10_000
+  )
+  if (!completed) {
+    await reportPageChanged('Test Pages 动态按钮完成断言失败')
+    return
+  }
+  await emitObservation(
+    'testpages-dynamic-buttons',
+    '第二公开站点的四阶段延迟按钮同步通过'
+  )
+  await agenticStrategy.emit('playground.second-site.completed', {
+    message: document.querySelector('#buttonmessage')?.textContent?.trim(),
+    buttonCount: buttonIds.length
+  })
+  return
+}
+
 await reportPageChanged(
-  'Selenium 自动化验收进入未声明页面：' + location.pathname
+  '公开站点自动化验收进入未声明页面：' +
+    location.hostname +
+    location.pathname
 )
 `

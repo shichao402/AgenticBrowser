@@ -1,13 +1,13 @@
 # MVP 路线图
 
-- Status: Phase 0–3 core and one public real-site gate implemented; failure-matrix, second-site and macOS gates pending
+- Status: Phase 0–3 core and two public real-site gates implemented; failure-matrix and macOS gates pending
 - Scope: Phase 0–3
 
 MVP 的完成标准不是“能打开网页”，而是公开真实站点上的多页面项目可以在故障注入下可靠操作、下载、恢复并被监控。
 
 ## Phase 0：Electron Spike
 
-当前切片：工程基线、BrowserShell/远程页面隔离、frame/OOPIF 注入、renderer 重建、主动页面心跳、应用外 Watchdog 强杀恢复、最小 URL/Profile 检查点、有硬上限的单/双页面 10 FPS 截图环、交互影响、Windows 安装后启动和一个公开真实站点已经通过验证。仍需完成第二真实站点与 macOS 验证。证据持续记录在 [Phase 0 验证记录](../research/phase0-validation.md)。
+当前切片：工程基线、BrowserShell/远程页面隔离、frame/OOPIF 注入、renderer 重建、主动页面心跳、应用外 Watchdog 强杀恢复、最小 URL/Profile 检查点、有硬上限的单/双页面 10 FPS 截图环、交互影响、Windows 安装后启动，以及 Selenium 与 Test Pages 两个公开真实站点已经通过验证。仍需完成 macOS 验证。证据持续记录在 [Phase 0 验证记录](../research/phase0-validation.md)。
 
 ### 交付
 
@@ -71,7 +71,7 @@ Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy �
 
 ## Phase 3：Project Runtime 与试点
 
-当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽、人工接管和 Project 工作台已经落地。Selenium 官方真实站点上的表单、延迟 DOM、固定文件下载/去重、renderer 崩溃恢复，以及页面变化自动暂停与恢复已经通过；下载中强杀恢复尚未通过。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
+当前切片：Project/Profile/Runtime schema v1、固定版本 Strategy、持久化 workflow/checkpoint/幂等、项目级 Capability 与 Content Filter、下载意图与原子文件事务、手动/自启/常驻/定时调度、双浏览器执行槽、人工接管和 Project 工作台已经落地。Selenium 与 Test Pages 两个真实测试站点上的表单、延迟 DOM、跨域 workflow、固定文件下载/去重、renderer 崩溃恢复，以及页面变化自动暂停与恢复已经通过；下载中强杀恢复尚未通过。证据见 [Phase 3 验证记录](../research/phase3-validation.md)。
 
 ### 交付
 
@@ -82,11 +82,11 @@ Windows 实现与故障门禁已完成：manifest/存储/匹配、每 Strategy �
 - Download Manager、项目目录和元数据。
 - 内置 Content Filter。
 - 项目监控和人工接管。
-- 无需账号的 Selenium 表单、动态 DOM 和下载验收 Strategy。
+- 无需账号的双站点表单、动态 DOM、跨域同步和下载验收 Strategy。
 
 ### 通过条件
 
-- Selenium 流程满足 [公开站点试点验收](automation-playground-pilot.md)。
+- 双站点流程满足 [公开站点试点验收](automation-playground-pilot.md)。
 - 常驻与定时项目可在双宿主中并行，共享 Profile 保持互斥且输出目录不串扰。
 - 重启、补跑不会重复下载。
 - 断网、页面变化、renderer 崩溃和磁盘不足均能分类处理。

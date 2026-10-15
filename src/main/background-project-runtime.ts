@@ -264,6 +264,11 @@ export class BackgroundProjectRuntime {
   }
 
   async prepareForShutdown(): Promise<void> {
+    this.stopTicker()
+    if (this.terminalTimer) {
+      clearTimeout(this.terminalTimer)
+      this.terminalTimer = null
+    }
     await this.supervisor.prepareForShutdown()
   }
 
