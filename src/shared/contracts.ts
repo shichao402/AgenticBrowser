@@ -165,6 +165,55 @@ export interface StartupSettings {
   managedByWatchdog: boolean
 }
 
+export type StrategyRunAt =
+  | 'document-start'
+  | 'document-end'
+  | 'document-idle'
+
+export type StrategyFrameScope = 'top' | 'all'
+
+export type StrategyPermission =
+  | 'dom.read'
+  | 'dom.write'
+  | 'dom.click'
+  | 'config.read'
+  | 'log'
+  | 'project.emit-event'
+  | 'network.request'
+  | 'main-world'
+
+export interface StrategyManifest {
+  id: string
+  name: string
+  version: string
+  matches: string[]
+  excludes: string[]
+  runAt: StrategyRunAt
+  frames: StrategyFrameScope
+  permissions: StrategyPermission[]
+  networkMatches: string[]
+  config: Record<string, JsonValue>
+  timeouts: {
+    startupMs: number
+    heartbeatMs: number
+  }
+}
+
+export interface StrategyDefinition {
+  manifest: StrategyManifest
+  source: string
+  enabled: boolean
+  updatedAt: string
+}
+
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue }
+
 export interface BrowserShellApi {
   getSnapshot(): Promise<BrowserSnapshot>
   getMonitorSnapshot(): Promise<MonitorSnapshot>

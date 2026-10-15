@@ -1,6 +1,6 @@
 # MVP 路线图
 
-- Status: Phase 1 in progress; Phase 0 macOS/real-site gates pending
+- Status: Phase 2 in progress; Phase 0 macOS/real-site gates pending
 - Scope: Phase 0–3
 
 MVP 的完成标准不是“能打开网页”，而是知识星球项目可以在故障注入下可靠扫描、筛选和下载，并能被监控。
@@ -49,6 +49,8 @@ MVP 的完成标准不是“能打开网页”，而是知识星球项目可以�
 - 监控展示真实 runtime/page/process 指标。
 
 ## Phase 2：Strategy MVP
+
+当前切片：schema v1 Strategy manifest、严格持久化校验、HTTP(S) URL match/exclude、frame scope，以及 `enabled + Project allowlist + URL` 三重解析已经落地。损坏注册表会被隔离后安全回退，保存操作采用串行原子更新。执行器、GM API、心跳、热重载和 UI 仍在实现中；证据见 [Phase 2 验证记录](../research/phase2-validation.md)。
 
 ### 交付
 

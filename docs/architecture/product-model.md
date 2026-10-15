@@ -6,7 +6,7 @@
 
 Strategy 是类似 Tampermonkey userscript 的页面局部能力。
 
-建议字段：
+schema v1 字段：
 
 ```yaml
 id: feed-scanner
@@ -20,7 +20,8 @@ permissions:
   - dom.read
   - dom.click
   - project.emit-event
-configSchema: {}
+networkMatches: []
+config: {}
 timeouts:
   startupMs: 10000
   heartbeatMs: 30000
@@ -32,6 +33,10 @@ timeouts:
 - Project 固定 Strategy 版本。
 - Strategy 不能直接读写任意文件、调用 shell 或控制其他项目。
 - Strategy 应通过领域事件报告完成、等待、失败和业务发现。
+- `matches`、`excludes` 与 `networkMatches` 只接受结构化 HTTP(S) pattern；非 Web URL 默认拒绝。
+- manifest、源码、启停状态与更新时间保存在版本化注册表中；未知字段和未知权限默认拒绝。
+
+当前 schema、校验、存储和匹配器已经实现；隔离执行、宿主 API、心跳与 Project 版本固定仍属于 Phase 2 后续切片。`dom.read/write/click` 是声明与审计信息，不是把同一 DOM 内的任意 JavaScript 强制拆成三种安全权限；文件、网络和领域事件等宿主能力必须由主进程独立校验。
 
 ## Project
 

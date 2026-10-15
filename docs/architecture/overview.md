@@ -1,6 +1,6 @@
 # 总体架构
 
-> 状态：演进中。Phase 0 Windows 技术基线和 Phase 1 监督浏览器切片已经落地，其余组件按 roadmap 逐步实现。
+> 状态：演进中。Phase 0 Windows 技术基线和 Phase 1 监督浏览器已经落地，Phase 2 Strategy 正在实现，其余组件按 roadmap 逐步推进。
 
 ## 当前代码映射
 
@@ -17,6 +17,8 @@
 - `src/main/health-monitor.ts`：短超时主动页面探针、连续失败阈值与恢复通知。
 - `src/main/recovery-policy.ts`：时间窗预算、指数退避、分级恢复与熔断决策。
 - `src/main/capability-store.ts`：版本化默认策略、精确 Origin 覆盖、旧配置迁移和能力解析。
+- `src/main/strategy-match.ts`：HTTP(S) match/exclude、frame scope 和 Project allowlist 解析。
+- `src/main/strategy-store.ts`：schema v1 Strategy manifest、严格校验、串行原子更新和损坏文件隔离。
 - `src/main/structured-event-log.ts`：串行 JSONL 领域事件日志。
 - `src/main/download-path.ts`：跨平台下载文件名清理。
 - `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
@@ -28,8 +30,8 @@
 
 尚未实现：
 
-- 安装包 Watchdog 启动入口与系统开机启动集成。
-- workflow/业务检查点、Strategy/Workflow/Project Runtime。
+- Strategy 隔离执行器、GM API、心跳、热重载和编辑 UI。
+- workflow/业务检查点、Workflow/Project Runtime。
 - Content Filter、Download Manager 和完整监控。
 - 示教录制与 Agent sidecar。
 
@@ -130,6 +132,8 @@ BrowserShell 可创建、激活和删除 Profile。激活时主进程销毁旧 B
 ### StrategyEngine
 
 根据 URL、frame 和 Project allowlist 选择固定版本 Strategy，在指定 `runAt` 执行。默认使用隔离 world；访问 main world 需要显式能力。
+
+当前 schema v1 清单已固化 `matches`、`excludes`、`runAt`、`frames`、权限、网络 allowlist、JSON 配置和启动/心跳超时。注册表最多保存 256 个 Strategy，拒绝未知字段、未知权限、重复匹配项、非 JSON 配置和过大的源码；写入使用串行原子替换，损坏文件会隔离。匹配器只接受 HTTP(S)，并且 Strategy 必须同时处于启用状态、出现在显式 Project allowlist 中且命中 URL 才会被选择。Project 实体尚未落地，当前只提供解析边界，不能把它描述为已经能够执行脚本。
 
 ### WorkflowEngine
 
