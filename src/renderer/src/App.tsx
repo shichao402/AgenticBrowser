@@ -8,6 +8,9 @@ import type {
   CapabilitySettings,
   MonitorSnapshot,
   ProfileSummary,
+  StrategyDefinition,
+  StrategyManifest,
+  StrategyWorkspaceSnapshot,
   StartupSettings
 } from '../../shared/contracts'
 
@@ -35,7 +38,15 @@ const EVENT_LABELS: Record<BrowserEvent['type'], string> = {
   'download-started': '下载开始',
   'download-progress': '下载进度',
   'download-completed': '下载完成',
-  'download-failed': '下载失败'
+  'download-failed': '下载失败',
+  'strategy-started': '策略开始',
+  'strategy-ready': '策略就绪',
+  'strategy-log': '策略日志',
+  'strategy-event': '策略领域事件',
+  'strategy-failed': '策略失败',
+  'strategy-heartbeat-missed': '策略心跳超时',
+  'strategy-quarantined': '策略已隔离',
+  'strategy-reloaded': '策略已重载'
 }
 
 const CAPABILITY_ITEMS: Array<{
@@ -59,6 +70,19 @@ export function App(): React.JSX.Element {
   const [tabs, setTabs] = useState<BrowserTab[]>([])
   const [profiles, setProfiles] = useState<ProfileSummary[]>([])
   const [startup, setStartup] = useState<StartupSettings | null>(null)
+  const [strategyWorkspace, setStrategyWorkspace] =
+    useState<StrategyWorkspaceSnapshot | null>(null)
+  const [activeSection, setActiveSection] =
+    useState<'projects' | 'strategies' | 'filters'>('projects')
+  const [editingStrategyId, setEditingStrategyId] = useState<string | null>(
+    null
+  )
+  const [strategyManifestText, setStrategyManifestText] = useState(
+    JSON.stringify(createDefaultStrategyManifest(), null, 2)
+  )
+  const [strategySource, setStrategySource] = useState(
+    'agenticStrategy.log("strategy ready")'
+  )
   const [newProfileName, setNewProfileName] = useState('')
   const [events, setEvents] = useState<BrowserEvent[]>([])
   const [address, setAddress] = useState('https://example.com/')
@@ -90,6 +114,12 @@ export function App(): React.JSX.Element {
     setStartup(await window.agenticBrowser.getStartupSettings())
   }, [])
 
+  const refreshStrategies = useCallback(async (): Promise<void> => {
+    setStrategyWorkspace(
+      await window.agenticBrowser.getStrategyWorkspace()
+    )
+  }, [])
+
   useEffect(() => {
     void Promise.all([
       refreshSnapshot(),
@@ -97,7 +127,8 @@ export function App(): React.JSX.Element {
       refreshCapabilityPolicy(),
       refreshTabs(),
       refreshProfiles(),
-      refreshStartup()
+      refreshStartup(),
+      refreshStrategies()
     ]).catch((cause: unknown) => {
       setError(cause instanceof Error ? cause.message : String(cause))
     })
@@ -126,6 +157,7 @@ export function App(): React.JSX.Element {
     refreshCapabilityPolicy,
     refreshMonitor,
     refreshProfiles,
+    refreshStrategies,
     refreshStartup,
     refreshSnapshot,
     refreshTabs
@@ -300,6 +332,98 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const editStrategy = (definition: StrategyDefinition): void => {
+    setEditingStrategyId(definition.manifest.id)
+    setStrategyManifestText(
+      JSON.stringify(definition.manifest, null, 2)
+    )
+    setStrategySource(definition.source)
+    setActiveSection('strategies')
+  }
+
+  const newStrategy = (): void => {
+    setEditingStrategyId(null)
+    setStrategyManifestText(
+      JSON.stringify(createDefaultStrategyManifest(), null, 2)
+    )
+    setStrategySource('agenticStrategy.log("strategy ready")')
+  }
+
+  const saveStrategy = async (): Promise<void> => {
+    setError(null)
+    try {
+      const manifest = JSON.parse(
+        strategyManifestText
+      ) as StrategyManifest
+      const existing = strategyWorkspace?.strategies.find(
+        (definition) => definition.manifest.id === editingStrategyId
+      )
+      if (
+        editingStrategyId !== null &&
+        manifest.id !== editingStrategyId
+      ) {
+        throw new Error('编辑现有 Strategy 时不能修改 ID；请使用“新建”')
+      }
+      const workspace = await window.agenticBrowser.saveStrategy({
+        manifest,
+        source: strategySource,
+        enabled: existing?.enabled ?? true
+      })
+      setStrategyWorkspace(workspace)
+      setEditingStrategyId(manifest.id)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const toggleStrategyEnabled = async (
+    strategyId: string,
+    enabled: boolean
+  ): Promise<void> => {
+    try {
+      setStrategyWorkspace(
+        await window.agenticBrowser.setStrategyEnabled(
+          strategyId,
+          enabled
+        )
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const toggleStrategyAllowed = async (
+    strategyId: string,
+    allowed: boolean
+  ): Promise<void> => {
+    try {
+      setStrategyWorkspace(
+        await window.agenticBrowser.setStrategyAllowed(
+          strategyId,
+          allowed
+        )
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const deleteStrategy = async (strategyId: string): Promise<void> => {
+    if (!window.confirm(`确认删除 Strategy ${strategyId}？`)) {
+      return
+    }
+    try {
+      setStrategyWorkspace(
+        await window.agenticBrowser.deleteStrategy(strategyId)
+      )
+      if (editingStrategyId === strategyId) {
+        newStrategy()
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -307,21 +431,158 @@ export function App(): React.JSX.Element {
           <span className="brand-mark">AB</span>
           <div>
             <h1>AgenticBrowser</h1>
-            <p>Phase 1 · Supervised Browser</p>
+            <p>Phase 2 · Strategy Runtime</p>
           </div>
         </header>
 
         <nav className="section-tabs" aria-label="工作台模块">
-          <button className="section-tab section-tab-active" type="button">
+          <button
+            className={`section-tab ${
+              activeSection === 'projects' ? 'section-tab-active' : ''
+            }`}
+            type="button"
+            onClick={() => setActiveSection('projects')}
+          >
             项目
           </button>
-          <button className="section-tab" type="button">
+          <button
+            className={`section-tab ${
+              activeSection === 'strategies' ? 'section-tab-active' : ''
+            }`}
+            type="button"
+            onClick={() => setActiveSection('strategies')}
+          >
             策略
           </button>
-          <button className="section-tab" type="button">
+          <button
+            className={`section-tab ${
+              activeSection === 'filters' ? 'section-tab-active' : ''
+            }`}
+            type="button"
+            onClick={() => setActiveSection('filters')}
+          >
             过滤器
           </button>
         </nav>
+
+        {activeSection === 'strategies' ? (
+          <section className="strategy-panel">
+            <div className="panel-heading">
+              <h2>Strategy</h2>
+              <button type="button" onClick={newStrategy}>
+                新建
+              </button>
+            </div>
+            <p className="strategy-help">
+              启用只控制定义状态；“当前项目允许”是 Phase 2
+              临时显式 allowlist，Phase 3 将迁移到 Project。
+            </p>
+            <div className="strategy-list">
+              {strategyWorkspace?.strategies.length ? (
+                strategyWorkspace.strategies.map((definition) => {
+                  const allowed =
+                    strategyWorkspace.developmentAllowedStrategyIds.includes(
+                      definition.manifest.id
+                    )
+                  const runtimeEntries =
+                    monitor?.strategies.entries.filter(
+                      (entry) =>
+                        entry.strategyId === definition.manifest.id
+                    ) ?? []
+                  return (
+                    <article
+                      className="strategy-card"
+                      key={definition.manifest.id}
+                    >
+                      <button
+                        className="strategy-edit"
+                        type="button"
+                        onClick={() => editStrategy(definition)}
+                      >
+                        <strong>{definition.manifest.name}</strong>
+                        <small>
+                          {definition.manifest.id} ·{' '}
+                          {definition.manifest.version}
+                        </small>
+                        <small>
+                          {runtimeEntries.length === 0
+                            ? '未运行'
+                            : runtimeEntries
+                                .map((entry) => entry.status)
+                                .join(', ')}
+                        </small>
+                      </button>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={definition.enabled}
+                          onChange={(event) =>
+                            void toggleStrategyEnabled(
+                              definition.manifest.id,
+                              event.target.checked
+                            )
+                          }
+                        />
+                        启用
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={allowed}
+                          onChange={(event) =>
+                            void toggleStrategyAllowed(
+                              definition.manifest.id,
+                              event.target.checked
+                            )
+                          }
+                        />
+                        当前项目允许
+                      </label>
+                      <button
+                        className="strategy-delete"
+                        type="button"
+                        onClick={() =>
+                          void deleteStrategy(definition.manifest.id)
+                        }
+                      >
+                        删除
+                      </button>
+                    </article>
+                  )
+                })
+              ) : (
+                <p className="event-empty">尚无 Strategy</p>
+              )}
+            </div>
+            <div className="strategy-editor">
+              <label>
+                Manifest JSON
+                <textarea
+                  aria-label="Strategy Manifest JSON"
+                  spellCheck={false}
+                  value={strategyManifestText}
+                  onChange={(event) =>
+                    setStrategyManifestText(event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                隔离 world 源码
+                <textarea
+                  aria-label="Strategy 源码"
+                  spellCheck={false}
+                  value={strategySource}
+                  onChange={(event) =>
+                    setStrategySource(event.target.value)
+                  }
+                />
+              </label>
+              <button type="button" onClick={() => void saveStrategy()}>
+                保存并重载页面
+              </button>
+            </div>
+          </section>
+        ) : null}
 
         <section className="profile-panel">
           <div className="panel-heading">
@@ -626,4 +887,23 @@ function getOriginDecision(
   )
   const value = rule?.overrides[key]
   return value === undefined ? 'inherit' : value ? 'allow' : 'deny'
+}
+
+function createDefaultStrategyManifest(): StrategyManifest {
+  return {
+    id: 'new-strategy',
+    name: 'New Strategy',
+    version: '0.1.0',
+    matches: ['https://example.com/*'],
+    excludes: [],
+    runAt: 'document-idle',
+    frames: 'top',
+    permissions: ['dom.read', 'log'],
+    networkMatches: [],
+    config: {},
+    timeouts: {
+      startupMs: 10_000,
+      heartbeatMs: 30_000
+    }
+  }
 }

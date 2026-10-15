@@ -1,6 +1,6 @@
 # 总体架构
 
-> 状态：演进中。Phase 0 Windows 技术基线和 Phase 1 监督浏览器已经落地，Phase 2 Strategy 正在实现，其余组件按 roadmap 逐步推进。
+> 状态：演进中。Phase 0 Windows 技术基线、Phase 1 监督浏览器和 Phase 2 Strategy 已经落地，Phase 3 Project Runtime 正在实现。
 
 ## 当前代码映射
 
@@ -19,18 +19,19 @@
 - `src/main/capability-store.ts`：版本化默认策略、精确 Origin 覆盖、旧配置迁移和能力解析。
 - `src/main/strategy-match.ts`：HTTP(S) match/exclude、frame scope 和 Project allowlist 解析。
 - `src/main/strategy-store.ts`：schema v1 Strategy manifest、严格校验、串行原子更新和损坏文件隔离。
+- `src/main/strategy-policy-store.ts`：Phase 2 临时显式开发 allowlist；默认空列表并安全失败。
+- `src/main/strategy-runtime.ts`：执行令牌、独立 world 分配、权限、宿主调用、心跳、超时和故障归因。
 - `src/main/structured-event-log.ts`：串行 JSONL 领域事件日志。
 - `src/main/download-path.ts`：跨平台下载文件名清理。
 - `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
 - `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
 - `src/preload/index.ts`：最小 BrowserShell API。
-- `src/preload/strategy-bootstrap.ts`：session 级 frame preload 的 Phase 0 注入探针。
-- `src/renderer/`：BrowserShell、地址栏、tabs、Profile、Capability Center、监控和生命周期事件面板。
+- `src/preload/strategy-bootstrap.ts`：单文件 session frame preload、run-at 调度和隔离 world bootstrap。
+- `src/renderer/`：BrowserShell、地址栏、tabs、Profile、Capability Center、Strategy 编辑/启停/allowlist、监控和生命周期事件面板。
 - `src/shared/contracts.ts`：跨进程结构化契约。
 
 尚未实现：
 
-- Strategy 隔离执行器、GM API、心跳、热重载和编辑 UI。
 - workflow/业务检查点、Workflow/Project Runtime。
 - Content Filter、Download Manager 和完整监控。
 - 示教录制与 Agent sidecar。
@@ -99,9 +100,9 @@ BrowserShell 可显式启停系统登录启动。Windows 登录项固定为当�
 - 与 BrowserShell renderer 分离。
 - 只能运行经过项目授权的 Strategy 和页面探针。
 
-session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源 iframe 和跨域 OOPIF 中安装 bootstrap。Electron 的 session frame preload 当前按 CommonJS 加载，因此构建产物固定为 `.cjs`；ESM 产物不能作为该注入链路的输入。
+session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源 iframe 和跨域 OOPIF 中安装 bootstrap。Electron 的 session frame preload 当前按 CommonJS 加载，并且沙箱/OOPIF 无法解析 Vite 拆出的相对共享 chunk，因此构建产物必须是独立单文件 `.cjs`。只有带受控启动参数的页面才会建立 Strategy IPC，防止共享 session 中的辅助 WebContents 误接入。
 
-`nodeIntegrationInSubFrames` 扩大了 preload 的执行范围，但页面 main world 仍无 Node `process`、`require` 或原始 IPC。所有 frame 都被视为不可信：bootstrap 不得暴露文件、shell、密钥或通用 IPC，只能接受带 Project/Strategy 能力校验的窄接口。正式 Strategy 执行器还未实现，当前 bootstrap 只在 smoke 参数存在时写入无权限 marker。
+`nodeIntegrationInSubFrames` 扩大了 preload 的执行范围，但页面 main world 与 Strategy isolated world 均无 Node `process`、`require` 或原始 IPC。bootstrap 先通过 frame 绑定的同步握手取得已匹配定义和不可猜测执行令牌，再为每个 Strategy 建立独立 world；后续宿主调用必须同时通过 WebContents、frame、令牌、Strategy 权限和 URL allowlist 校验。远程页面拿不到 bridge，Strategy 也拿不到文件、shell、密钥或通用 IPC。
 
 ### Agent sidecar/utility process
 
@@ -133,7 +134,13 @@ BrowserShell 可创建、激活和删除 Profile。激活时主进程销毁旧 B
 
 根据 URL、frame 和 Project allowlist 选择固定版本 Strategy，在指定 `runAt` 执行。默认使用隔离 world；访问 main world 需要显式能力。
 
-当前 schema v1 清单已固化 `matches`、`excludes`、`runAt`、`frames`、权限、网络 allowlist、JSON 配置和启动/心跳超时。注册表最多保存 256 个 Strategy，拒绝未知字段、未知权限、重复匹配项、非 JSON 配置和过大的源码；写入使用串行原子替换，损坏文件会隔离。匹配器只接受 HTTP(S)，并且 Strategy 必须同时处于启用状态、出现在显式 Project allowlist 中且命中 URL 才会被选择。Project 实体尚未落地，当前只提供解析边界，不能把它描述为已经能够执行脚本。
+schema v1 清单固化 `matches`、`excludes`、`runAt`、`frames`、权限、网络 allowlist、JSON 配置和启动/心跳超时。注册表最多保存 256 个 Strategy，拒绝未知字段、未知权限、重复匹配项、非 JSON 配置和过大的源码；写入使用串行原子替换，损坏文件会隔离。Strategy 必须同时处于启用状态、出现在显式 allowlist 中且命中 HTTP(S) URL 才会执行。Project 实体尚未落地，因此当前使用默认空的 `developmentAllowedStrategyIds`，并在 UI 中明确标注为 Phase 2 临时边界。
+
+preload 按 `document-start`、`document-end` 或 `document-idle` 在每个匹配 frame 调度源码；配置只在声明 `config.read` 后注入。日志、领域事件、特权跨域网络请求和宿主 main-world 执行都经过主进程权限检查。宿主请求逐跳检查 `networkMatches`，拒绝敏感请求头、超限 body/response 和重定向逃逸；页面原生 `fetch`/XHR 仍按普通网页的 Origin/CORS/CSP 规则工作。`main-world` 同样只约束宿主桥，不能阻止拥有 DOM 写能力的脚本自行插入页面脚本。保存、启停或 allowlist 变化会重建受控 view，以清除旧监听器和 timer 后重新匹配。
+
+主进程跟踪 starting/running/failed 与心跳。异常或超时 Strategy 会被当前 Supervisor 隔离，并通过强制终止 renderer 清除其同步死循环，再由既有 RecoveryEngine 重建页面；新页面不再注入被隔离 ID。Chromium 无法安全地只终止占住 renderer 主线程的单个 DOM isolated world，因此不能宣称有单脚本进程级抢占。
+
+该信任边界、热重载与故障终止决策见 [ADR-0005](../ADR/0005-isolated-strategy-runtime.md)。
 
 ### WorkflowEngine
 

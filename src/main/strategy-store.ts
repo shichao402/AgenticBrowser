@@ -4,6 +4,7 @@ import { rename } from 'node:fs/promises'
 import type {
   JsonValue,
   StrategyDefinition,
+  StrategyDraft,
   StrategyFrameScope,
   StrategyManifest,
   StrategyPermission,
@@ -19,12 +20,6 @@ import { isValidStrategyMatchPattern } from './strategy-match'
 export interface StrategyState {
   schemaVersion: 1
   strategies: StrategyDefinition[]
-}
-
-export interface StrategyDraft {
-  manifest: StrategyManifest
-  source: string
-  enabled: boolean
 }
 
 const RUN_AT_VALUES = new Set<StrategyRunAt>([

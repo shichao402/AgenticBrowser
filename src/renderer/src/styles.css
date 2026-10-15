@@ -122,6 +122,117 @@ button {
   background: #293443;
 }
 
+.strategy-panel {
+  flex-shrink: 0;
+  margin-top: 12px;
+  padding: 10px;
+  background: #181b21;
+  border: 1px solid #2a2e37;
+  border-radius: 10px;
+}
+
+.strategy-panel .panel-heading {
+  padding: 0 0 7px;
+}
+
+.strategy-panel button {
+  padding: 5px 7px;
+  color: #dce3ec;
+  background: #232832;
+  border: 1px solid #343a46;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.strategy-help {
+  margin: 0 0 8px;
+  color: #7f8998;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.strategy-list {
+  display: grid;
+  max-height: 220px;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.strategy-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 8px;
+  padding: 8px;
+  background: #101217;
+  border: 1px solid #292e37;
+  border-radius: 7px;
+}
+
+.strategy-card .strategy-edit {
+  grid-column: 1 / -1;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.strategy-card strong,
+.strategy-card small {
+  display: block;
+}
+
+.strategy-card small {
+  margin-top: 2px;
+  color: #768090;
+  font-size: 8px;
+}
+
+.strategy-card label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #aeb6c2;
+  font-size: 9px;
+}
+
+.strategy-card input {
+  margin: 0;
+  accent-color: #8cc8ff;
+}
+
+.strategy-card .strategy-delete {
+  color: #eaa5a5;
+}
+
+.strategy-editor {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid #292e37;
+}
+
+.strategy-editor label {
+  color: #8c94a3;
+  font-size: 9px;
+}
+
+.strategy-editor textarea {
+  width: 100%;
+  min-height: 112px;
+  margin-top: 4px;
+  padding: 7px;
+  resize: vertical;
+  color: #dce3ec;
+  background: #0d0f13;
+  border: 1px solid #303540;
+  border-radius: 6px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
 .profile-panel {
   margin-top: 12px;
   padding: 10px;

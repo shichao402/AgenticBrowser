@@ -15,12 +15,21 @@ function frameDocument(label: string): string {
     <meta charset="utf-8">
     <title>${label}</title>
     <script>
+      document.dispatchEvent(
+        new CustomEvent('__agentic-phase2-inline-probe')
+      );
       globalThis.__phaseZeroInlineObservation = {
         label: ${JSON.stringify(label)},
         probeVisibleAtInline: Boolean(globalThis.__agenticPhaseZeroProbe),
         preloadReadyState: globalThis.__agenticPhaseZeroProbe?.readyState ?? null,
         inlineReadyState: document.readyState,
-        inlineAt: performance.now()
+        inlineAt: performance.now(),
+        strategyMarkerAtInline:
+          document.documentElement.dataset.agenticStrategyStart ?? null,
+        strategyNodeAtInline:
+          document.documentElement.dataset.agenticStrategyNode ?? null,
+        strategyPrivateVisibleAtInline:
+          Boolean(globalThis.__agenticStrategyPrivate)
       };
     </script>
   </head>
@@ -35,12 +44,21 @@ function topDocument(crossOriginUrl: string): string {
     <meta charset="utf-8">
     <title>AgenticBrowser Phase 0 Probe</title>
     <script>
+      document.dispatchEvent(
+        new CustomEvent('__agentic-phase2-inline-probe')
+      );
       globalThis.__phaseZeroInlineObservation = {
         label: 'top',
         probeVisibleAtInline: Boolean(globalThis.__agenticPhaseZeroProbe),
         preloadReadyState: globalThis.__agenticPhaseZeroProbe?.readyState ?? null,
         inlineReadyState: document.readyState,
-        inlineAt: performance.now()
+        inlineAt: performance.now(),
+        strategyMarkerAtInline:
+          document.documentElement.dataset.agenticStrategyStart ?? null,
+        strategyNodeAtInline:
+          document.documentElement.dataset.agenticStrategyNode ?? null,
+        strategyPrivateVisibleAtInline:
+          Boolean(globalThis.__agenticStrategyPrivate)
       };
       document.cookie = 'agentic_phase0_session=preserved; Path=/; SameSite=Lax';
       let tick = 0;
@@ -86,7 +104,15 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 export async function startPhaseZeroProbeServer(): Promise<PhaseZeroProbeServer> {
-  const crossServer = createServer((_request, response) => {
+  const crossServer = createServer((request, response) => {
+    if (request.url?.startsWith('/strategy-data')) {
+      response.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store'
+      })
+      response.end('{"marker":"network-ok"}')
+      return
+    }
     response.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store'
@@ -110,6 +136,14 @@ export async function startPhaseZeroProbeServer(): Promise<PhaseZeroProbeServer>
         'Cache-Control': 'no-store'
       })
       response.end(body)
+      return
+    }
+    if (request.url?.startsWith('/strategy-data')) {
+      response.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store'
+      })
+      response.end('{"marker":"network-ok"}')
       return
     }
     if (request.url?.startsWith('/popup')) {

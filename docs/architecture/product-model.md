@@ -36,7 +36,7 @@ timeouts:
 - `matches`、`excludes` 与 `networkMatches` 只接受结构化 HTTP(S) pattern；非 Web URL 默认拒绝。
 - manifest、源码、启停状态与更新时间保存在版本化注册表中；未知字段和未知权限默认拒绝。
 
-当前 schema、校验、存储和匹配器已经实现；隔离执行、宿主 API、心跳与 Project 版本固定仍属于 Phase 2 后续切片。`dom.read/write/click` 是声明与审计信息，不是把同一 DOM 内的任意 JavaScript 强制拆成三种安全权限；文件、网络和领域事件等宿主能力必须由主进程独立校验。
+schema、校验、存储、匹配、隔离执行、宿主 API、心跳和故障隔离已经实现；Project 固定版本将在 Phase 3 取代临时开发 allowlist。`dom.read/write/click` 是声明与审计信息，不是把同一 DOM 内的任意 JavaScript 强制拆成三种安全权限；文件、特权网络和领域事件等宿主能力由主进程独立校验。页面原生 `fetch`/XHR 仍服从普通 Web 安全规则，`network.request` 只表示允许使用宿主增强请求；同理，`main-world` 只控制宿主执行桥，不是对 DOM 脚本注入的绝对防线。
 
 ## Project
 

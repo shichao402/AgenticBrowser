@@ -14,8 +14,19 @@ export const IPC_CHANNELS = {
   deleteProfile: 'profiles:delete',
   getStartupSettings: 'startup:get',
   setOpenAtLogin: 'startup:set-open-at-login',
+  getStrategyWorkspace: 'strategies:get-workspace',
+  saveStrategy: 'strategies:save',
+  setStrategyEnabled: 'strategies:set-enabled',
+  setStrategyAllowed: 'strategies:set-allowed',
+  deleteStrategy: 'strategies:delete',
   navigate: 'browser:navigate',
   reload: 'browser:reload'
+} as const
+
+export const STRATEGY_IPC_CHANNELS = {
+  bootstrap: 'strategy-runtime:bootstrap',
+  signal: 'strategy-runtime:signal',
+  invoke: 'strategy-runtime:invoke'
 } as const
 
 export type BrowserEventType =
@@ -43,6 +54,14 @@ export type BrowserEventType =
   | 'download-progress'
   | 'download-completed'
   | 'download-failed'
+  | 'strategy-started'
+  | 'strategy-ready'
+  | 'strategy-log'
+  | 'strategy-event'
+  | 'strategy-failed'
+  | 'strategy-heartbeat-missed'
+  | 'strategy-quarantined'
+  | 'strategy-reloaded'
 
 export interface BrowserEvent {
   sequence: number
@@ -103,6 +122,7 @@ export interface MonitorSnapshot {
   browserEventCount: number
   activePageCount: number
   activeStrategyCount: number
+  strategies: StrategyRuntimeSnapshot
   totalCpuPercent: number
   totalWorkingSetBytes: number
   processes: ProcessMetric[]
@@ -206,6 +226,105 @@ export interface StrategyDefinition {
   updatedAt: string
 }
 
+export interface StrategyDraft {
+  manifest: StrategyManifest
+  source: string
+  enabled: boolean
+}
+
+export interface StrategyWorkspaceSnapshot {
+  strategies: StrategyDefinition[]
+  developmentAllowedStrategyIds: string[]
+}
+
+export type StrategyRuntimeStatus =
+  | 'issued'
+  | 'scheduled'
+  | 'starting'
+  | 'running'
+  | 'failed'
+
+export interface StrategyRuntimeEntrySnapshot {
+  strategyId: string
+  name: string
+  version: string
+  url: string
+  isMainFrame: boolean
+  status: StrategyRuntimeStatus
+  startedAt: string | null
+  lastHeartbeatAt: string | null
+  failure: string | null
+}
+
+export interface StrategyRuntimeSnapshot {
+  activeCount: number
+  quarantinedStrategyIds: string[]
+  entries: StrategyRuntimeEntrySnapshot[]
+}
+
+export interface StrategyBootstrapRequest {
+  href: string
+  isMainFrame: boolean
+}
+
+export interface StrategyBootstrapEntry {
+  token: string
+  worldId: number
+  strategyId: string
+  version: string
+  runAt: StrategyRunAt
+  permissions: StrategyPermission[]
+  source: string
+  config: Record<string, JsonValue>
+  startupMs: number
+  heartbeatMs: number
+}
+
+export interface StrategyBootstrapResponse {
+  entries: StrategyBootstrapEntry[]
+}
+
+export type StrategyRuntimeSignalType =
+  | 'installed'
+  | 'started'
+  | 'ready'
+  | 'heartbeat'
+  | 'failed'
+
+export interface StrategyRuntimeSignal {
+  token: string
+  type: StrategyRuntimeSignalType
+  detail?: string
+}
+
+export type StrategyLogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface StrategyNetworkRequest {
+  url: string
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
+  headers?: Record<string, string>
+  body?: string
+}
+
+export interface StrategyNetworkResponse {
+  url: string
+  status: number
+  headers: Record<string, string>
+  body: string
+}
+
+export type StrategyHostMethod =
+  | 'log'
+  | 'emit-event'
+  | 'network-request'
+  | 'main-world-eval'
+
+export interface StrategyHostCall {
+  token: string
+  method: StrategyHostMethod
+  payload: JsonValue
+}
+
 export type JsonValue =
   | null
   | boolean
@@ -231,6 +350,17 @@ export interface BrowserShellApi {
   deleteProfile(profileId: string): Promise<ProfileSummary[]>
   getStartupSettings(): Promise<StartupSettings>
   setOpenAtLogin(enabled: boolean): Promise<StartupSettings>
+  getStrategyWorkspace(): Promise<StrategyWorkspaceSnapshot>
+  saveStrategy(draft: StrategyDraft): Promise<StrategyWorkspaceSnapshot>
+  setStrategyEnabled(
+    strategyId: string,
+    enabled: boolean
+  ): Promise<StrategyWorkspaceSnapshot>
+  setStrategyAllowed(
+    strategyId: string,
+    allowed: boolean
+  ): Promise<StrategyWorkspaceSnapshot>
+  deleteStrategy(strategyId: string): Promise<StrategyWorkspaceSnapshot>
   navigate(url: string): Promise<BrowserSnapshot>
   reload(options: ReloadOptions): Promise<BrowserSnapshot>
   onBrowserEvent(listener: (event: BrowserEvent) => void): () => void

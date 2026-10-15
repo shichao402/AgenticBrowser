@@ -7,12 +7,16 @@ import {
   session,
   type DownloadItem,
   type Event as ElectronEvent,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
   type Rectangle,
   type RenderProcessGoneDetails,
   type Session,
+  type WebFrameMain,
   type WebContents
 } from 'electron'
 
+import { STRATEGY_IPC_CHANNELS } from '../shared/contracts'
 import type {
   BrowserEvent,
   BrowserEventType,
@@ -22,7 +26,12 @@ import type {
   DownloadSummary,
   PageHealthSnapshot,
   RecoverySnapshot,
-  ReloadOptions
+  ReloadOptions,
+  StrategyBootstrapRequest,
+  StrategyDefinition,
+  StrategyNetworkRequest,
+  StrategyNetworkResponse,
+  StrategyRuntimeSnapshot
 } from '../shared/contracts'
 import {
   type BrowserCheckpoint,
@@ -45,6 +54,11 @@ import {
   RecoveryPolicy,
   type RecoveryAction
 } from './recovery-policy'
+import { urlMatchesStrategyPattern } from './strategy-match'
+import {
+  StrategyRuntime,
+  type StrategyFrameContext
+} from './strategy-runtime'
 
 const DEFAULT_URL = 'https://example.com/'
 const DEFAULT_PROFILE_ID = 'profile-default'
@@ -86,7 +100,16 @@ export interface FrameDiagnostics {
     preloadReadyState: string | null
     inlineReadyState: string
     inlineAt: number
+    strategyMarkerAtInline: string | null
+    strategyNodeAtInline: string | null
+    strategyPrivateVisibleAtInline: boolean
   } | null
+  currentStrategy: {
+    startMarker: string | null
+    nodeMarker: string | null
+    mainWorldMarker: string | null
+    privateVisible: boolean
+  }
 }
 
 export interface CaptureBenchmark {
@@ -151,6 +174,9 @@ export interface BrowserSupervisorOptions {
   capabilityPolicy?: CapabilityPolicy
   downloadDirectory?: string
   manageSessionHandlers?: boolean
+  strategyDefinitions?: StrategyDefinition[]
+  allowedStrategyIds?: ReadonlySet<string>
+  quarantinedStrategyIds?: Set<string>
 }
 
 export class BrowserSupervisor {
@@ -158,6 +184,10 @@ export class BrowserSupervisor {
   private readonly profileId: string
   private readonly healthMonitor: HealthMonitor
   private readonly recoveryPolicy = new RecoveryPolicy()
+  private strategyDefinitions: StrategyDefinition[]
+  private allowedStrategyIds: ReadonlySet<string>
+  private readonly quarantinedStrategyIds: Set<string>
+  private strategyRuntime: StrategyRuntime | null = null
   private capabilityPolicy: CapabilityPolicy
   private readonly downloads: DownloadSummary = {
     active: 0,
@@ -175,6 +205,7 @@ export class BrowserSupervisor {
   }
   private sessionHandlersEnabled = false
   private pageView: WebContentsView | null = null
+  private visible = true
   private bounds: Rectangle = { x: 320, y: 72, width: 960, height: 728 }
   private currentUrl: string
   private generation = 0
@@ -203,6 +234,10 @@ export class BrowserSupervisor {
     private readonly options: BrowserSupervisorOptions = {}
   ) {
     this.currentUrl = options.initialUrl ?? DEFAULT_URL
+    this.strategyDefinitions = [...(options.strategyDefinitions ?? [])]
+    this.allowedStrategyIds = new Set(options.allowedStrategyIds ?? [])
+    this.quarantinedStrategyIds =
+      options.quarantinedStrategyIds ?? new Set<string>()
     this.capabilityPolicy = cloneCapabilityPolicy(
       options.capabilityPolicy ?? createCapabilityPolicy()
     )
@@ -285,7 +320,34 @@ export class BrowserSupervisor {
     return { ...this.downloads }
   }
 
+  getStrategyRuntimeSnapshot(): StrategyRuntimeSnapshot {
+    return (
+      this.strategyRuntime?.getSnapshot() ?? {
+        activeCount: 0,
+        quarantinedStrategyIds: [...this.quarantinedStrategyIds].sort(),
+        entries: []
+      }
+    )
+  }
+
+  async setStrategyConfiguration(
+    definitions: StrategyDefinition[],
+    allowedStrategyIds: ReadonlySet<string>
+  ): Promise<void> {
+    this.strategyDefinitions = [...definitions]
+    this.allowedStrategyIds = new Set(allowedStrategyIds)
+    this.quarantinedStrategyIds.clear()
+    if (this.pageView && !this.disposed) {
+      await this.recreate('strategy-hot-reload')
+      this.emit(
+        'strategy-reloaded',
+        `${definitions.length} definitions; ${allowedStrategyIds.size} allowed`
+      )
+    }
+  }
+
   setVisible(visible: boolean): void {
+    this.visible = visible
     this.pageView?.setVisible(visible)
   }
 
@@ -365,16 +427,29 @@ export class BrowserSupervisor {
 
     return Promise.all(
       mainFrame.framesInSubtree.map(async (frame) => {
-        const observation = (await frame.executeJavaScript(
-          'globalThis.__phaseZeroInlineObservation ?? null'
-        )) as FrameDiagnostics['observation']
+        const diagnostics = (await frame.executeJavaScript(`({
+          observation: globalThis.__phaseZeroInlineObservation ?? null,
+          currentStrategy: {
+            startMarker:
+              document.documentElement.dataset.agenticStrategyStart ?? null,
+            nodeMarker:
+              document.documentElement.dataset.agenticStrategyNode ?? null,
+            mainWorldMarker:
+              globalThis.__agenticStrategyMainWorld ?? null,
+            privateVisible:
+              Boolean(globalThis.__agenticStrategyPrivate)
+          }
+        })`)) as Pick<
+          FrameDiagnostics,
+          'observation' | 'currentStrategy'
+        >
 
         return {
           url: frame.url,
           processId: frame.processId,
           routingId: frame.routingId,
           isMainFrame: frame === mainFrame,
-          observation
+          ...diagnostics
         }
       })
     )
@@ -536,7 +611,9 @@ export class BrowserSupervisor {
     const auxiliaryView = new WebContentsView({
       webPreferences: {
         ...REMOTE_PAGE_SECURITY,
-        session: this.profileSession
+        session: session.fromPartition(
+          `agentic-capture-benchmark-${process.pid}-${Date.now()}`
+        )
       }
     })
     const auxiliaryContents = auxiliaryView.webContents
@@ -773,12 +850,16 @@ export class BrowserSupervisor {
       return
     }
 
-    this.healthMonitor.stop()
+    await this.healthMonitor.stopAndWait()
     this.destroyPageView()
     await this.createPageView('recreated', reason)
     if (this.options.healthMonitoring !== false) {
       this.healthMonitor.start()
     }
+  }
+
+  async prepareForShutdown(): Promise<void> {
+    await this.healthMonitor.stopAndWait()
   }
 
   dispose(windowClosed = false): void {
@@ -830,6 +911,190 @@ export class BrowserSupervisor {
     )
   }
 
+  private installStrategyRuntime(webContents: WebContents): void {
+    const runtime = new StrategyRuntime({
+      definitions: this.strategyDefinitions,
+      allowedStrategyIds: this.allowedStrategyIds,
+      quarantinedStrategyIds: this.quarantinedStrategyIds,
+      onEvent: (event) => {
+        if (this.strategyRuntime === runtime && !this.disposed) {
+          this.emit(
+            event.type,
+            `${event.strategyId}; ${event.detail}`
+          )
+        }
+      },
+      onFault: (strategyId, reason) => {
+        if (this.strategyRuntime === runtime && !this.disposed) {
+          this.handleStrategyFault(strategyId, reason)
+        }
+      },
+      requestNetwork: (definition, request) =>
+        this.performStrategyNetworkRequest(definition, request)
+    })
+    this.strategyRuntime?.dispose()
+    this.strategyRuntime = runtime
+
+    webContents.ipc.on(
+      STRATEGY_IPC_CHANNELS.bootstrap,
+      (event: IpcMainEvent, value: unknown) => {
+        if (this.strategyRuntime !== runtime) {
+          event.returnValue = { entries: [] }
+          return
+        }
+        const frame = this.parseStrategyFrame(event.senderFrame, value)
+        event.returnValue = frame
+          ? runtime.bootstrap(frame)
+          : { entries: [] }
+      }
+    )
+    webContents.ipc.on(
+      STRATEGY_IPC_CHANNELS.signal,
+      (event: IpcMainEvent, value: unknown) => {
+        if (this.strategyRuntime !== runtime) {
+          return
+        }
+        const frame = this.parseStrategyFrame(event.senderFrame)
+        if (frame) {
+          runtime.signal(frame, value)
+        }
+      }
+    )
+    webContents.ipc.handle(
+      STRATEGY_IPC_CHANNELS.invoke,
+      (event: IpcMainInvokeEvent, value: unknown) => {
+        if (this.strategyRuntime !== runtime) {
+          throw new Error('Strategy Runtime 已失效')
+        }
+        const frame = this.parseStrategyFrame(event.senderFrame)
+        if (!frame) {
+          throw new Error('Strategy frame 已失效')
+        }
+        return runtime.invoke(frame, value)
+      }
+    )
+    runtime.start()
+  }
+
+  private parseStrategyFrame(
+    senderFrame: WebFrameMain | null,
+    bootstrapValue?: unknown
+  ): StrategyFrameContext | null {
+    if (!senderFrame || senderFrame.isDestroyed()) {
+      return null
+    }
+    const isMainFrame = senderFrame.parent === null
+    let url: string
+    try {
+      const parsed = new URL(senderFrame.url)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return null
+      }
+      url = parsed.toString()
+    } catch {
+      return null
+    }
+
+    if (bootstrapValue !== undefined) {
+      const request = parseStrategyBootstrapRequest(bootstrapValue)
+      if (!request || request.isMainFrame !== isMainFrame) {
+        return null
+      }
+      try {
+        if (new URL(request.href).toString() !== url) {
+          return null
+        }
+      } catch {
+        return null
+      }
+    }
+
+    return {
+      frameTreeNodeId: senderFrame.frameTreeNodeId,
+      url,
+      isMainFrame
+    }
+  }
+
+  private handleStrategyFault(strategyId: string, reason: string): void {
+    if (this.quarantinedStrategyIds.has(strategyId)) {
+      return
+    }
+    this.quarantinedStrategyIds.add(strategyId)
+    this.emit('strategy-quarantined', `${strategyId}; ${reason}`)
+
+    const contents = this.pageView?.webContents
+    if (contents && !contents.isDestroyed()) {
+      contents.forcefullyCrashRenderer()
+    }
+  }
+
+  private async performStrategyNetworkRequest(
+    definition: StrategyDefinition,
+    request: StrategyNetworkRequest
+  ): Promise<StrategyNetworkResponse> {
+    const headers = sanitizeStrategyRequestHeaders(request.headers ?? {})
+    const method = request.method ?? 'GET'
+    if (
+      (method === 'GET' || method === 'HEAD') &&
+      request.body !== undefined
+    ) {
+      throw new Error(`${method} 请求不能包含 body`)
+    }
+
+    let currentUrl = request.url
+    for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+      if (
+        !definition.manifest.networkMatches.some((pattern) =>
+          urlMatchesStrategyPattern(currentUrl, pattern)
+        )
+      ) {
+        throw new Error(`Strategy 重定向未命中网络 allowlist：${currentUrl}`)
+      }
+
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15_000)
+      timeout.unref()
+      let response: Response
+      try {
+        response = await this.profileSession.fetch(currentUrl, {
+          method,
+          headers,
+          ...(request.body === undefined ? {} : { body: request.body }),
+          credentials: 'include',
+          redirect: 'manual',
+          signal: controller.signal
+        })
+      } finally {
+        clearTimeout(timeout)
+      }
+
+      if (isRedirectStatus(response.status)) {
+        const location = response.headers.get('location')
+        if (!location) {
+          throw new Error('Strategy 网络重定向缺少 Location')
+        }
+        void response.body?.cancel()
+        currentUrl = new URL(location, currentUrl).toString()
+        continue
+      }
+
+      const declaredLength = Number(response.headers.get('content-length'))
+      if (Number.isFinite(declaredLength) && declaredLength > 1024 * 1024) {
+        throw new Error('Strategy 网络响应超过 1 MiB')
+      }
+      const body = await readStrategyResponseBody(response, 1024 * 1024)
+
+      return {
+        url: response.url || currentUrl,
+        status: response.status,
+        headers: selectStrategyResponseHeaders(response.headers),
+        body: body.toString('utf8')
+      }
+    }
+    throw new Error('Strategy 网络重定向超过 5 次')
+  }
+
   private async createPageView(
     eventType: Extract<BrowserEventType, 'created' | 'recreated'>,
     detail?: string
@@ -838,9 +1103,12 @@ export class BrowserSupervisor {
       webPreferences: {
         ...REMOTE_PAGE_SECURITY,
         session: this.profileSession,
-        ...(this.options.phaseZeroProbe
-          ? { additionalArguments: ['--agentic-phase0-probe'] }
-          : {})
+        additionalArguments: [
+          '--agentic-strategy-runtime',
+          ...(this.options.phaseZeroProbe
+            ? ['--agentic-phase0-probe']
+            : [])
+        ]
       }
     })
 
@@ -849,6 +1117,8 @@ export class BrowserSupervisor {
     this.responsive = true
     this.window.contentView.addChildView(view)
     view.setBounds(this.bounds)
+    view.setVisible(this.visible)
+    this.installStrategyRuntime(view.webContents)
     this.registerPageEvents(view)
     this.emit(eventType, detail)
 
@@ -1223,6 +1493,8 @@ export class BrowserSupervisor {
   private destroyPageView(removeFromWindow = true): void {
     const view = this.pageView
     this.pageView = null
+    this.strategyRuntime?.dispose()
+    this.strategyRuntime = null
 
     if (!view) {
       return
@@ -1287,4 +1559,100 @@ function summarizeLatencies(durations: number[]): LatencyStats {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function parseStrategyBootstrapRequest(
+  value: unknown
+): StrategyBootstrapRequest | null {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('href' in value) ||
+    !('isMainFrame' in value) ||
+    typeof value.href !== 'string' ||
+    value.href.length > 8_192 ||
+    typeof value.isMainFrame !== 'boolean'
+  ) {
+    return null
+  }
+  return {
+    href: value.href,
+    isMainFrame: value.isMainFrame
+  }
+}
+
+function sanitizeStrategyRequestHeaders(
+  value: Record<string, string>
+): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [name, headerValue] of Object.entries(value)) {
+    const normalized = name.toLowerCase()
+    if (
+      !/^[!#$%&'*+\-.^_`|~0-9a-z]+$/.test(normalized) ||
+      /^(?:authorization|cookie|host|origin|referer|proxy-|sec-)/i.test(
+        normalized
+      ) ||
+      /[\r\n]/.test(headerValue)
+    ) {
+      throw new Error(`Strategy 请求头不允许：${name}`)
+    }
+    result[normalized] = headerValue
+  }
+  return result
+}
+
+async function readStrategyResponseBody(
+  response: Response,
+  maximumBytes: number
+): Promise<Buffer> {
+  if (!response.body) {
+    return Buffer.alloc(0)
+  }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let byteLength = 0
+  try {
+    while (true) {
+      const next = await reader.read()
+      if (next.done) {
+        break
+      }
+      byteLength += next.value.byteLength
+      if (byteLength > maximumBytes) {
+        await reader.cancel('Strategy 网络响应超过大小限制')
+        throw new Error('Strategy 网络响应超过 1 MiB')
+      }
+      chunks.push(next.value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return Buffer.concat(
+    chunks.map((chunk) =>
+      Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+    ),
+    byteLength
+  )
+}
+
+function selectStrategyResponseHeaders(headers: Headers): Record<string, string> {
+  const allowed = new Set([
+    'cache-control',
+    'content-language',
+    'content-length',
+    'content-type',
+    'etag',
+    'last-modified'
+  ])
+  const result: Record<string, string> = {}
+  for (const [name, value] of headers.entries()) {
+    if (allowed.has(name.toLowerCase())) {
+      result[name.toLowerCase()] = value
+    }
+  }
+  return result
+}
+
+function isRedirectStatus(status: number): boolean {
+  return [301, 302, 303, 307, 308].includes(status)
 }

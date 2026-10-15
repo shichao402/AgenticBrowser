@@ -10,6 +10,8 @@ import {
   type MonitorSnapshot,
   type ProfileSummary,
   type ReloadOptions,
+  type StrategyDraft,
+  type StrategyWorkspaceSnapshot,
   type StartupSettings
 } from '../shared/contracts'
 
@@ -43,6 +45,34 @@ const api: BrowserShellApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getStartupSettings),
   setOpenAtLogin: (enabled: boolean): Promise<StartupSettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.setOpenAtLogin, enabled),
+  getStrategyWorkspace: (): Promise<StrategyWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getStrategyWorkspace),
+  saveStrategy: (
+    draft: StrategyDraft
+  ): Promise<StrategyWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveStrategy, draft),
+  setStrategyEnabled: (
+    strategyId: string,
+    enabled: boolean
+  ): Promise<StrategyWorkspaceSnapshot> =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.setStrategyEnabled,
+      strategyId,
+      enabled
+    ),
+  setStrategyAllowed: (
+    strategyId: string,
+    allowed: boolean
+  ): Promise<StrategyWorkspaceSnapshot> =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.setStrategyAllowed,
+      strategyId,
+      allowed
+    ),
+  deleteStrategy: (
+    strategyId: string
+  ): Promise<StrategyWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.deleteStrategy, strategyId),
   navigate: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, url),
   reload: (options: ReloadOptions) => ipcRenderer.invoke(IPC_CHANNELS.reload, options),
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => {

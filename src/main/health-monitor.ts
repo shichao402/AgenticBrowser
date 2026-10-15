@@ -15,6 +15,7 @@ const DEFAULT_OPTIONS: HealthMonitorOptions = {
 export class HealthMonitor {
   private timer: NodeJS.Timeout | null = null
   private checkInFlight: Promise<void> | null = null
+  private epoch = 0
   private unhealthyNotified = false
   private snapshot: PageHealthSnapshot = {
     status: 'stopped',
@@ -44,6 +45,7 @@ export class HealthMonitor {
       return
     }
 
+    this.epoch += 1
     this.update({
       ...this.snapshot,
       status: 'starting'
@@ -56,6 +58,7 @@ export class HealthMonitor {
   }
 
   stop(): void {
+    this.epoch += 1
     if (this.timer) {
       clearInterval(this.timer)
       this.timer = null
@@ -64,6 +67,11 @@ export class HealthMonitor {
       ...this.snapshot,
       status: 'stopped'
     })
+  }
+
+  async stopAndWait(): Promise<void> {
+    this.stop()
+    await this.checkInFlight
   }
 
   getSnapshot(): PageHealthSnapshot {
@@ -75,13 +83,14 @@ export class HealthMonitor {
       return this.checkInFlight
     }
 
-    this.checkInFlight = this.runCheck().finally(() => {
+    const epoch = this.epoch
+    this.checkInFlight = this.runCheck(epoch).finally(() => {
       this.checkInFlight = null
     })
     return this.checkInFlight
   }
 
-  private async runCheck(): Promise<void> {
+  private async runCheck(epoch: number): Promise<void> {
     const now = new Date().toISOString()
     let timeout: NodeJS.Timeout
     const timeoutResult = new Promise<boolean>((resolve) => {
@@ -93,6 +102,9 @@ export class HealthMonitor {
       timeoutResult
     ])
     clearTimeout(timeout!)
+    if (epoch !== this.epoch) {
+      return
+    }
 
     if (responsive) {
       this.unhealthyNotified = false

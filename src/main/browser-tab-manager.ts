@@ -7,7 +7,9 @@ import type {
   CapabilityPolicy,
   CapabilityPolicySnapshot,
   DownloadSummary,
-  ReloadOptions
+  ReloadOptions,
+  StrategyDefinition,
+  StrategyRuntimeSnapshot
 } from '../shared/contracts'
 import {
   BrowserSupervisor,
@@ -37,13 +39,21 @@ export class BrowserTabManager {
   private permissionHandlerOwnerId = ''
   private sequence = 0
   private tabSequence = 0
+  private strategyDefinitions: StrategyDefinition[]
+  private allowedStrategyIds: ReadonlySet<string>
+  private readonly quarantinedStrategyIds: Set<string>
   private bounds: Rectangle = { x: 320, y: 104, width: 960, height: 696 }
 
   constructor(
     private readonly window: BaseWindow,
     private readonly publish: (event: BrowserEvent) => void,
     private readonly options: BrowserSupervisorOptions = {}
-  ) {}
+  ) {
+    this.strategyDefinitions = [...(options.strategyDefinitions ?? [])]
+    this.allowedStrategyIds = new Set(options.allowedStrategyIds ?? [])
+    this.quarantinedStrategyIds =
+      options.quarantinedStrategyIds ?? new Set<string>()
+  }
 
   async start(): Promise<void> {
     const tab = this.createRuntime(this.options.initialUrl)
@@ -206,6 +216,42 @@ export class BrowserTabManager {
     )
   }
 
+  getStrategyRuntimeSnapshot(): StrategyRuntimeSnapshot {
+    const snapshots = [...this.tabs.values()].map((tab) =>
+      tab.supervisor.getStrategyRuntimeSnapshot()
+    )
+    return {
+      activeCount: snapshots.reduce(
+        (total, snapshot) => total + snapshot.activeCount,
+        0
+      ),
+      quarantinedStrategyIds: [
+        ...new Set(
+          snapshots.flatMap(
+            (snapshot) => snapshot.quarantinedStrategyIds
+          )
+        )
+      ].sort(),
+      entries: snapshots.flatMap((snapshot) => snapshot.entries)
+    }
+  }
+
+  async setStrategyConfiguration(
+    definitions: StrategyDefinition[],
+    allowedStrategyIds: ReadonlySet<string>
+  ): Promise<void> {
+    this.strategyDefinitions = [...definitions]
+    this.allowedStrategyIds = new Set(allowedStrategyIds)
+    await Promise.all(
+      [...this.tabs.values()].map((tab) =>
+        tab.supervisor.setStrategyConfiguration(
+          this.strategyDefinitions,
+          this.allowedStrategyIds
+        )
+      )
+    )
+  }
+
   navigate(input: string): Promise<BrowserSnapshot> {
     return this.activeSupervisor().navigate(input)
   }
@@ -279,6 +325,14 @@ export class BrowserTabManager {
     return this.persistActiveTab(reason)
   }
 
+  async prepareForShutdown(): Promise<void> {
+    await Promise.all(
+      [...this.tabs.values()].map((tab) =>
+        tab.supervisor.prepareForShutdown()
+      )
+    )
+  }
+
   dispose(windowClosed = false): void {
     for (const tab of this.tabs.values()) {
       tab.supervisor.dispose(windowClosed)
@@ -309,6 +363,9 @@ export class BrowserTabManager {
       },
       {
         ...sharedOptions,
+        strategyDefinitions: this.strategyDefinitions,
+        allowedStrategyIds: this.allowedStrategyIds,
+        quarantinedStrategyIds: this.quarantinedStrategyIds,
         ...(initialUrl ?? _initialUrl
           ? { initialUrl: initialUrl ?? _initialUrl }
           : {}),

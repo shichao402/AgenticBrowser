@@ -57,4 +57,30 @@ describe('HealthMonitor', () => {
     await monitor.checkNow()
     expect(monitor.getSnapshot().status).toBe('unresponsive')
   })
+
+  it('waits for an in-flight probe without publishing stale results after stop', async () => {
+    let resolveProbe!: (value: boolean) => void
+    const onUnhealthy = vi.fn()
+    const monitor = new HealthMonitor(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveProbe = resolve
+        }),
+      () => undefined,
+      onUnhealthy,
+      {
+        intervalMs: 1_000,
+        timeoutMs: 100,
+        failureThreshold: 1
+      }
+    )
+
+    monitor.start()
+    const stopped = monitor.stopAndWait()
+    resolveProbe(false)
+    await stopped
+
+    expect(monitor.getSnapshot().status).toBe('stopped')
+    expect(onUnhealthy).not.toHaveBeenCalled()
+  })
 })

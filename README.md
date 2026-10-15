@@ -55,6 +55,8 @@ npm run check
 
 ```bash
 npm run smoke:electron
+npm run smoke:strategy-fault
+npm run smoke:strategy-workspace
 npm run smoke:recovery
 npm run smoke:watchdog
 npm run smoke:watchdog:packaged
@@ -76,4 +78,4 @@ npm run dist
 
 ## 当前状态
 
-项目处于 Phase 2：Phase 0 已完成 Windows 工程、隔离注入、renderer/main 故障恢复、URL/Profile 检查点、受限截图环和安装验证；macOS 与真实站点门禁仍待外部环境。Phase 1 已实现多 tab、基础 Profile 管理与 session 隔离、主动页面健康监测、分级恢复预算与熔断、本地错误页、精确 Origin Capability Center、受控弹窗、基础下载接管、打包应用 Watchdog/登录启动入口、JSONL 事件日志和 CPU/内存/页面/下载监控。Phase 2 当前已落地 Strategy manifest、严格存储校验、URL/frame 匹配和显式 allowlist 边界，隔离执行器、宿主 API、心跳、热重载与 UI 正在实现。Profile 的 Project 引用保护和完整下载事务随 Phase 3 落地。证据见 [Phase 0](docs/research/phase0-validation.md)、[Phase 1](docs/research/phase1-validation.md) 与 [Phase 2 验证记录](docs/research/phase2-validation.md)。
+项目进入 Phase 3：Phase 0 已完成 Windows 工程、隔离注入、renderer/main 故障恢复、URL/Profile 检查点、受限截图环和安装验证；macOS 与真实站点门禁仍待外部环境。Phase 1 已实现多 tab、Profile/session、主动健康监测、分级恢复与熔断、精确 Origin Capability Center、基础下载接管、Watchdog/登录启动、事件日志和进程监控。Phase 2 已完成 Strategy manifest、严格存储与 URL/frame/allowlist 匹配、独立 isolated world、run-at/OOPIF、受权限约束的宿主 API、心跳/隔离/重建恢复、编辑/启停 UI，以及真实热重载与同步死循环终止验收。Phase 3 正在把临时 allowlist、Profile 引用和完整下载事务纳入 Project Runtime。证据见 [Phase 0](docs/research/phase0-validation.md)、[Phase 1](docs/research/phase1-validation.md) 与 [Phase 2 验证记录](docs/research/phase2-validation.md)。
