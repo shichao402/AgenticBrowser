@@ -1,0 +1,33 @@
+# Dependencies and build output
+node_modules/
+dist/
+out/
+release/
+coverage/
+
+# Runtime state
+.agentic-browser/
+profiles/
+recordings/
+downloads/
+tmp/
+*.log
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.local.json
+*.private.*
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test artifacts
+test-results/
+playwright-report/
+*.lcov
