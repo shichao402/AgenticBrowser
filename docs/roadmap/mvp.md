@@ -1,6 +1,6 @@
 # MVP 路线图
 
-- Status: Phase 0 in progress
+- Status: Phase 1 in progress; Phase 0 macOS/real-site gates pending
 - Scope: Phase 0–3
 
 MVP 的完成标准不是“能打开网页”，而是知识星球项目可以在故障注入下可靠扫描、筛选和下载，并能被监控。
@@ -29,6 +29,8 @@ MVP 的完成标准不是“能打开网页”，而是知识星球项目可以�
 - 发现的兼容差异已记录到 `docs/research/`。
 
 ## Phase 1：BrowserShell 与监督
+
+当前切片：主动 HealthMonitor、分级 RecoveryPolicy、恢复预算与熔断、本地错误页、Capability Center、弹窗路由、基础 Download Manager、JSONL 事件日志和进程/页面/下载监控已经落地。多 tab、Profile 管理 UI、按站点权限、完整下载事务和安装包 Watchdog launcher 尚未完成。证据见 [Phase 1 验证记录](../research/phase1-validation.md)。
 
 ### 交付
 

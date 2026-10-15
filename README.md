@@ -55,6 +55,7 @@ npm run check
 
 ```bash
 npm run smoke:electron
+npm run smoke:recovery
 npm run smoke:watchdog
 ```
 
@@ -74,4 +75,4 @@ npm run dist
 
 ## 当前状态
 
-项目处于 Phase 0：已建立 Electron/TypeScript/React 工程基线、BrowserShell/远程页面分离、frame/OOPIF 注入探针、最小导航与生命周期事件流、renderer 重建、主动心跳停顿检测、应用外 Watchdog 强杀恢复、URL/Profile 检查点，以及带硬上限和故障冻结的 10 FPS 截图环。单/双页面短时性能与交互影响已实测；安装包 Watchdog 入口、workflow 业务检查点、长时录制和双平台验证仍待完成。证据见 [Phase 0 验证记录](docs/research/phase0-validation.md)。
+项目处于 Phase 1：Phase 0 已完成 Windows 工程、隔离注入、renderer/main 故障恢复、URL/Profile 检查点、受限截图环和安装验证；macOS 与真实站点门禁仍待外部环境。当前已实现主动页面健康监测、分级恢复预算与熔断、本地错误页、Capability Center、受控弹窗、基础下载接管、JSONL 事件日志和 CPU/内存/页面/下载监控。多 tab、完整 Profile 管理和 Phase 3 下载事务仍待完成。证据见 [Phase 0](docs/research/phase0-validation.md) 与 [Phase 1 验证记录](docs/research/phase1-validation.md)。

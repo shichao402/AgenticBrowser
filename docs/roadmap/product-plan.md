@@ -1,7 +1,7 @@
 # AgenticBrowser 产品总计划
 
 - Last updated: 2026-10-15
-- Status: Phase 0 in progress
+- Status: Phase 1 in progress; Phase 0 macOS/real-site gates pending
 
 ## 愿景
 

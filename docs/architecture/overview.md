@@ -1,6 +1,6 @@
 # 总体架构
 
-> 状态：目标架构。Phase 0 工程基线已经落地，其余组件按 roadmap 逐步实现。
+> 状态：演进中。Phase 0 Windows 技术基线和 Phase 1 监督浏览器切片已经落地，其余组件按 roadmap 逐步实现。
 
 ## 当前代码映射
 
@@ -12,6 +12,11 @@
 - `src/main/capture-ring-buffer.ts`：受帧数与字节数双重约束、可冻结的内存截图环。
 - `src/main/main-process-heartbeat.ts`：Electron main 的外部存活心跳。
 - `src/main/watchdog.ts`：应用外进程监督、心跳超时、重启预算和状态记录。
+- `src/main/health-monitor.ts`：短超时主动页面探针、连续失败阈值与恢复通知。
+- `src/main/recovery-policy.ts`：时间窗预算、指数退避、分级恢复与熔断决策。
+- `src/main/capability-store.ts`：完整布尔 schema 的能力开关持久化。
+- `src/main/structured-event-log.ts`：串行 JSONL 领域事件日志。
+- `src/main/download-path.ts`：跨平台下载文件名清理。
 - `src/main/phase0-probe-server.ts`：仅用于 smoke 的 frame、失败导航、Cookie 和阻塞探针页面。
 - `src/main/navigation.ts`：仅允许 HTTP/HTTPS 的导航边界。
 - `src/preload/index.ts`：最小 BrowserShell API。
@@ -108,6 +113,8 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 
 页面健康不能只依赖 Chromium 的 `unresponsive`/`responsive` 事件。这些事件触发较慢，并可能因页面隐藏或缺少用户输入而不触发。HealthMonitor 以主进程发起的短超时主动 ping、加载状态和业务断言为主信号；原生无响应事件只作为辅助证据。连续失败必须进入有预算的 RecoveryEngine，不能无限 reload。
 
+当前 HealthMonitor 每秒由主进程探测页面，单次 500 ms 超时，连续三次失败才触发恢复。RecoveryPolicy 在 60 秒时间窗内最多执行四次：普通 reload、忽略缓存 reload、清 session cache 后 reload、重建 view；renderer 消失直接从重建级别开始。失败继续发生时打开 circuit、隐藏远程 view，并由 BrowserShell 显示本地错误页。用户显式导航或刷新会重置预算。
+
 成功导航后，BrowserSupervisor 将当前 URL 与 Profile ID 写入浏览器检查点。应用启动时先校验检查点，再用其中的 Profile 与 URL 创建页面。检查点损坏时隔离原文件并退回安全初始页，不能形成启动崩溃循环。
 
 ### StrategyEngine
@@ -125,6 +132,12 @@ session 使用 `registerPreloadScript({ type: "frame" })` 在 top frame、同源
 ### ContentFilter
 
 中心化合并网络观测、阻断和下载需求。网络规则与页面 CSS 规则按项目启用，不使用通用 Chrome 扩展作为基础。
+
+### Capability Center 与 Download Manager
+
+Capability Store 当前保存 popup、download、notification、geolocation、media、clipboard-read 和 fullscreen 开关。除下载外默认拒绝；远程页面不能直接修改。弹窗始终先由宿主拦截，允许时只把经过 HTTP/HTTPS 校验的 URL 转入当前受控 view。
+
+session 级 `will-download` 统一接管下载。禁止时立即取消；允许时清理路径分隔符、Windows 非法字符与设备保留名，再写入 Profile 下载目录。Phase 1 只维护 active/completed/failed/bytes 汇总；临时目录、原子完成、哈希、业务幂等和 manifest 属于 Phase 3。
 
 ### TeachingRecorder
 
@@ -161,3 +174,5 @@ Profile/Cookie 使用 Electron session partition 存储，不提交仓库，也�
 - Chromium browser/renderer/GPU/utility 进程 CPU 与内存。
 
 不能可靠归属到单个 Strategy 的资源消耗必须标记为共享，不能展示虚假的精确值。
+
+当前 BrowserShell 每两秒读取 `app.getAppMetrics()`，展示 Chromium 进程数、总 CPU、总工作集、页面健康、恢复状态和下载汇总。浏览器领域事件同时保留最近 500 条内存窗口，并串行追加到 userData 下的 JSONL 日志；日志轮转和长期保留尚未实现。

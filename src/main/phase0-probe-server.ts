@@ -101,6 +101,25 @@ export async function startPhaseZeroProbeServer(): Promise<PhaseZeroProbeServer>
       request.socket.destroy()
       return
     }
+    if (request.url?.startsWith('/sample.mp3')) {
+      const body = Buffer.alloc(4096, 0x5a)
+      response.writeHead(200, {
+        'Content-Type': 'audio/mpeg',
+        'Content-Disposition': 'attachment; filename="meeting:sample?.mp3"',
+        'Content-Length': String(body.byteLength),
+        'Cache-Control': 'no-store'
+      })
+      response.end(body)
+      return
+    }
+    if (request.url?.startsWith('/popup')) {
+      response.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store'
+      })
+      response.end(frameDocument('popup'))
+      return
+    }
 
     const isSameOriginFrame = request.url?.startsWith('/same') === true
     response.writeHead(200, {

@@ -1,8 +1,14 @@
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+
 import {
   BaseWindow,
   WebContentsView,
   session,
+  type DownloadItem,
+  type Event as ElectronEvent,
   type Rectangle,
+  type RenderProcessGoneDetails,
   type Session,
   type WebContents
 } from 'electron'
@@ -11,17 +17,28 @@ import type {
   BrowserEvent,
   BrowserEventType,
   BrowserSnapshot,
+  CapabilitySettings,
+  DownloadSummary,
+  PageHealthSnapshot,
+  RecoverySnapshot,
   ReloadOptions
 } from '../shared/contracts'
 import {
   type BrowserCheckpoint,
   type BrowserCheckpointStore
 } from './checkpoint-store'
+import { DEFAULT_CAPABILITIES } from './capability-store'
 import {
   CaptureRingBuffer,
   type CaptureRingSnapshot
 } from './capture-ring-buffer'
+import { HealthMonitor } from './health-monitor'
 import { normalizeNavigationUrl } from './navigation'
+import { sanitizeDownloadFileName } from './download-path'
+import {
+  RecoveryPolicy,
+  type RecoveryAction
+} from './recovery-policy'
 
 const DEFAULT_URL = 'https://example.com/'
 const DEFAULT_PROFILE_ID = 'profile-default'
@@ -123,11 +140,31 @@ export interface BrowserSupervisorOptions {
   phaseZeroProbe?: boolean
   profileId?: string
   checkpointStore?: BrowserCheckpointStore
+  healthMonitoring?: boolean
+  recoveryEnabled?: boolean
+  capabilities?: CapabilitySettings
+  downloadDirectory?: string
 }
 
 export class BrowserSupervisor {
   private readonly profileSession: Session
   private readonly profileId: string
+  private readonly healthMonitor: HealthMonitor
+  private readonly recoveryPolicy = new RecoveryPolicy()
+  private capabilities: CapabilitySettings
+  private readonly downloads: DownloadSummary = {
+    active: 0,
+    completed: 0,
+    failed: 0,
+    receivedBytes: 0
+  }
+  private downloadSequence = 0
+  private readonly onWillDownload = (
+    _event: ElectronEvent,
+    item: DownloadItem
+  ): void => {
+    this.handleDownload(item)
+  }
   private pageView: WebContentsView | null = null
   private bounds: Rectangle = { x: 320, y: 72, width: 960, height: 728 }
   private currentUrl: string
@@ -137,6 +174,19 @@ export class BrowserSupervisor {
   private lastEvent: BrowserEvent | null = null
   private disposed = false
   private readonly preloadErrors: string[] = []
+  private lastPublishedHealthStatus: PageHealthSnapshot['status'] = 'stopped'
+  private recoveryEpoch = 0
+  private recoveryInFlight: {
+    epoch: number
+    promise: Promise<void>
+  } | null = null
+  private recovery: RecoverySnapshot = {
+    status: 'idle',
+    attemptsInWindow: 0,
+    lastAction: null,
+    lastReason: null,
+    lastRecoveryAt: null
+  }
 
   constructor(
     private readonly window: BaseWindow,
@@ -144,6 +194,9 @@ export class BrowserSupervisor {
     private readonly options: BrowserSupervisorOptions = {}
   ) {
     this.currentUrl = options.initialUrl ?? DEFAULT_URL
+    this.capabilities = {
+      ...(options.capabilities ?? DEFAULT_CAPABILITIES)
+    }
     this.profileId = options.profileId ?? DEFAULT_PROFILE_ID
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(this.profileId)) {
       throw new Error('Profile ID 格式无效')
@@ -151,11 +204,33 @@ export class BrowserSupervisor {
     this.profileSession = session.fromPartition(`persist:${this.profileId}`, {
       cache: true
     })
+    this.healthMonitor = new HealthMonitor(
+      () => this.pingRenderer(400),
+      (snapshot) => {
+        this.responsive =
+          snapshot.status !== 'unresponsive' && snapshot.status !== 'stopped'
+        if (snapshot.status !== this.lastPublishedHealthStatus) {
+          this.lastPublishedHealthStatus = snapshot.status
+          this.emit(
+            'health-changed',
+            `${snapshot.status}; failures=${snapshot.consecutiveFailures}`
+          )
+        }
+      },
+      async () => {
+        if (this.options.recoveryEnabled !== false) {
+          await this.requestRecovery('heartbeat-timeout')
+        }
+      }
+    )
     this.configureSession()
   }
 
   async start(): Promise<void> {
     await this.createPageView('created')
+    if (this.options.healthMonitoring !== false) {
+      this.healthMonitor.start()
+    }
   }
 
   setBounds(bounds: Rectangle): void {
@@ -172,13 +247,30 @@ export class BrowserSupervisor {
       loading: contents && !contents.isDestroyed() ? contents.isLoading() : false,
       responsive: this.responsive,
       generation: this.generation,
-      lastEvent: this.lastEvent
+      lastEvent: this.lastEvent,
+      health: this.healthMonitor.getSnapshot(),
+      recovery: { ...this.recovery }
     }
+  }
+
+  getCapabilities(): CapabilitySettings {
+    return { ...this.capabilities }
+  }
+
+  setCapabilities(settings: CapabilitySettings): CapabilitySettings {
+    this.capabilities = { ...settings }
+    return this.getCapabilities()
+  }
+
+  getDownloadSummary(): DownloadSummary {
+    return { ...this.downloads }
   }
 
   async navigate(input: string): Promise<BrowserSnapshot> {
     const url = normalizeNavigationUrl(input)
     const contents = this.requireContents()
+    this.resetRecovery()
+    this.pageView?.setVisible(true)
     this.currentUrl = url
     await contents.loadURL(url)
     return this.getSnapshot()
@@ -186,6 +278,8 @@ export class BrowserSupervisor {
 
   async reload(options: ReloadOptions): Promise<BrowserSnapshot> {
     const contents = this.requireContents()
+    this.resetRecovery()
+    this.pageView?.setVisible(true)
 
     if (options.ignoreCache) {
       contents.reloadIgnoringCache()
@@ -254,6 +348,17 @@ export class BrowserSupervisor {
       name
     })
     return cookies.length > 0
+  }
+
+  requestDownload(url: string): void {
+    this.requireContents().downloadURL(normalizeNavigationUrl(url))
+  }
+
+  async triggerPopup(url: string): Promise<void> {
+    const normalized = normalizeNavigationUrl(url)
+    await this.requireContents().executeJavaScript(
+      `{ window.open(${JSON.stringify(normalized)}, '_blank'); true; }`
+    )
   }
 
   async flushCheckpoint(reason: string): Promise<BrowserCheckpoint | null> {
@@ -603,12 +708,18 @@ export class BrowserSupervisor {
       return
     }
 
+    this.healthMonitor.stop()
     this.destroyPageView()
     await this.createPageView('recreated', reason)
+    if (this.options.healthMonitoring !== false) {
+      this.healthMonitor.start()
+    }
   }
 
   dispose(windowClosed = false): void {
     this.disposed = true
+    this.healthMonitor.stop()
+    this.profileSession.removeListener('will-download', this.onWillDownload)
     this.destroyPageView(!windowClosed)
   }
 
@@ -625,10 +736,15 @@ export class BrowserSupervisor {
       })
     }
 
-    this.profileSession.setPermissionCheckHandler(() => false)
-    this.profileSession.setPermissionRequestHandler((_contents, _permission, callback) => {
-      callback(false)
-    })
+    this.profileSession.setPermissionCheckHandler(
+      (_contents, permission) => this.isPermissionAllowed(permission)
+    )
+    this.profileSession.setPermissionRequestHandler(
+      (_contents, permission, callback) => {
+        callback(this.isPermissionAllowed(permission))
+      }
+    )
+    this.profileSession.on('will-download', this.onWillDownload)
   }
 
   private async createPageView(
@@ -659,7 +775,31 @@ export class BrowserSupervisor {
   private registerPageEvents(view: WebContentsView): void {
     const { webContents } = view
 
-    webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    webContents.setWindowOpenHandler(({ url }) => {
+      if (!this.capabilities.popups) {
+        this.emit('popup-blocked', url)
+        return { action: 'deny' }
+      }
+
+      try {
+        const normalized = normalizeNavigationUrl(url)
+        this.emit('popup-routed', normalized)
+        setTimeout(() => {
+          void this.navigate(normalized).catch((error: unknown) => {
+            this.emit(
+              'load-failed',
+              error instanceof Error ? error.message : String(error)
+            )
+          })
+        }, 0)
+      } catch (error) {
+        this.emit(
+          'popup-blocked',
+          error instanceof Error ? error.message : String(error)
+        )
+      }
+      return { action: 'deny' }
+    })
 
     webContents.on('preload-error', (_event, preloadPath, error) => {
       this.preloadErrors.push(`${preloadPath}: ${error.message}`)
@@ -697,6 +837,9 @@ export class BrowserSupervisor {
 
         this.currentUrl = validatedUrl || this.currentUrl
         this.emit('load-failed', `${errorCode}: ${errorDescription}`)
+        if (this.options.recoveryEnabled !== false) {
+          void this.requestRecovery(`load-failed:${errorCode}`)
+        }
       }
     )
 
@@ -714,10 +857,269 @@ export class BrowserSupervisor {
       this.responsive = false
       this.emit('renderer-gone', `${details.reason} (${details.exitCode})`)
 
-      setTimeout(() => {
-        void this.recreate(`renderer ${details.reason}`)
-      }, 250)
+      if (this.options.recoveryEnabled === false) {
+        setTimeout(() => {
+          void this.recreate(`renderer ${details.reason}`)
+        }, 250)
+      } else {
+        void this.requestRecovery(
+          `renderer-gone:${details.reason}`,
+          'recreate-view'
+        )
+      }
     })
+  }
+
+  private isPermissionAllowed(permission: string): boolean {
+    switch (permission) {
+      case 'notifications':
+        return this.capabilities.notifications
+      case 'geolocation':
+        return this.capabilities.geolocation
+      case 'media':
+        return this.capabilities.media
+      case 'clipboard-read':
+        return this.capabilities.clipboardRead
+      case 'fullscreen':
+        return this.capabilities.fullscreen
+      default:
+        return false
+    }
+  }
+
+  private handleDownload(item: DownloadItem): void {
+    const downloadDirectory = this.options.downloadDirectory
+    if (!this.capabilities.downloads || !downloadDirectory) {
+      item.cancel()
+      this.downloads.failed += 1
+      this.emit('download-blocked', item.getFilename())
+      return
+    }
+
+    mkdirSync(downloadDirectory, { recursive: true })
+    const safeName = sanitizeDownloadFileName(item.getFilename())
+    const savePath = join(
+      downloadDirectory,
+      `${Date.now()}-${++this.downloadSequence}-${safeName}`
+    )
+    item.setSavePath(savePath)
+    this.downloads.active += 1
+    this.emit('download-started', `${safeName} -> ${savePath}`)
+
+    let accountedBytes = 0
+    let lastProgressEventAt = 0
+    item.on('updated', () => {
+      const received = item.getReceivedBytes()
+      this.downloads.receivedBytes += Math.max(0, received - accountedBytes)
+      accountedBytes = received
+      const now = Date.now()
+      if (now - lastProgressEventAt >= 1_000) {
+        lastProgressEventAt = now
+        this.emit(
+          'download-progress',
+          `${safeName}; ${received}/${item.getTotalBytes()}`
+        )
+      }
+    })
+
+    item.once('done', (_event, state) => {
+      const received = item.getReceivedBytes()
+      this.downloads.receivedBytes += Math.max(0, received - accountedBytes)
+      this.downloads.active = Math.max(0, this.downloads.active - 1)
+      if (state === 'completed') {
+        this.downloads.completed += 1
+        this.emit('download-completed', `${safeName}; ${received} bytes`)
+      } else {
+        this.downloads.failed += 1
+        this.emit('download-failed', `${safeName}; ${state}`)
+      }
+    })
+  }
+
+  private requestRecovery(
+    reason: string,
+    minimumAction?: Exclude<RecoveryAction, 'open-circuit'>
+  ): Promise<void> {
+    if (this.disposed) {
+      return Promise.resolve()
+    }
+    const epoch = this.recoveryEpoch
+    if (this.recoveryInFlight?.epoch === epoch) {
+      return this.recoveryInFlight.promise
+    }
+
+    const recovery = this.runRecovery(reason, minimumAction, epoch).catch(
+      (error: unknown) => {
+        this.responsive = false
+        this.pageView?.setVisible(false)
+        this.recovery = {
+          ...this.recovery,
+          status: 'circuit-open',
+          lastReason: error instanceof Error ? error.message : String(error),
+          lastRecoveryAt: new Date().toISOString()
+        }
+        this.emit('circuit-open', this.recovery.lastReason ?? reason)
+      }
+    )
+    this.recoveryInFlight = {
+      epoch,
+      promise: recovery
+    }
+    void recovery.finally(() => {
+      if (this.recoveryInFlight?.promise === recovery) {
+        this.recoveryInFlight = null
+      }
+    })
+    return recovery
+  }
+
+  private async runRecovery(
+    initialReason: string,
+    minimumAction: Exclude<RecoveryAction, 'open-circuit'> | undefined,
+    epoch: number
+  ): Promise<void> {
+    let reason = initialReason
+
+    while (!this.disposed && epoch === this.recoveryEpoch) {
+      const decision = this.recoveryPolicy.next(reason, Date.now(), minimumAction)
+      this.recovery = {
+        status:
+          decision.action === 'open-circuit' ? 'circuit-open' : 'scheduled',
+        attemptsInWindow: this.recoveryPolicy.getAttempts(),
+        lastAction: decision.action,
+        lastReason: reason,
+        lastRecoveryAt: new Date().toISOString()
+      }
+
+      if (decision.action === 'open-circuit') {
+        this.responsive = false
+        this.pageView?.setVisible(false)
+        this.emit(
+          'circuit-open',
+          `${reason}; attempt=${decision.attempt}; budget exhausted`
+        )
+        return
+      }
+
+      this.emit(
+        'recovery-scheduled',
+        `${decision.action}; attempt=${decision.attempt}; delay=${decision.delayMs}ms`
+      )
+      await wait(decision.delayMs)
+      if (this.disposed || epoch !== this.recoveryEpoch) {
+        return
+      }
+
+      this.recovery = {
+        ...this.recovery,
+        status: 'recovering'
+      }
+      this.emit(
+        'recovery-started',
+        `${decision.action}; attempt=${decision.attempt}`
+      )
+
+      try {
+        await this.performRecovery(decision.action)
+        this.recovery = {
+          ...this.recovery,
+          status: 'idle',
+          attemptsInWindow: this.recoveryPolicy.getAttempts(),
+          lastRecoveryAt: new Date().toISOString()
+        }
+        this.pageView?.setVisible(true)
+        this.emit(
+          'recovery-succeeded',
+          `${decision.action}; attempt=${decision.attempt}`
+        )
+        return
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        reason = `${initialReason}; ${decision.action} failed: ${detail}`
+      }
+    }
+  }
+
+  private async performRecovery(
+    action: Exclude<RecoveryAction, 'open-circuit'>
+  ): Promise<void> {
+    if (action === 'recreate-view') {
+      await this.recreate(`recovery:${this.recovery.lastReason ?? 'unknown'}`)
+      return
+    }
+
+    if (action === 'clear-cache-and-reload') {
+      await this.profileSession.clearCache()
+      await this.reloadAndWait(true)
+      return
+    }
+
+    await this.reloadAndWait(action === 'reload-ignore-cache')
+  }
+
+  private reloadAndWait(ignoreCache: boolean, timeoutMs = 15_000): Promise<void> {
+    const contents = this.requireContents()
+
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const finish = (error?: Error): void => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(timer)
+        contents.removeListener('did-finish-load', onFinished)
+        contents.removeListener('did-fail-load', onFailed)
+        contents.removeListener('render-process-gone', onRendererGone)
+        if (error) {
+          reject(error)
+        } else {
+          resolve()
+        }
+      }
+      const onFinished = (): void => finish()
+      const onFailed = (
+        _event: ElectronEvent,
+        errorCode: number,
+        errorDescription: string,
+        _validatedUrl: string,
+        isMainFrame: boolean
+      ): void => {
+        if (isMainFrame && errorCode !== -3) {
+          finish(new Error(`${errorCode}: ${errorDescription}`))
+        }
+      }
+      const onRendererGone = (
+        _event: ElectronEvent,
+        details: RenderProcessGoneDetails
+      ): void => {
+        finish(new Error(`renderer ${details.reason}`))
+      }
+      const timer = setTimeout(() => {
+        finish(new Error(`等待 reload 完成超过 ${timeoutMs} ms`))
+      }, timeoutMs)
+      timer.unref()
+
+      contents.once('did-finish-load', onFinished)
+      contents.on('did-fail-load', onFailed)
+      contents.once('render-process-gone', onRendererGone)
+
+      if (ignoreCache) {
+        contents.reloadIgnoringCache()
+      } else {
+        contents.reload()
+      }
+    })
+  }
+
+  private resetRecovery(): void {
+    this.recoveryEpoch += 1
+    this.recoveryPolicy.reset()
+    this.recovery = {
+      ...this.recovery,
+      status: 'idle',
+      attemptsInWindow: 0
+    }
   }
 
   private destroyPageView(removeFromWindow = true): void {
@@ -783,4 +1185,8 @@ function summarizeLatencies(durations: number[]): LatencyStats {
     p95Ms: sorted[p95Index] ?? 0,
     maximumMs: sorted.at(-1) ?? 0
   }
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }

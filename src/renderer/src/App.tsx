@@ -1,6 +1,11 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 
-import type { BrowserEvent, BrowserSnapshot } from '../../shared/contracts'
+import type {
+  BrowserEvent,
+  BrowserSnapshot,
+  CapabilitySettings,
+  MonitorSnapshot
+} from '../../shared/contracts'
 
 const EVENT_LABELS: Record<BrowserEvent['type'], string> = {
   created: '页面已创建',
@@ -14,11 +19,39 @@ const EVENT_LABELS: Record<BrowserEvent['type'], string> = {
   'renderer-gone': 'Renderer 已退出',
   recreated: '页面已重建',
   'checkpoint-saved': '检查点已保存',
-  'checkpoint-failed': '检查点保存失败'
+  'checkpoint-failed': '检查点保存失败',
+  'health-changed': '健康状态变化',
+  'recovery-scheduled': '恢复已排队',
+  'recovery-started': '开始恢复',
+  'recovery-succeeded': '恢复成功',
+  'circuit-open': '恢复熔断',
+  'popup-blocked': '弹窗已拦截',
+  'popup-routed': '弹窗已转入当前页',
+  'download-blocked': '下载已拦截',
+  'download-started': '下载开始',
+  'download-progress': '下载进度',
+  'download-completed': '下载完成',
+  'download-failed': '下载失败'
 }
+
+const CAPABILITY_ITEMS: Array<{
+  key: keyof CapabilitySettings
+  label: string
+}> = [
+  { key: 'downloads', label: '下载' },
+  { key: 'popups', label: '弹窗转入当前页' },
+  { key: 'notifications', label: '通知' },
+  { key: 'geolocation', label: '定位' },
+  { key: 'media', label: '摄像头/麦克风' },
+  { key: 'clipboardRead', label: '读取剪贴板' },
+  { key: 'fullscreen', label: '全屏' }
+]
 
 export function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null)
+  const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null)
+  const [capabilities, setCapabilities] =
+    useState<CapabilitySettings | null>(null)
   const [events, setEvents] = useState<BrowserEvent[]>([])
   const [address, setAddress] = useState('https://example.com/')
   const [error, setError] = useState<string | null>(null)
@@ -29,14 +62,41 @@ export function App(): React.JSX.Element {
     setAddress(next.url)
   }, [])
 
+  const refreshMonitor = useCallback(async (): Promise<void> => {
+    setMonitor(await window.agenticBrowser.getMonitorSnapshot())
+  }, [])
+
+  const refreshCapabilities = useCallback(async (): Promise<void> => {
+    setCapabilities(await window.agenticBrowser.getCapabilities())
+  }, [])
+
   useEffect(() => {
-    void refreshSnapshot()
+    void Promise.all([
+      refreshSnapshot(),
+      refreshMonitor(),
+      refreshCapabilities()
+    ]).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
 
     return window.agenticBrowser.onBrowserEvent((event) => {
       setEvents((current) => [event, ...current].slice(0, 12))
-      void refreshSnapshot()
+      void Promise.all([refreshSnapshot(), refreshMonitor()]).catch(
+        (cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : String(cause))
+        }
+      )
     })
-  }, [refreshSnapshot])
+  }, [refreshCapabilities, refreshMonitor, refreshSnapshot])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refreshMonitor().catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    }, 2_000)
+    return () => window.clearInterval(timer)
+  }, [refreshMonitor])
 
   const navigate = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
@@ -62,6 +122,25 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const toggleCapability = async (
+    key: keyof CapabilitySettings
+  ): Promise<void> => {
+    if (!capabilities) {
+      return
+    }
+
+    try {
+      setCapabilities(
+        await window.agenticBrowser.setCapabilities({
+          ...capabilities,
+          [key]: !capabilities[key]
+        })
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -69,7 +148,7 @@ export function App(): React.JSX.Element {
           <span className="brand-mark">AB</span>
           <div>
             <h1>AgenticBrowser</h1>
-            <p>Phase 0 · Browser Spike</p>
+            <p>Phase 1 · Supervised Browser</p>
           </div>
         </header>
 
@@ -91,7 +170,14 @@ export function App(): React.JSX.Element {
               <span className="eyebrow">当前项目</span>
               <h2>Electron 能力验证</h2>
             </div>
-            <span className="status-dot" title="运行中" />
+            <span
+              className={`status-dot ${
+                snapshot?.health.status === 'healthy'
+                  ? ''
+                  : 'status-dot-warning'
+              }`}
+              title={snapshot?.health.status ?? '初始化'}
+            />
           </div>
 
           <dl className="metric-grid">
@@ -100,18 +186,60 @@ export function App(): React.JSX.Element {
               <dd>{snapshot?.generation ?? '—'}</dd>
             </div>
             <div>
-              <dt>响应状态</dt>
-              <dd>{snapshot?.responsive === false ? '异常' : '正常'}</dd>
+              <dt>页面健康</dt>
+              <dd>{snapshot?.health.status ?? '—'}</dd>
             </div>
             <div>
-              <dt>加载状态</dt>
-              <dd>{snapshot?.loading ? '加载中' : '空闲'}</dd>
+              <dt>恢复状态</dt>
+              <dd>{snapshot?.recovery.status ?? '—'}</dd>
             </div>
             <div>
               <dt>策略运行</dt>
-              <dd>0</dd>
+              <dd>{monitor?.activeStrategyCount ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>活动下载</dt>
+              <dd>{monitor?.downloads.active ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Chromium 进程</dt>
+              <dd>{monitor?.processes.length ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>CPU</dt>
+              <dd>
+                {monitor ? `${monitor.totalCpuPercent.toFixed(1)}%` : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>工作集</dt>
+              <dd>{formatBytes(monitor?.totalWorkingSetBytes)}</dd>
+            </div>
+            <div>
+              <dt>最后响应</dt>
+              <dd>{formatTime(snapshot?.health.lastResponseAt)}</dd>
             </div>
           </dl>
+        </section>
+
+        <section className="capability-panel">
+          <div className="panel-heading">
+            <h2>能力中心</h2>
+            <span>默认拒绝</span>
+          </div>
+          <div className="capability-list">
+            {CAPABILITY_ITEMS.map((item) => (
+              <label key={item.key}>
+                <span>{item.label}</span>
+                <input
+                  type="checkbox"
+                  checked={capabilities?.[item.key] ?? false}
+                  disabled={!capabilities}
+                  onChange={() => void toggleCapability(item.key)}
+                />
+              </label>
+            ))}
+          </div>
         </section>
 
         <section className="event-panel">
@@ -158,8 +286,31 @@ export function App(): React.JSX.Element {
       </header>
 
       <section className="browser-placeholder" aria-label="内嵌浏览器区域">
-        <p>WebContentsView 正在初始化</p>
+        {snapshot?.recovery.status === 'circuit-open' ? (
+          <div className="error-page">
+            <span className="eyebrow">Recovery circuit open</span>
+            <h2>页面自动恢复已停止</h2>
+            <p>{snapshot.recovery.lastReason}</p>
+            <p>恢复预算已经耗尽。可在地址栏更换 URL，或手动刷新后重试。</p>
+          </div>
+        ) : (
+          <p>WebContentsView 正在初始化</p>
+        )}
       </section>
     </main>
   )
+}
+
+function formatBytes(value: number | undefined): string {
+  if (value === undefined) {
+    return '—'
+  }
+  return `${(value / (1024 * 1024)).toFixed(0)} MiB`
+}
+
+function formatTime(value: string | null | undefined): string {
+  if (!value) {
+    return '—'
+  }
+  return new Date(value).toLocaleTimeString()
 }

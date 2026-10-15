@@ -1,12 +1,22 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { app, BaseWindow, ipcMain, WebContentsView } from 'electron'
 
-import { IPC_CHANNELS, type BrowserEvent, type ReloadOptions } from '../shared/contracts'
+import {
+  IPC_CHANNELS,
+  type BrowserEvent,
+  type CapabilitySettings,
+  type MonitorSnapshot,
+  type ReloadOptions
+} from '../shared/contracts'
 import { writeJsonAtomic } from './atomic-file'
 import { BrowserSupervisor } from './browser-supervisor'
+import {
+  CapabilityStore,
+  DEFAULT_CAPABILITIES
+} from './capability-store'
 import {
   BrowserCheckpointStore,
   type BrowserCheckpoint
@@ -16,6 +26,7 @@ import {
   startPhaseZeroProbeServer,
   type PhaseZeroProbeServer
 } from './phase0-probe-server'
+import { StructuredEventLog } from './structured-event-log'
 
 const managedUserDataPath = process.env.AGENTIC_USER_DATA_PATH
 if (managedUserDataPath) {
@@ -30,9 +41,15 @@ const MIN_PAGE_SIZE = 240
 
 let mainWindow: BaseWindow | null = null
 const smokeTest = process.argv.includes('--smoke-test')
+const recoverySmokeTest = process.argv.includes('--recovery-smoke-test')
 const watchdogSmokeChild = process.argv.includes('--watchdog-smoke-child')
 const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
+const recoverySmokeResultPath = join(
+  process.cwd(),
+  'phase1-recovery-smoke-result.json'
+)
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
+let automatedDownloadDirectory: string | null = null
 const watchdogRestartCount = parseNonNegativeInteger(
   process.env.AGENTIC_WATCHDOG_RESTART_COUNT
 )
@@ -51,11 +68,22 @@ function writeSmokeResult(result: unknown): void {
   }
 }
 
+function writeRecoverySmokeResult(result: unknown): void {
+  if (recoverySmokeTest) {
+    writeFileSync(
+      recoverySmokeResultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
+  }
+}
+
 interface MainWindowRuntime {
   window: BaseWindow
   shellView: WebContentsView
   supervisor: BrowserSupervisor
   events: BrowserEvent[]
+  getEventCount(): number
 }
 
 interface CreateMainWindowOptions {
@@ -64,6 +92,10 @@ interface CreateMainWindowOptions {
   phaseZeroProbe?: boolean
   profileId?: string
   checkpointStore?: BrowserCheckpointStore
+  eventLog?: StructuredEventLog
+  capabilityStore?: CapabilityStore
+  capabilities?: CapabilitySettings
+  downloadDirectory?: string
 }
 
 async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<MainWindowRuntime> {
@@ -72,7 +104,11 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     initialUrl,
     phaseZeroProbe = false,
     profileId,
-    checkpointStore
+    checkpointStore,
+    eventLog,
+    capabilityStore,
+    capabilities,
+    downloadDirectory
   } = options
   const window = new BaseWindow({
     width: 1440,
@@ -94,9 +130,17 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
 
   window.contentView.addChildView(shellView)
   const events: BrowserEvent[] = []
+  let eventCount = 0
 
   const publish = (event: BrowserEvent): void => {
+    eventCount += 1
     events.push(event)
+    if (events.length > 500) {
+      events.shift()
+    }
+    void eventLog?.append(event).catch((error: unknown) => {
+      console.error('写入结构化事件日志失败', error)
+    })
     if (!shellView.webContents.isDestroyed()) {
       shellView.webContents.send(IPC_CHANNELS.browserEvent, event)
     }
@@ -106,6 +150,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     ...(initialUrl ? { initialUrl } : {}),
     strategyPreloadPath: join(currentDirectory, '../preload/strategy-bootstrap.cjs'),
     phaseZeroProbe,
+    healthMonitoring: !phaseZeroProbe,
+    recoveryEnabled: !phaseZeroProbe,
+    ...(capabilities ? { capabilities } : {}),
+    ...(downloadDirectory ? { downloadDirectory } : {}),
     ...(profileId ? { profileId } : {}),
     ...(checkpointStore ? { checkpointStore } : {})
   })
@@ -132,6 +180,25 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     return supervisor.getSnapshot()
   })
 
+  ipcMain.handle(IPC_CHANNELS.getMonitorSnapshot, (event) => {
+    assertTrustedSender(event.sender.id)
+    return collectMonitorSnapshot(supervisor, eventCount)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.getCapabilities, (event) => {
+    assertTrustedSender(event.sender.id)
+    return supervisor.getCapabilities()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.setCapabilities, async (event, value: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (!capabilityStore) {
+      throw new Error('Capability Store 当前不可用')
+    }
+    const settings = await capabilityStore.write(value)
+    return supervisor.setCapabilities(settings)
+  })
+
   ipcMain.handle(IPC_CHANNELS.navigate, async (event, url: unknown) => {
     assertTrustedSender(event.sender.id)
     if (typeof url !== 'string') {
@@ -156,7 +223,11 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   window.on('resize', layout)
   window.on('closed', () => {
     supervisor.dispose(true)
+    void eventLog?.flush()
     ipcMain.removeHandler(IPC_CHANNELS.getSnapshot)
+    ipcMain.removeHandler(IPC_CHANNELS.getMonitorSnapshot)
+    ipcMain.removeHandler(IPC_CHANNELS.getCapabilities)
+    ipcMain.removeHandler(IPC_CHANNELS.setCapabilities)
     ipcMain.removeHandler(IPC_CHANNELS.navigate)
     ipcMain.removeHandler(IPC_CHANNELS.reload)
 
@@ -187,12 +258,43 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     window,
     shellView,
     supervisor,
-    events
+    events,
+    getEventCount: () => eventCount
+  }
+}
+
+function collectMonitorSnapshot(
+  supervisor: BrowserSupervisor,
+  browserEventCount: number
+): MonitorSnapshot {
+  const processes = app.getAppMetrics().map((metric) => ({
+    pid: metric.pid,
+    type: metric.type,
+    cpuPercent: metric.cpu.percentCPUUsage,
+    workingSetBytes: metric.memory.workingSetSize * 1024
+  }))
+
+  return {
+    generatedAt: new Date().toISOString(),
+    browser: supervisor.getSnapshot(),
+    browserEventCount,
+    activePageCount: 1,
+    activeStrategyCount: 0,
+    totalCpuPercent: processes.reduce(
+      (total, metric) => total + metric.cpuPercent,
+      0
+    ),
+    totalWorkingSetBytes: processes.reduce(
+      (total, metric) => total + metric.workingSetBytes,
+      0
+    ),
+    processes,
+    downloads: supervisor.getDownloadSummary()
   }
 }
 
 function createCheckpointStore(): BrowserCheckpointStore | undefined {
-  if (smokeTest) {
+  if (smokeTest || recoverySmokeTest) {
     return undefined
   }
 
@@ -250,6 +352,123 @@ async function runWatchdogSmokeChild(
   }
 }
 
+async function runRecoverySmoke(
+  runtime: MainWindowRuntime,
+  probe: PhaseZeroProbeServer
+): Promise<Record<string, unknown>> {
+  const popupUrl = new URL('/popup', probe.topUrl).toString()
+  await runtime.supervisor.triggerPopup(popupUrl)
+  await waitUntil(
+    () => runtime.events.some((event) => event.type === 'popup-blocked'),
+    2_000
+  )
+  const popupBlocked = runtime.events.some(
+    (event) => event.type === 'popup-blocked'
+  )
+
+  runtime.supervisor.setCapabilities({
+    ...runtime.supervisor.getCapabilities(),
+    popups: true
+  })
+  await runtime.supervisor.triggerPopup(popupUrl)
+  await waitUntil(
+    () => runtime.supervisor.getSnapshot().url === popupUrl,
+    3_000
+  )
+  const popupRouted =
+    runtime.supervisor.getSnapshot().url === popupUrl &&
+    runtime.events.some((event) => event.type === 'popup-routed')
+
+  const downloadUrl = new URL('/sample.mp3', probe.topUrl).toString()
+  runtime.supervisor.requestDownload(downloadUrl)
+  await waitUntil(
+    () => runtime.supervisor.getDownloadSummary().completed === 1,
+    5_000
+  )
+  const allowedDownload = runtime.supervisor.getDownloadSummary()
+  runtime.supervisor.setCapabilities({
+    ...runtime.supervisor.getCapabilities(),
+    downloads: false
+  })
+  runtime.supervisor.requestDownload(`${downloadUrl}?blocked=1`)
+  await waitUntil(
+    () => runtime.events.some((event) => event.type === 'download-blocked'),
+    3_000
+  )
+  const downloadBlocked = runtime.events.some(
+    (event) => event.type === 'download-blocked'
+  )
+
+  let navigationRejected = false
+  const failedUrl = new URL('/disconnect', probe.topUrl).toString()
+  try {
+    await runtime.supervisor.navigate(failedUrl)
+  } catch {
+    navigationRejected = true
+  }
+
+  const startedAt = Date.now()
+  while (
+    runtime.supervisor.getSnapshot().recovery.status !== 'circuit-open' &&
+    Date.now() - startedAt < 10_000
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  const snapshot = runtime.supervisor.getSnapshot()
+  const recoveryActions = runtime.events
+    .filter((event) => event.type === 'recovery-started')
+    .map((event) => event.detail?.split(';')[0] ?? '')
+  const expectedActions = [
+    'reload',
+    'reload-ignore-cache',
+    'clear-cache-and-reload',
+    'recreate-view'
+  ]
+  const passed =
+    popupBlocked &&
+    popupRouted &&
+    allowedDownload.completed === 1 &&
+    allowedDownload.receivedBytes === 4096 &&
+    downloadBlocked &&
+    navigationRejected &&
+    snapshot.recovery.status === 'circuit-open' &&
+    snapshot.recovery.attemptsInWindow === 4 &&
+    snapshot.responsive === false &&
+    snapshot.generation >= 2 &&
+    expectedActions.every(
+      (action, index) => recoveryActions[index] === action
+    ) &&
+    runtime.events.some((event) => event.type === 'circuit-open')
+
+  return {
+    passed,
+    navigationRejected,
+    popupBlocked,
+    popupRouted,
+    allowedDownload,
+    downloadBlocked,
+    failedUrl,
+    elapsedMs: Date.now() - startedAt,
+    recoveryActions,
+    snapshot,
+    events: runtime.events
+  }
+}
+
+async function waitUntil(
+  predicate: () => boolean,
+  timeoutMs: number
+): Promise<void> {
+  const startedAt = Date.now()
+  while (!predicate()) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(`等待条件超过 ${timeoutMs} ms`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
 function parseNonNegativeInteger(value: string | undefined): number {
   if (!value) {
     return 0
@@ -259,13 +478,39 @@ function parseNonNegativeInteger(value: string | undefined): number {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
 }
 
+function cleanupAutomatedDownloads(): void {
+  if (automatedDownloadDirectory) {
+    rmSync(automatedDownloadDirectory, { recursive: true, force: true })
+    automatedDownloadDirectory = null
+  }
+}
+
 app.whenReady().then(async () => {
   app.setAppUserModelId('com.firoyang.agenticbrowser')
   const checkpointStore = createCheckpointStore()
+  const eventLog =
+    smokeTest || recoverySmokeTest
+      ? undefined
+      : new StructuredEventLog(
+          join(app.getPath('userData'), 'logs', 'browser-events.jsonl')
+        )
   const restoredCheckpoint = checkpointStore
     ? await checkpointStore.read()
     : null
-  phaseZeroProbe = smokeTest ? await startPhaseZeroProbeServer() : null
+  const profileId = restoredCheckpoint?.profileId ?? 'profile-default'
+  const capabilityStore = new CapabilityStore(
+    join(app.getPath('userData'), 'config', 'capabilities.json')
+  )
+  const capabilities =
+    smokeTest || recoverySmokeTest
+      ? { ...DEFAULT_CAPABILITIES }
+      : await capabilityStore.read()
+  automatedDownloadDirectory =
+    smokeTest || recoverySmokeTest
+      ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
+      : null
+  phaseZeroProbe =
+    smokeTest || recoverySmokeTest ? await startPhaseZeroProbeServer() : null
   const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
   if (watchdogSmokeChild && !watchdogSmokeUrl && !restoredCheckpoint) {
     throw new Error('Watchdog smoke 缺少初始 URL')
@@ -274,11 +519,17 @@ app.whenReady().then(async () => {
   const initialUrl =
     phaseZeroProbe?.topUrl ?? restoredCheckpoint?.url ?? watchdogSmokeUrl
   const runtime = await createMainWindow({
-    show: !watchdogSmokeChild,
+    show: !watchdogSmokeChild && !recoverySmokeTest,
     phaseZeroProbe: smokeTest,
     ...(initialUrl ? { initialUrl } : {}),
-    ...(restoredCheckpoint ? { profileId: restoredCheckpoint.profileId } : {}),
-    ...(checkpointStore ? { checkpointStore } : {})
+    profileId,
+    ...(checkpointStore ? { checkpointStore } : {}),
+    ...(eventLog ? { eventLog } : {}),
+    capabilityStore,
+    capabilities,
+    downloadDirectory:
+      automatedDownloadDirectory ??
+      join(app.getPath('userData'), 'downloads', profileId)
   })
 
   if (smokeTest) {
@@ -397,7 +648,23 @@ app.whenReady().then(async () => {
     runtime.window.close()
     await phaseZeroProbe?.close()
     phaseZeroProbe = null
+    cleanupAutomatedDownloads()
     app.exit(passed ? 0 : 1)
+    return
+  }
+
+  if (recoverySmokeTest) {
+    if (!phaseZeroProbe) {
+      throw new Error('Recovery smoke probe server 未启动')
+    }
+    const result = await runRecoverySmoke(runtime, phaseZeroProbe)
+    writeRecoverySmokeResult(result)
+    console.log(`AGENTIC_BROWSER_RECOVERY_SMOKE ${JSON.stringify(result)}`)
+    runtime.window.close()
+    await phaseZeroProbe.close()
+    phaseZeroProbe = null
+    cleanupAutomatedDownloads()
+    app.exit(result.passed === true ? 0 : 1)
     return
   }
 
@@ -412,12 +679,15 @@ app.whenReady().then(async () => {
     }
   })
 }).catch((error: unknown) => {
-  writeSmokeResult({
+  const result = {
     passed: false,
     error: error instanceof Error ? error.stack ?? error.message : String(error)
-  })
+  }
+  writeSmokeResult(result)
+  writeRecoverySmokeResult(result)
   void phaseZeroProbe?.close()
   phaseZeroProbe = null
+  cleanupAutomatedDownloads()
   void mainProcessHeartbeat?.stop()
   console.error(error)
   app.exit(1)

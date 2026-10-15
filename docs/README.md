@@ -30,7 +30,8 @@
 6. [浏览器内核与兼容性研究](research/browser-runtime-and-compatibility.md)
 7. [示教录制与 Agent 研究](research/recording-and-agent.md)
 8. [Phase 0 验证记录](research/phase0-validation.md)
-9. [架构决策记录](ADR/README.md)
+9. [Phase 1 验证记录](research/phase1-validation.md)
+10. [架构决策记录](ADR/README.md)
 
 ## 同步原则
 

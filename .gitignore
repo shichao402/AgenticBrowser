@@ -6,6 +6,7 @@ release/
 coverage/
 *.tsbuildinfo
 phase0-smoke-result.json
+phase1-recovery-smoke-result.json
 watchdog-smoke-result.json
 
 # Runtime state
