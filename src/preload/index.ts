@@ -4,6 +4,7 @@ import {
   IPC_CHANNELS,
   type BrowserEvent,
   type BrowserShellApi,
+  type BrowserTab,
   type CapabilitySettings,
   type MonitorSnapshot,
   type ReloadOptions
@@ -17,6 +18,14 @@ const api: BrowserShellApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getCapabilities),
   setCapabilities: (settings: CapabilitySettings): Promise<CapabilitySettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.setCapabilities, settings),
+  listTabs: (): Promise<BrowserTab[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.listTabs),
+  createTab: (url?: string): Promise<BrowserTab[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.createTab, url),
+  switchTab: (tabId: string): Promise<BrowserTab[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.switchTab, tabId),
+  closeTab: (tabId: string): Promise<BrowserTab[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.closeTab, tabId),
   navigate: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, url),
   reload: (options: ReloadOptions) => ipcRenderer.invoke(IPC_CHANNELS.reload, options),
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => {

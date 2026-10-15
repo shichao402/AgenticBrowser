@@ -286,16 +286,23 @@ button {
 .toolbar {
   position: absolute;
   inset: 0 0 auto 320px;
-  height: 72px;
+  height: 104px;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 16px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 12px 8px;
   background: #171a20;
   border-bottom: 1px solid #2a2e37;
 }
 
-.toolbar form {
+.navigation-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+}
+
+.navigation-row form {
   display: flex;
   min-width: 240px;
   flex: 1;
@@ -338,6 +345,57 @@ button {
   font-weight: 700;
 }
 
+.tab-strip {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 5px;
+  overflow: auto hidden;
+}
+
+.browser-tab {
+  display: flex;
+  min-width: 96px;
+  max-width: 190px;
+  align-items: center;
+  background: #1d2129;
+  border: 1px solid #2f3540;
+  border-radius: 7px;
+}
+
+.browser-tab-active {
+  background: #293443;
+  border-color: #4a627b;
+}
+
+.browser-tab > button:first-child {
+  min-width: 0;
+  flex: 1;
+  padding: 5px 7px;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  text-overflow: ellipsis;
+}
+
+.browser-tab .tab-close {
+  padding: 3px 7px;
+  background: transparent;
+  border: 0;
+}
+
+.browser-tab .tab-close:disabled {
+  color: #535b68;
+  cursor: default;
+}
+
+.toolbar .new-tab {
+  padding: 4px 9px;
+  background: transparent;
+  border: 1px solid #343a46;
+}
+
 .toolbar-error {
   position: absolute;
   right: 16px;
@@ -355,7 +413,7 @@ button {
 
 .browser-placeholder {
   position: absolute;
-  inset: 72px 0 0 320px;
+  inset: 104px 0 0 320px;
   display: grid;
   place-items: center;
   color: #6f7886;

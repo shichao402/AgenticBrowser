@@ -12,7 +12,7 @@ import {
   type ReloadOptions
 } from '../shared/contracts'
 import { writeJsonAtomic } from './atomic-file'
-import { BrowserSupervisor } from './browser-supervisor'
+import { BrowserTabManager } from './browser-tab-manager'
 import {
   CapabilityStore,
   DEFAULT_CAPABILITIES
@@ -36,7 +36,7 @@ if (managedUserDataPath) {
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
 const SIDEBAR_WIDTH = 320
-const TOOLBAR_HEIGHT = 72
+const TOOLBAR_HEIGHT = 104
 const MIN_PAGE_SIZE = 240
 
 let mainWindow: BaseWindow | null = null
@@ -81,7 +81,7 @@ function writeRecoverySmokeResult(result: unknown): void {
 interface MainWindowRuntime {
   window: BaseWindow
   shellView: WebContentsView
-  supervisor: BrowserSupervisor
+  supervisor: BrowserTabManager
   events: BrowserEvent[]
   getEventCount(): number
 }
@@ -146,7 +146,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     }
   }
 
-  const supervisor = new BrowserSupervisor(window, publish, {
+  const supervisor = new BrowserTabManager(window, publish, {
     ...(initialUrl ? { initialUrl } : {}),
     strategyPreloadPath: join(currentDirectory, '../preload/strategy-bootstrap.cjs'),
     phaseZeroProbe,
@@ -199,6 +199,35 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     return supervisor.setCapabilities(settings)
   })
 
+  ipcMain.handle(IPC_CHANNELS.listTabs, (event) => {
+    assertTrustedSender(event.sender.id)
+    return supervisor.listTabs()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.createTab, (event, url: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (url !== undefined && typeof url !== 'string') {
+      throw new TypeError('新标签页 URL 必须是字符串')
+    }
+    return supervisor.createTab(url)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.switchTab, (event, tabId: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (typeof tabId !== 'string') {
+      throw new TypeError('标签页 ID 必须是字符串')
+    }
+    return supervisor.switchTab(tabId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.closeTab, (event, tabId: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (typeof tabId !== 'string') {
+      throw new TypeError('标签页 ID 必须是字符串')
+    }
+    return supervisor.closeTab(tabId)
+  })
+
   ipcMain.handle(IPC_CHANNELS.navigate, async (event, url: unknown) => {
     assertTrustedSender(event.sender.id)
     if (typeof url !== 'string') {
@@ -224,14 +253,23 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   window.on('closed', () => {
     supervisor.dispose(true)
     void eventLog?.flush()
-    ipcMain.removeHandler(IPC_CHANNELS.getSnapshot)
-    ipcMain.removeHandler(IPC_CHANNELS.getMonitorSnapshot)
-    ipcMain.removeHandler(IPC_CHANNELS.getCapabilities)
-    ipcMain.removeHandler(IPC_CHANNELS.setCapabilities)
-    ipcMain.removeHandler(IPC_CHANNELS.navigate)
-    ipcMain.removeHandler(IPC_CHANNELS.reload)
+    const removeIpcHandlers = (): void => {
+      ipcMain.removeHandler(IPC_CHANNELS.getSnapshot)
+      ipcMain.removeHandler(IPC_CHANNELS.getMonitorSnapshot)
+      ipcMain.removeHandler(IPC_CHANNELS.getCapabilities)
+      ipcMain.removeHandler(IPC_CHANNELS.setCapabilities)
+      ipcMain.removeHandler(IPC_CHANNELS.listTabs)
+      ipcMain.removeHandler(IPC_CHANNELS.createTab)
+      ipcMain.removeHandler(IPC_CHANNELS.switchTab)
+      ipcMain.removeHandler(IPC_CHANNELS.closeTab)
+      ipcMain.removeHandler(IPC_CHANNELS.navigate)
+      ipcMain.removeHandler(IPC_CHANNELS.reload)
+    }
 
-    if (!shellView.webContents.isDestroyed()) {
+    if (shellView.webContents.isDestroyed()) {
+      removeIpcHandlers()
+    } else {
+      shellView.webContents.once('destroyed', removeIpcHandlers)
       shellView.webContents.close()
     }
 
@@ -264,7 +302,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
 }
 
 function collectMonitorSnapshot(
-  supervisor: BrowserSupervisor,
+  supervisor: BrowserTabManager,
   browserEventCount: number
 ): MonitorSnapshot {
   const processes = app.getAppMetrics().map((metric) => ({
@@ -278,7 +316,7 @@ function collectMonitorSnapshot(
     generatedAt: new Date().toISOString(),
     browser: supervisor.getSnapshot(),
     browserEventCount,
-    activePageCount: 1,
+    activePageCount: supervisor.listTabs().length,
     activeStrategyCount: 0,
     totalCpuPercent: processes.reduce(
       (total, metric) => total + metric.cpuPercent,
@@ -357,6 +395,20 @@ async function runRecoverySmoke(
   probe: PhaseZeroProbeServer
 ): Promise<Record<string, unknown>> {
   const popupUrl = new URL('/popup', probe.topUrl).toString()
+  const initialTabs = runtime.supervisor.listTabs()
+  const tabsAfterCreate = await runtime.supervisor.createTab(popupUrl)
+  const firstTab = initialTabs[0]
+  const secondTab = tabsAfterCreate.find((tab) => tab.active)
+  if (!firstTab || !secondTab || firstTab.id === secondTab.id) {
+    throw new Error('多标签创建结果无效')
+  }
+  const tabsAfterOwnerClose = runtime.supervisor.closeTab(firstTab.id)
+  const multiTabPassed =
+    tabsAfterCreate.length === 2 &&
+    tabsAfterOwnerClose.length === 1 &&
+    tabsAfterOwnerClose[0]?.id === secondTab.id &&
+    tabsAfterOwnerClose[0]?.active === true
+
   await runtime.supervisor.triggerPopup(popupUrl)
   await waitUntil(
     () => runtime.events.some((event) => event.type === 'popup-blocked'),
@@ -426,6 +478,7 @@ async function runRecoverySmoke(
     'recreate-view'
   ]
   const passed =
+    multiTabPassed &&
     popupBlocked &&
     popupRouted &&
     allowedDownload.completed === 1 &&
@@ -444,6 +497,9 @@ async function runRecoverySmoke(
   return {
     passed,
     navigationRejected,
+    multiTabPassed,
+    tabsAfterCreate,
+    tabsAfterOwnerClose,
     popupBlocked,
     popupRouted,
     allowedDownload,

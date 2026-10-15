@@ -3,6 +3,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react'
 import type {
   BrowserEvent,
   BrowserSnapshot,
+  BrowserTab,
   CapabilitySettings,
   MonitorSnapshot
 } from '../../shared/contracts'
@@ -52,6 +53,7 @@ export function App(): React.JSX.Element {
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null)
   const [capabilities, setCapabilities] =
     useState<CapabilitySettings | null>(null)
+  const [tabs, setTabs] = useState<BrowserTab[]>([])
   const [events, setEvents] = useState<BrowserEvent[]>([])
   const [address, setAddress] = useState('https://example.com/')
   const [error, setError] = useState<string | null>(null)
@@ -70,24 +72,38 @@ export function App(): React.JSX.Element {
     setCapabilities(await window.agenticBrowser.getCapabilities())
   }, [])
 
+  const refreshTabs = useCallback(async (): Promise<void> => {
+    setTabs(await window.agenticBrowser.listTabs())
+  }, [])
+
   useEffect(() => {
     void Promise.all([
       refreshSnapshot(),
       refreshMonitor(),
-      refreshCapabilities()
+      refreshCapabilities(),
+      refreshTabs()
     ]).catch((cause: unknown) => {
       setError(cause instanceof Error ? cause.message : String(cause))
     })
 
     return window.agenticBrowser.onBrowserEvent((event) => {
       setEvents((current) => [event, ...current].slice(0, 12))
-      void Promise.all([refreshSnapshot(), refreshMonitor()]).catch(
+      void Promise.all([
+        refreshSnapshot(),
+        refreshMonitor(),
+        refreshTabs()
+      ]).catch(
         (cause: unknown) => {
           setError(cause instanceof Error ? cause.message : String(cause))
         }
       )
     })
-  }, [refreshCapabilities, refreshMonitor, refreshSnapshot])
+  }, [
+    refreshCapabilities,
+    refreshMonitor,
+    refreshSnapshot,
+    refreshTabs
+  ])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -136,6 +152,33 @@ export function App(): React.JSX.Element {
           [key]: !capabilities[key]
         })
       )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const createTab = async (): Promise<void> => {
+    try {
+      setTabs(await window.agenticBrowser.createTab())
+      await refreshSnapshot()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const switchTab = async (tabId: string): Promise<void> => {
+    try {
+      setTabs(await window.agenticBrowser.switchTab(tabId))
+      await refreshSnapshot()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const closeTab = async (tabId: string): Promise<void> => {
+    try {
+      setTabs(await window.agenticBrowser.closeTab(tabId))
+      await refreshSnapshot()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -267,21 +310,58 @@ export function App(): React.JSX.Element {
       </aside>
 
       <header className="toolbar">
-        <form onSubmit={(event) => void navigate(event)}>
-          <input
-            aria-label="地址"
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            spellCheck={false}
-          />
-          <button type="submit">打开</button>
-        </form>
-        <button type="button" onClick={() => void reload(false)}>
-          刷新
-        </button>
-        <button type="button" onClick={() => void reload(true)}>
-          忽略缓存
-        </button>
+        <div className="tab-strip" role="tablist" aria-label="浏览器标签页">
+          {tabs.map((tab) => (
+            <div
+              className={`browser-tab ${tab.active ? 'browser-tab-active' : ''}`}
+              key={tab.id}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab.active}
+                title={tab.url}
+                onClick={() => void switchTab(tab.id)}
+              >
+                {tab.title}
+              </button>
+              <button
+                className="tab-close"
+                type="button"
+                aria-label={`关闭 ${tab.title}`}
+                disabled={tabs.length === 1}
+                onClick={() => void closeTab(tab.id)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            className="new-tab"
+            type="button"
+            aria-label="新建标签页"
+            onClick={() => void createTab()}
+          >
+            +
+          </button>
+        </div>
+        <div className="navigation-row">
+          <form onSubmit={(event) => void navigate(event)}>
+            <input
+              aria-label="地址"
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+              spellCheck={false}
+            />
+            <button type="submit">打开</button>
+          </form>
+          <button type="button" onClick={() => void reload(false)}>
+            刷新
+          </button>
+          <button type="button" onClick={() => void reload(true)}>
+            忽略缓存
+          </button>
+        </div>
         {error ? <p className="toolbar-error">{error}</p> : null}
       </header>
 

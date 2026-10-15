@@ -4,6 +4,10 @@ export const IPC_CHANNELS = {
   getMonitorSnapshot: 'monitor:get-snapshot',
   getCapabilities: 'capability:get',
   setCapabilities: 'capability:set',
+  listTabs: 'tabs:list',
+  createTab: 'tabs:create',
+  switchTab: 'tabs:switch',
+  closeTab: 'tabs:close',
   navigate: 'browser:navigate',
   reload: 'browser:reload'
 } as const
@@ -40,6 +44,7 @@ export interface BrowserEvent {
   timestamp: string
   url: string
   detail?: string
+  tabId?: string
 }
 
 export interface BrowserSnapshot {
@@ -105,6 +110,15 @@ export interface DownloadSummary {
   receivedBytes: number
 }
 
+export interface BrowserTab {
+  id: string
+  title: string
+  url: string
+  active: boolean
+  loading: boolean
+  responsive: boolean
+}
+
 export interface CapabilitySettings {
   popups: boolean
   downloads: boolean
@@ -120,6 +134,10 @@ export interface BrowserShellApi {
   getMonitorSnapshot(): Promise<MonitorSnapshot>
   getCapabilities(): Promise<CapabilitySettings>
   setCapabilities(settings: CapabilitySettings): Promise<CapabilitySettings>
+  listTabs(): Promise<BrowserTab[]>
+  createTab(url?: string): Promise<BrowserTab[]>
+  switchTab(tabId: string): Promise<BrowserTab[]>
+  closeTab(tabId: string): Promise<BrowserTab[]>
   navigate(url: string): Promise<BrowserSnapshot>
   reload(options: ReloadOptions): Promise<BrowserSnapshot>
   onBrowserEvent(listener: (event: BrowserEvent) => void): () => void

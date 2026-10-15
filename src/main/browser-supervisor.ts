@@ -144,6 +144,7 @@ export interface BrowserSupervisorOptions {
   recoveryEnabled?: boolean
   capabilities?: CapabilitySettings
   downloadDirectory?: string
+  manageSessionHandlers?: boolean
 }
 
 export class BrowserSupervisor {
@@ -165,6 +166,7 @@ export class BrowserSupervisor {
   ): void => {
     this.handleDownload(item)
   }
+  private sessionHandlersEnabled = false
   private pageView: WebContentsView | null = null
   private bounds: Rectangle = { x: 320, y: 72, width: 960, height: 728 }
   private currentUrl: string
@@ -224,6 +226,7 @@ export class BrowserSupervisor {
       }
     )
     this.configureSession()
+    this.setSessionHandlerOwnership(options.manageSessionHandlers !== false)
   }
 
   async start(): Promise<void> {
@@ -264,6 +267,22 @@ export class BrowserSupervisor {
 
   getDownloadSummary(): DownloadSummary {
     return { ...this.downloads }
+  }
+
+  setVisible(visible: boolean): void {
+    this.pageView?.setVisible(visible)
+  }
+
+  setSessionHandlerOwnership(enabled: boolean): void {
+    if (enabled === this.sessionHandlersEnabled) {
+      return
+    }
+    this.sessionHandlersEnabled = enabled
+    if (enabled) {
+      this.profileSession.on('will-download', this.onWillDownload)
+    } else {
+      this.profileSession.removeListener('will-download', this.onWillDownload)
+    }
   }
 
   async navigate(input: string): Promise<BrowserSnapshot> {
@@ -719,7 +738,7 @@ export class BrowserSupervisor {
   dispose(windowClosed = false): void {
     this.disposed = true
     this.healthMonitor.stop()
-    this.profileSession.removeListener('will-download', this.onWillDownload)
+    this.setSessionHandlerOwnership(false)
     this.destroyPageView(!windowClosed)
   }
 
@@ -744,7 +763,6 @@ export class BrowserSupervisor {
         callback(this.isPermissionAllowed(permission))
       }
     )
-    this.profileSession.on('will-download', this.onWillDownload)
   }
 
   private async createPageView(
