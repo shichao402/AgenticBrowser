@@ -760,7 +760,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       registryStrategyDefinitions
     )
     requireRunnableProjectStrategies(resolved)
-    const selectedState = await projectStore.setActive(project.id)
+    const selectedState = projectState
     const previousProfileId = activeProfileId
     const previousUrl = supervisor.getSnapshot().url
     const previousDefinitions = cloneStrategyDefinitions(
@@ -1268,7 +1268,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   const startBackgroundProjectRuntime = async (
     envelope: ProjectRuntimeEnvelope
   ): Promise<void> => {
-    if (!profileStore || !projectRuntimeStore) {
+    if (!profileStore || !projectStore || !projectRuntimeStore) {
       throw new Error('后台 Project Runtime 依赖当前不可用')
     }
     const profileState = await profileStore.read()
@@ -1306,6 +1306,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     )
     try {
       const runtime = await context.start()
+      if ((await projectStore.read()).activeProjectId === runtime.projectId) {
+        showProjectSupervisor(runtime.projectId)
+      }
       publish({
         sequence: 0,
         type: 'project-runtime-started',
@@ -1639,8 +1642,12 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         throw new Error('Project Scheduler 当前不可用')
       }
       await projectScheduler.requestManual(projectId)
+      if (!projectStore) {
+        throw new Error('Project Store 当前不可用')
+      }
+      const selectedState = await projectStore.setActive(projectId)
       showProjectSupervisor(projectId)
-      return readProjectWorkspace()
+      return buildProjectWorkspaceSnapshot(selectedState)
     }
   )
 
