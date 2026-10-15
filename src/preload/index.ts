@@ -9,7 +9,8 @@ import {
   type CapabilityPolicySnapshot,
   type MonitorSnapshot,
   type ProfileSummary,
-  type ReloadOptions
+  type ReloadOptions,
+  type StartupSettings
 } from '../shared/contracts'
 
 const api: BrowserShellApi = {
@@ -38,6 +39,10 @@ const api: BrowserShellApi = {
     ipcRenderer.invoke(IPC_CHANNELS.activateProfile, profileId),
   deleteProfile: (profileId: string): Promise<ProfileSummary[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteProfile, profileId),
+  getStartupSettings: (): Promise<StartupSettings> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getStartupSettings),
+  setOpenAtLogin: (enabled: boolean): Promise<StartupSettings> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setOpenAtLogin, enabled),
   navigate: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, url),
   reload: (options: ReloadOptions) => ipcRenderer.invoke(IPC_CHANNELS.reload, options),
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => {

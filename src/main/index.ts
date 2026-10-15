@@ -10,7 +10,8 @@ import {
   type CapabilityPolicy,
   type MonitorSnapshot,
   type ProfileSummary,
-  type ReloadOptions
+  type ReloadOptions,
+  type StartupSettings
 } from '../shared/contracts'
 import { writeJsonAtomic } from './atomic-file'
 import { BrowserTabManager } from './browser-tab-manager'
@@ -33,6 +34,10 @@ import {
   ProfileStore,
   type ProfileState
 } from './profile-store'
+import {
+  launchPackagedWatchdog,
+  WATCHDOG_AUTOSTART_ARGUMENT
+} from './watchdog-launcher'
 
 const managedUserDataPath = process.env.AGENTIC_USER_DATA_PATH
 if (managedUserDataPath) {
@@ -66,7 +71,36 @@ const mainProcessHeartbeat = process.env.AGENTIC_WATCHDOG_HEARTBEAT_PATH
       watchdogRestartCount
     )
   : null
-mainProcessHeartbeat?.start()
+const runApplication = await prepareApplicationLaunch()
+
+async function prepareApplicationLaunch(): Promise<boolean> {
+  if (
+    app.isPackaged &&
+    process.env.AGENTIC_WATCHDOG_MANAGED !== '1'
+  ) {
+    await launchPackagedWatchdog(
+      {
+        executablePath: process.execPath,
+        resourcesPath: process.resourcesPath,
+        userDataPath: app.getPath('userData')
+      },
+      process.argv
+    )
+    app.exit(0)
+    return false
+  }
+
+  if (!app.requestSingleInstanceLock()) {
+    app.exit(0)
+    return false
+  }
+
+  app.on('second-instance', () => {
+    mainWindow?.show()
+    mainWindow?.focus()
+  })
+  return true
+}
 
 function writeSmokeResult(result: unknown): void {
   if (smokeTest) {
@@ -103,6 +137,45 @@ interface CreateMainWindowOptions {
   capabilityPolicy?: CapabilityPolicy
   downloadRoot?: string
   profileStore?: ProfileStore
+}
+
+function getStartupSettings(): StartupSettings {
+  const supported =
+    app.isPackaged &&
+    (process.platform === 'win32' || process.platform === 'darwin')
+  let openAtLogin = false
+  if (supported) {
+    openAtLogin =
+      process.platform === 'win32'
+        ? app.getLoginItemSettings({
+            path: process.execPath,
+            args: [WATCHDOG_AUTOSTART_ARGUMENT]
+          }).openAtLogin
+        : app.getLoginItemSettings().openAtLogin
+  }
+
+  return {
+    supported,
+    openAtLogin,
+    managedByWatchdog: process.env.AGENTIC_WATCHDOG_MANAGED === '1'
+  }
+}
+
+function setOpenAtLogin(enabled: boolean): StartupSettings {
+  if (!getStartupSettings().supported) {
+    throw new Error('开机启动仅支持 Windows/macOS 打包应用')
+  }
+
+  if (process.platform === 'win32') {
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      path: process.execPath,
+      args: [WATCHDOG_AUTOSTART_ARGUMENT]
+    })
+  } else {
+    app.setLoginItemSettings({ openAtLogin: enabled })
+  }
+  return getStartupSettings()
 }
 
 async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<MainWindowRuntime> {
@@ -371,6 +444,22 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     }
   )
 
+  ipcMain.handle(IPC_CHANNELS.getStartupSettings, (event) => {
+    assertTrustedSender(event.sender.id)
+    return getStartupSettings()
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.setOpenAtLogin,
+    (event, enabled: unknown) => {
+      assertTrustedSender(event.sender.id)
+      if (typeof enabled !== 'boolean') {
+        throw new TypeError('开机启动设置必须是布尔值')
+      }
+      return setOpenAtLogin(enabled)
+    }
+  )
+
   ipcMain.handle(IPC_CHANNELS.navigate, async (event, url: unknown) => {
     assertTrustedSender(event.sender.id)
     if (typeof url !== 'string') {
@@ -409,6 +498,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ipcMain.removeHandler(IPC_CHANNELS.createProfile)
       ipcMain.removeHandler(IPC_CHANNELS.activateProfile)
       ipcMain.removeHandler(IPC_CHANNELS.deleteProfile)
+      ipcMain.removeHandler(IPC_CHANNELS.getStartupSettings)
+      ipcMain.removeHandler(IPC_CHANNELS.setOpenAtLogin)
       ipcMain.removeHandler(IPC_CHANNELS.navigate)
       ipcMain.removeHandler(IPC_CHANNELS.reload)
     }
@@ -514,6 +605,13 @@ async function runWatchdogSmokeChild(
   const snapshot = runtime.supervisor.getSnapshot()
   const profileCookiePresent =
     await runtime.supervisor.hasProfileCookie('agentic_watchdog_session')
+  const startupSettings = getStartupSettings()
+  const expectedStartupSupport =
+    app.isPackaged &&
+    (process.platform === 'win32' || process.platform === 'darwin')
+  const startupIntegrationPassed =
+    startupSettings.supported === expectedStartupSupport &&
+    startupSettings.managedByWatchdog
   const targetUrl = restoredCheckpoint?.url ?? requestedUrl
   const passed =
     watchdogRestartCount > 0 &&
@@ -522,7 +620,8 @@ async function runWatchdogSmokeChild(
     targetUrl !== undefined &&
     snapshot.url === targetUrl &&
     checkpoint.url === targetUrl &&
-    profileCookiePresent
+    profileCookiePresent &&
+    startupIntegrationPassed
   const result = {
     ready: true,
     passed: watchdogRestartCount === 0 ? null : passed,
@@ -533,7 +632,9 @@ async function runWatchdogSmokeChild(
     checkpoint,
     snapshot,
     profileCookiePresent,
-    heartbeatActive: mainProcessHeartbeat !== null
+    heartbeatActive: mainProcessHeartbeat !== null,
+    startupSettings,
+    startupIntegrationPassed
   }
 
   await writeJsonAtomic(resultPath, result)
@@ -823,7 +924,9 @@ function cleanupAutomatedDownloads(): void {
   }
 }
 
-app.whenReady().then(async () => {
+if (runApplication) {
+  mainProcessHeartbeat?.start()
+  void app.whenReady().then(async () => {
   app.setAppUserModelId('com.firoyang.agenticbrowser')
   const checkpointStore = createCheckpointStore()
   const eventLog =
@@ -1032,20 +1135,21 @@ app.whenReady().then(async () => {
       void createMainWindow()
     }
   })
-}).catch((error: unknown) => {
-  const result = {
-    passed: false,
-    error: error instanceof Error ? error.stack ?? error.message : String(error)
-  }
-  writeSmokeResult(result)
-  writeRecoverySmokeResult(result)
-  void phaseZeroProbe?.close()
-  phaseZeroProbe = null
-  cleanupAutomatedDownloads()
-  void mainProcessHeartbeat?.stop()
-  console.error(error)
-  app.exit(1)
-})
+  }).catch((error: unknown) => {
+    const result = {
+      passed: false,
+      error: error instanceof Error ? error.stack ?? error.message : String(error)
+    }
+    writeSmokeResult(result)
+    writeRecoverySmokeResult(result)
+    void phaseZeroProbe?.close()
+    phaseZeroProbe = null
+    cleanupAutomatedDownloads()
+    void mainProcessHeartbeat?.stop()
+    console.error(error)
+    app.exit(1)
+  })
+}
 
 app.on('before-quit', () => {
   void mainProcessHeartbeat?.stop()

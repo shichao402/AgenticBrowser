@@ -13,6 +13,7 @@
     "smoke:electron": "npm run build && electron . --smoke-test",
     "smoke:recovery": "npm run build && electron . --recovery-smoke-test",
     "smoke:watchdog": "npm run build && node scripts/watchdog-smoke.mjs",
+    "smoke:watchdog:packaged": "npm run build && electron-builder --dir && node scripts/watchdog-smoke.mjs --packaged",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:watch": "vitest",

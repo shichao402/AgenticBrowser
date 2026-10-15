@@ -1,7 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { readFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 
-import { readJsonFile, writeJsonAtomic } from './atomic-file'
+import {
+  isNodeError,
+  readJsonFile,
+  writeJsonAtomic
+} from './atomic-file'
 
 interface WatchdogConfig {
   schemaVersion: 1
@@ -11,6 +16,7 @@ interface WatchdogConfig {
   env: Record<string, string>
   heartbeatPath: string
   statePath: string
+  lockPath?: string
   maxRestarts: number
   startupGraceMs: number
   heartbeatTimeoutMs: number
@@ -60,108 +66,132 @@ async function main(): Promise<number> {
   const config = parseWatchdogConfig(
     JSON.parse(await readFile(configPath, 'utf8')) as unknown
   )
+  const ownsLock = config.lockPath
+    ? await acquireWatchdogLock(config.lockPath)
+    : true
+  if (!ownsLock) {
+    return 0
+  }
 
-  process.on('SIGINT', requestStop)
-  process.on('SIGTERM', requestStop)
+  try {
+    process.on('SIGINT', requestStop)
+    process.on('SIGTERM', requestStop)
 
-  let launches = 0
-  let lastExit: WatchdogState['lastExit']
-  const restartHistory: NonNullable<WatchdogState['restartHistory']> = []
+    let launches = 0
+    let lastExit: WatchdogState['lastExit']
+    const restartHistory: NonNullable<WatchdogState['restartHistory']> = []
 
-  for (let restartCount = 0; restartCount <= config.maxRestarts; restartCount += 1) {
-    if (stopRequested) {
-      await writeState(config, {
-        phase: 'stopped',
-        childPid: null,
-        restartCount,
-        launches,
-        detail: 'watchdog 收到停止信号',
-        ...(lastExit ? { lastExit } : {})
-      })
-      return 0
-    }
+    for (
+      let restartCount = 0;
+      restartCount <= config.maxRestarts;
+      restartCount += 1
+    ) {
+      if (stopRequested) {
+        await writeState(config, {
+          phase: 'stopped',
+          childPid: null,
+          restartCount,
+          launches,
+          detail: 'watchdog 收到停止信号',
+          ...(lastExit ? { lastExit } : {})
+        })
+        return 0
+      }
 
-    if (restartCount > 0) {
-      await writeState(config, {
-        phase: 'backoff',
-        childPid: null,
-        restartCount,
-        launches,
-        detail: `等待 ${config.restartBackoffMs} ms 后重启`,
-        ...(lastExit ? { lastExit } : {})
-      })
-      await delay(config.restartBackoffMs)
-    }
+      if (restartCount > 0) {
+        await writeState(config, {
+          phase: 'backoff',
+          childPid: null,
+          restartCount,
+          launches,
+          detail: `等待 ${config.restartBackoffMs} ms 后重启`,
+          ...(lastExit ? { lastExit } : {})
+        })
+        await delay(config.restartBackoffMs)
+      }
 
-    await rm(config.heartbeatPath, { force: true })
-    launches += 1
-    const launchId = `${Date.now()}-${launches}`
-    const child = spawn(config.command, config.args, {
-      cwd: config.cwd,
-      env: {
+      await rm(config.heartbeatPath, { force: true })
+      launches += 1
+      const launchId = `${Date.now()}-${launches}`
+      const childEnvironment: NodeJS.ProcessEnv = {
         ...process.env,
         ...config.env,
         AGENTIC_WATCHDOG_MANAGED: '1',
         AGENTIC_WATCHDOG_HEARTBEAT_PATH: config.heartbeatPath,
         AGENTIC_WATCHDOG_LAUNCH_ID: launchId,
         AGENTIC_WATCHDOG_RESTART_COUNT: String(restartCount)
-      },
-      stdio: 'inherit',
-      windowsHide: false
-    })
-    currentChild = child
+      }
+      delete childEnvironment.ELECTRON_RUN_AS_NODE
+      const child = spawn(config.command, config.args, {
+        cwd: config.cwd,
+        env: childEnvironment,
+        stdio: 'inherit',
+        windowsHide: false
+      })
+      currentChild = child
 
-    await writeState(config, {
-      phase: 'starting',
-      childPid: child.pid ?? null,
-      restartCount,
-      launches,
-      detail: `launch ${launchId}`,
-      ...(lastExit ? { lastExit } : {})
-    })
-
-    const outcome = await monitorChild(config, child, launchId, restartCount, launches)
-    currentChild = null
-    lastExit = {
-      code: outcome.code,
-      signal: outcome.signal,
-      heartbeatTimedOut: outcome.heartbeatTimedOut
-    }
-
-    if (stopRequested || outcome.code === 0) {
       await writeState(config, {
-        phase: 'stopped',
-        childPid: null,
+        phase: 'starting',
+        childPid: child.pid ?? null,
         restartCount,
         launches,
-        detail: stopRequested ? 'watchdog 已停止' : '子进程正常退出',
-        lastExit,
-        ...(restartHistory.length > 0 ? { restartHistory } : {})
+        detail: `launch ${launchId}`,
+        ...(lastExit ? { lastExit } : {})
       })
-      return 0
+
+      const outcome = await monitorChild(
+        config,
+        child,
+        launchId,
+        restartCount,
+        launches
+      )
+      currentChild = null
+      lastExit = {
+        code: outcome.code,
+        signal: outcome.signal,
+        heartbeatTimedOut: outcome.heartbeatTimedOut
+      }
+
+      if (stopRequested || outcome.code === 0) {
+        await writeState(config, {
+          phase: 'stopped',
+          childPid: null,
+          restartCount,
+          launches,
+          detail: stopRequested ? 'watchdog 已停止' : '子进程正常退出',
+          lastExit,
+          ...(restartHistory.length > 0 ? { restartHistory } : {})
+        })
+        return 0
+      }
+
+      restartHistory.push({
+        restartCount,
+        ...lastExit,
+        timestamp: new Date().toISOString()
+      })
+
+      if (restartCount === config.maxRestarts) {
+        await writeState(config, {
+          phase: 'failed',
+          childPid: null,
+          restartCount,
+          launches,
+          detail: outcome.error ?? '重启预算已耗尽',
+          lastExit,
+          restartHistory
+        })
+        return 1
+      }
     }
 
-    restartHistory.push({
-      restartCount,
-      ...lastExit,
-      timestamp: new Date().toISOString()
-    })
-
-    if (restartCount === config.maxRestarts) {
-      await writeState(config, {
-        phase: 'failed',
-        childPid: null,
-        restartCount,
-        launches,
-        detail: outcome.error ?? '重启预算已耗尽',
-        lastExit,
-        restartHistory
-      })
-      return 1
+    return 1
+  } finally {
+    if (config.lockPath) {
+      await rm(config.lockPath, { force: true }).catch(() => undefined)
     }
   }
-
-  return 1
 }
 
 function monitorChild(
@@ -281,6 +311,55 @@ async function inspectHeartbeat(
   return Number.isFinite(timestamp) && age >= 0 && age <= heartbeatTimeoutMs
 }
 
+async function acquireWatchdogLock(lockPath: string): Promise<boolean> {
+  await mkdir(dirname(lockPath), { recursive: true })
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await writeFile(
+        lockPath,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          pid: process.pid,
+          createdAt: new Date().toISOString()
+        })}\n`,
+        {
+          encoding: 'utf8',
+          flag: 'wx'
+        }
+      )
+      return true
+    } catch (error) {
+      if (!isNodeError(error, 'EEXIST')) {
+        throw error
+      }
+
+      const existing = await readJsonFile(lockPath).catch(() => null)
+      const existingPid =
+        isRecord(existing) &&
+        typeof existing.pid === 'number' &&
+        Number.isInteger(existing.pid)
+          ? existing.pid
+          : null
+      if (existingPid !== null && isProcessAlive(existingPid)) {
+        return false
+      }
+      await rm(lockPath, { force: true })
+    }
+  }
+
+  return false
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return !isNodeError(error, 'ESRCH')
+  }
+}
+
 async function writeState(
   config: WatchdogConfig,
   state: Omit<WatchdogState, 'schemaVersion' | 'watchdogPid' | 'timestamp'>
@@ -302,6 +381,10 @@ function parseWatchdogConfig(value: unknown): WatchdogConfig {
   const cwd = requireString(value.cwd, 'cwd')
   const heartbeatPath = requireString(value.heartbeatPath, 'heartbeatPath')
   const statePath = requireString(value.statePath, 'statePath')
+  const lockPath =
+    value.lockPath === undefined
+      ? undefined
+      : requireString(value.lockPath, 'lockPath')
   const args = requireStringArray(value.args, 'args')
   const env = requireStringRecord(value.env ?? {}, 'env')
 
@@ -313,6 +396,7 @@ function parseWatchdogConfig(value: unknown): WatchdogConfig {
     env,
     heartbeatPath,
     statePath,
+    ...(lockPath ? { lockPath } : {}),
     maxRestarts: requireInteger(value.maxRestarts, 'maxRestarts', 0, 20),
     startupGraceMs: requireInteger(value.startupGraceMs, 'startupGraceMs', 100, 120_000),
     heartbeatTimeoutMs: requireInteger(

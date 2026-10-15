@@ -12,6 +12,8 @@ export const IPC_CHANNELS = {
   createProfile: 'profiles:create',
   activateProfile: 'profiles:activate',
   deleteProfile: 'profiles:delete',
+  getStartupSettings: 'startup:get',
+  setOpenAtLogin: 'startup:set-open-at-login',
   navigate: 'browser:navigate',
   reload: 'browser:reload'
 } as const
@@ -157,6 +159,12 @@ export interface CapabilityPolicySnapshot {
   effective: CapabilitySettings
 }
 
+export interface StartupSettings {
+  supported: boolean
+  openAtLogin: boolean
+  managedByWatchdog: boolean
+}
+
 export interface BrowserShellApi {
   getSnapshot(): Promise<BrowserSnapshot>
   getMonitorSnapshot(): Promise<MonitorSnapshot>
@@ -172,6 +180,8 @@ export interface BrowserShellApi {
   createProfile(name: string): Promise<ProfileSummary[]>
   activateProfile(profileId: string): Promise<ProfileSummary[]>
   deleteProfile(profileId: string): Promise<ProfileSummary[]>
+  getStartupSettings(): Promise<StartupSettings>
+  setOpenAtLogin(enabled: boolean): Promise<StartupSettings>
   navigate(url: string): Promise<BrowserSnapshot>
   reload(options: ReloadOptions): Promise<BrowserSnapshot>
   onBrowserEvent(listener: (event: BrowserEvent) => void): () => void

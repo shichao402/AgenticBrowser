@@ -70,7 +70,11 @@ flowchart LR
 
 当前 Watchdog 是构建为 `out/main/watchdog.js` 的纯 Node 入口。它读取本机受信 JSON 配置，启动 Electron 子进程，并向子进程下发 launch ID、restart count 和 heartbeat 路径。main process 周期性原子更新 heartbeat；Watchdog 校验 PID、launch ID 和时间戳，启动宽限期后超时则强杀并按预算重启。Watchdog 自身将 phase、PID、启动次数、退出历史和预算状态原子写入状态文件。
 
-Phase 0 smoke 已证明 Watchdog 与 Electron 是独立进程，强杀 main 后能重新启动。安装后的 launcher/sidecar 承载方式、Windows 登录启动和 macOS launchd/签名尚未落地。
+打包应用被用户或系统登录项启动时，初始 Electron 进程只负责原子生成 userData/runtime 下的配置，然后用同一个签名可执行文件加 `ELECTRON_RUN_AS_NODE=1` 运行 app.asar 内的 Watchdog，成功 spawn 后立即退出。Watchdog 启动真正的 Electron 子进程前移除该环境变量。进程锁保证同一 userData 只有一个 Watchdog；Electron single-instance lock 再阻止重复应用实例。异常遗留的锁只有在记录 PID 已不存在时才会回收。
+
+BrowserShell 可显式启停系统登录启动。Windows 登录项固定为当前打包可执行文件和 `--watchdog-autostart`；macOS 使用 Electron login item API。登录项仍从同一 launcher 进入，不会绕过 Watchdog。开发构建不允许修改系统登录项。
+
+源码与 Windows `win-unpacked` smoke 均已证明强杀 main 后能从检查点重新启动；重复点击打包应用也被锁抑制。macOS launcher、login item、签名和公证仍需真实 macOS runner 验证。
 
 ### Electron 主进程
 

@@ -1,14 +1,15 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron')
 const repositoryRoot = process.cwd()
 const smokeResultPath = join(repositoryRoot, 'watchdog-smoke-result.json')
+const packagedMode = process.argv.includes('--packaged')
 
 async function main() {
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'agentic-browser-watchdog-'))
@@ -32,46 +33,73 @@ async function main() {
     const port = await listen(server)
     const targetUrl = `http://127.0.0.1:${port}/checkpoint-target`
     const configPath = join(temporaryRoot, 'watchdog-config.json')
-    const heartbeatPath = join(temporaryRoot, 'main-heartbeat.json')
-    const statePath = join(temporaryRoot, 'watchdog-state.json')
     const checkpointPath = join(temporaryRoot, 'browser-checkpoint.json')
     const childResultPath = join(temporaryRoot, 'child-result.json')
     const userDataPath = join(temporaryRoot, 'user-data')
+    const runtimeRoot = packagedMode
+      ? join(userDataPath, 'runtime')
+      : temporaryRoot
+    const heartbeatPath = join(runtimeRoot, 'main-heartbeat.json')
+    const statePath = join(runtimeRoot, 'watchdog-state.json')
+    const lockPath = join(runtimeRoot, 'watchdog.lock')
 
-    await writeFile(
-      configPath,
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          command: electronPath,
-          args: ['.', '--watchdog-smoke-child'],
-          cwd: repositoryRoot,
+    if (!packagedMode) {
+      await writeFile(
+        configPath,
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            command: electronPath,
+            args: ['.', '--watchdog-smoke-child'],
+            cwd: repositoryRoot,
+            env: {
+              AGENTIC_USER_DATA_PATH: userDataPath,
+              AGENTIC_CHECKPOINT_PATH: checkpointPath,
+              AGENTIC_WATCHDOG_SMOKE_URL: targetUrl,
+              AGENTIC_WATCHDOG_CHILD_RESULT_PATH: childResultPath
+            },
+            heartbeatPath,
+            statePath,
+            lockPath,
+            maxRestarts: 1,
+            startupGraceMs: 15_000,
+            heartbeatTimeoutMs: 2_000,
+            heartbeatPollMs: 100,
+            restartBackoffMs: 250
+          },
+          null,
+          2
+        )}\n`,
+        'utf8'
+      )
+    }
+
+    const packagedExecutable = packagedMode
+      ? await resolvePackagedExecutable()
+      : null
+    watchdog = packagedExecutable
+      ? spawn(packagedExecutable, ['--watchdog-smoke-child'], {
+          cwd: dirname(packagedExecutable),
           env: {
+            ...process.env,
             AGENTIC_USER_DATA_PATH: userDataPath,
             AGENTIC_CHECKPOINT_PATH: checkpointPath,
             AGENTIC_WATCHDOG_SMOKE_URL: targetUrl,
             AGENTIC_WATCHDOG_CHILD_RESULT_PATH: childResultPath
           },
-          heartbeatPath,
-          statePath,
-          maxRestarts: 1,
-          startupGraceMs: 15_000,
-          heartbeatTimeoutMs: 2_000,
-          heartbeatPollMs: 100,
-          restartBackoffMs: 250
-        },
-        null,
-        2
-      )}\n`,
-      'utf8'
-    )
-
-    watchdog = spawn(process.execPath, [join(repositoryRoot, 'out/main/watchdog.js'), configPath], {
-      cwd: repositoryRoot,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: false
-    })
-    const watchdogExit = waitForExit(watchdog, 45_000)
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: false
+        })
+      : spawn(
+          process.execPath,
+          [join(repositoryRoot, 'out/main/watchdog.js'), configPath],
+          {
+            cwd: repositoryRoot,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: false
+          }
+        )
+    const launcherExit = waitForExit(watchdog, 45_000)
     watchdog.stdout.on('data', (chunk) => {
       const text = String(chunk)
       watchdogOutput += text
@@ -100,16 +128,57 @@ async function main() {
       firstChild.restoredFromCheckpoint !== false ||
       firstChild.profileCookiePresent !== true ||
       firstChild.heartbeatActive !== true ||
+      firstChild.startupIntegrationPassed !== true ||
       firstChild.checkpoint?.url !== targetUrl
     ) {
       throw new Error('首次启动没有建立预期的 Profile、heartbeat 或检查点')
     }
 
+    let duplicateSuppressed = null
+    if (packagedExecutable) {
+      const duplicateLauncher = spawn(
+        packagedExecutable,
+        ['--watchdog-smoke-child'],
+        {
+          cwd: dirname(packagedExecutable),
+          env: {
+            ...process.env,
+            AGENTIC_USER_DATA_PATH: userDataPath,
+            AGENTIC_CHECKPOINT_PATH: checkpointPath,
+            AGENTIC_WATCHDOG_SMOKE_URL: targetUrl,
+            AGENTIC_WATCHDOG_CHILD_RESULT_PATH: childResultPath
+          },
+          stdio: 'ignore',
+          windowsHide: false
+        }
+      )
+      const duplicateExit = await waitForExit(duplicateLauncher, 10_000)
+      await delay(750)
+      const stateAfterDuplicate = await readJson(statePath)
+      duplicateSuppressed =
+        duplicateExit.code === 0 &&
+        stateAfterDuplicate.watchdogPid === firstState.watchdogPid &&
+        stateAfterDuplicate.childPid === firstChild.pid
+    }
+
     killProcess(firstChild.pid)
-    const exit = await watchdogExit
-    const finalChild = await readJson(childResultPath)
-    const finalState = await readJson(statePath)
+    const exit = await launcherExit
+    const finalChild = packagedExecutable
+      ? await waitForJson(
+          childResultPath,
+          (value) => value.passed === true && value.restartCount === 1,
+          30_000
+        )
+      : await readJson(childResultPath)
+    const finalState = packagedExecutable
+      ? await waitForJson(
+          statePath,
+          (value) => value.phase === 'stopped' && value.launches === 2,
+          10_000
+        )
+      : await readJson(statePath)
     const checkpoint = await readJson(checkpointPath)
+    const lockReleased = await waitForMissing(lockPath, 5_000)
     const restart = finalState.restartHistory?.[0]
     const passed =
       exit.code === 0 &&
@@ -126,7 +195,9 @@ async function main() {
       finalState.restartCount === 1 &&
       Array.isArray(finalState.restartHistory) &&
       finalState.restartHistory.length === 1 &&
-      restart.code !== 0
+      restart.code !== 0 &&
+      lockReleased &&
+      (duplicateSuppressed === null || duplicateSuppressed)
 
     const result = {
       passed,
@@ -136,6 +207,9 @@ async function main() {
       finalChild,
       finalState,
       checkpoint,
+      lockReleased,
+      packagedMode,
+      duplicateSuppressed,
       watchdogExit: exit
     }
     await writeFile(smokeResultPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8')
@@ -219,6 +293,29 @@ async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, 'utf8'))
 }
 
+async function fileMissing(filePath) {
+  try {
+    await readFile(filePath)
+    return false
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return true
+    }
+    throw error
+  }
+}
+
+async function waitForMissing(filePath, timeoutMs) {
+  const startedAt = Date.now()
+  while (!(await fileMissing(filePath))) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      return false
+    }
+    await delay(50)
+  }
+  return true
+}
+
 function killProcess(pid) {
   try {
     process.kill(pid, 'SIGKILL')
@@ -246,6 +343,55 @@ async function terminateWatchdog(child) {
   if (child.exitCode === null) {
     child.kill('SIGKILL')
   }
+}
+
+async function resolvePackagedExecutable() {
+  if (process.env.AGENTIC_PACKAGED_EXECUTABLE) {
+    await access(process.env.AGENTIC_PACKAGED_EXECUTABLE)
+    return process.env.AGENTIC_PACKAGED_EXECUTABLE
+  }
+
+  const candidates =
+    process.platform === 'win32'
+      ? [join(repositoryRoot, 'release', 'win-unpacked', 'AgenticBrowser.exe')]
+      : process.platform === 'darwin'
+        ? [
+            join(
+              repositoryRoot,
+              'release',
+              'mac',
+              'AgenticBrowser.app',
+              'Contents',
+              'MacOS',
+              'AgenticBrowser'
+            ),
+            join(
+              repositoryRoot,
+              'release',
+              'mac-arm64',
+              'AgenticBrowser.app',
+              'Contents',
+              'MacOS',
+              'AgenticBrowser'
+            )
+          ]
+        : []
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate)
+      return candidate
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw error
+      }
+    }
+  }
+  throw new Error(`找不到当前平台的打包可执行文件：${candidates.join(', ')}`)
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 function listen(server) {

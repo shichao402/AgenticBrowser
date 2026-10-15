@@ -22,7 +22,7 @@
 - [ ] Profile 删除的 Project 引用保护
 - [x] 默认策略 + 精确 HTTP(S) Origin 的能力规则
 - [ ] 下载元数据、哈希、临时目录和原子完成
-- [ ] 安装包 Watchdog launcher 与开机启动
+- [x] 打包应用 Watchdog launcher、重复启动锁与登录启动开关（Windows 验证）
 
 ## 2026-10-15：监督恢复、能力和下载故障探针
 
@@ -64,7 +64,26 @@ npm run smoke:recovery
 - `StructuredEventLog`：并发 append 后仍保持有序、完整 JSONL。
 - `ProfileStore`：默认状态、创建/激活/删除保护、损坏文件回退和并发写入串行化。
 
-当前共 9 个测试文件、35 项测试通过。
+当前共 10 个测试文件、38 项测试通过。
+
+## 2026-10-15：打包应用 Watchdog 入口
+
+命令：
+
+```bash
+npm run smoke:watchdog
+npm run smoke:watchdog:packaged
+```
+
+结果：
+
+- 源码 Watchdog 仍能在强杀 Electron main 后启动新 PID，并恢复 URL、Profile Cookie 和浏览器检查点；退出后进程锁已清理。
+- `electron-builder --dir` 生成的 Windows `AgenticBrowser.exe` 不再直接承载正式 main：初始进程成功委托 app.asar 内的 Watchdog 后退出，Watchdog 再启动带 heartbeat 的受管 Electron。
+- 最新 NSIS one-click 安装包以 silent 模式安装到隔离目录；从安装目录运行同一强杀/恢复探针也为 `passed: true`，随后 silent 卸载成功。
+- 打包探针首次 Watchdog PID 为独立进程；强杀首个受管 Electron 后，第二个 Electron PID 恢复相同 URL、Cookie 和检查点，总结果 `passed: true`。
+- 安装后的受管子进程确认 `startupSettings.supported: true`、`managedByWatchdog: true`、`openAtLogin: false`。测试只读取登录项能力，没有擅自修改当前用户的系统登录启动设置。
+- 在首个 Runtime 存活时再次启动打包 exe，第二个 Watchdog 被锁拒绝，没有覆盖首个 heartbeat/state，也没有创建第二个 Electron Runtime。
+- launcher 单元测试确认只转发受控 smoke 标记，不把任意命令行参数带入高权限子进程。
 
 ## 证据边界
 
@@ -73,5 +92,6 @@ npm run smoke:recovery
 - Capability 已实现 origin + permission，但当前仍是应用级策略；Phase 3 必须把同一策略结构归入 Project，形成最终的 Project + origin + permission 授权模型。
 - Profile 切换会销毁当前 tab 集合，在新命名 session 中以最近活动 URL 创建首个 tab；切回后 Cookie/session 数据保留，但完整 tab 集合恢复属于 Phase 3。
 - 当前只能禁止删除默认或活动 Profile；Project 尚未落地，因此也还没有“被 Project 引用时禁止删除”的校验。
+- Windows 打包 Watchdog 与系统登录项接入已验证；macOS 的 login item、DMG、签名、公证和实际启动必须在 macOS 环境闭合。
 - 浏览器检查点只保存最近激活 tab 的 URL/Profile，不保存完整 tab 集合；完整 Runtime 恢复属于 Phase 3。
 - 进程 CPU/工作集来自 Electron `app.getAppMetrics()`；无法可靠归属到单个 Strategy 的共享消耗没有伪造拆分。

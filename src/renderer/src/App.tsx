@@ -7,7 +7,8 @@ import type {
   CapabilityPolicySnapshot,
   CapabilitySettings,
   MonitorSnapshot,
-  ProfileSummary
+  ProfileSummary,
+  StartupSettings
 } from '../../shared/contracts'
 
 const EVENT_LABELS: Record<BrowserEvent['type'], string> = {
@@ -57,6 +58,7 @@ export function App(): React.JSX.Element {
     useState<CapabilityPolicySnapshot | null>(null)
   const [tabs, setTabs] = useState<BrowserTab[]>([])
   const [profiles, setProfiles] = useState<ProfileSummary[]>([])
+  const [startup, setStartup] = useState<StartupSettings | null>(null)
   const [newProfileName, setNewProfileName] = useState('')
   const [events, setEvents] = useState<BrowserEvent[]>([])
   const [address, setAddress] = useState('https://example.com/')
@@ -84,13 +86,18 @@ export function App(): React.JSX.Element {
     setProfiles(await window.agenticBrowser.listProfiles())
   }, [])
 
+  const refreshStartup = useCallback(async (): Promise<void> => {
+    setStartup(await window.agenticBrowser.getStartupSettings())
+  }, [])
+
   useEffect(() => {
     void Promise.all([
       refreshSnapshot(),
       refreshMonitor(),
       refreshCapabilityPolicy(),
       refreshTabs(),
-      refreshProfiles()
+      refreshProfiles(),
+      refreshStartup()
     ]).catch((cause: unknown) => {
       setError(cause instanceof Error ? cause.message : String(cause))
     })
@@ -119,6 +126,7 @@ export function App(): React.JSX.Element {
     refreshCapabilityPolicy,
     refreshMonitor,
     refreshProfiles,
+    refreshStartup,
     refreshSnapshot,
     refreshTabs
   ])
@@ -279,6 +287,19 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const toggleOpenAtLogin = async (): Promise<void> => {
+    if (!startup?.supported) {
+      return
+    }
+    try {
+      setStartup(
+        await window.agenticBrowser.setOpenAtLogin(!startup.openAtLogin)
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -350,6 +371,24 @@ export function App(): React.JSX.Element {
                 ))}
             </div>
           ) : null}
+          <label className="startup-setting">
+            <span>
+              登录时启动
+              <small>
+                {startup?.supported
+                  ? startup.managedByWatchdog
+                    ? '由 Watchdog 监督'
+                    : '等待 Watchdog'
+                  : '打包应用可用'}
+              </small>
+            </span>
+            <input
+              type="checkbox"
+              checked={startup?.openAtLogin ?? false}
+              disabled={!startup?.supported}
+              onChange={() => void toggleOpenAtLogin()}
+            />
+          </label>
         </section>
 
         <section className="project-card">
