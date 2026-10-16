@@ -27,8 +27,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "audit:prod": "npm audit --omit=dev",
-    "check": "npm run typecheck && npm run test && npm run build && npm run audit:prod",
-    "dist": "npm run build && electron-builder"
+    "version:check": "node scripts/version-ssot.mjs check",
+    "version:sync": "node scripts/version-ssot.mjs sync",
+    "check": "npm run version:check && npm run typecheck && npm run test && npm run build && npm run audit:prod",
+    "dist": "npm run version:check && npm run build && electron-builder --publish never",
+    "dist:win": "npm run version:check && npm run build && electron-builder --win --x64 --publish never",
+    "dist:mac": "npm run version:check && npm run build && electron-builder --mac --arm64 --x64 --publish never"
   },
   "engines": {
     "node": ">=22"
@@ -57,14 +61,20 @@
     },
     "files": [
       "out/**",
-      "package.json"
+      "package.json",
+      "VERSION.json"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
     }
   },
   "allowScripts": {

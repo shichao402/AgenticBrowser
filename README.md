@@ -73,11 +73,26 @@ npm run smoke:watchdog
 npm run smoke:watchdog:packaged
 ```
 
-构建本地安装包：
+应用版本以 `VERSION.json` 为唯一来源。`package.json` 和 `package-lock.json` 必须与它一致，`npm run check` 会检查。改版本时只改 `VERSION.json`，然后执行：
+
+```bash
+npm run version:sync
+```
+
+构建当前平台安装包：
 
 ```bash
 npm run dist
 ```
+
+按平台构建：
+
+```bash
+npm run dist:win
+npm run dist:mac
+```
+
+`dist:win` 生成 Windows x64 NSIS 安装包。`dist:mac` 在 macOS 上生成 Apple 芯片和 Intel 两个 DMG。推送与 `VERSION.json` 一致的 `vX.Y.Z` tag 后，GitHub Actions 的 Package workflow 会构建这些安装包并创建 Release。在 Actions 页面手动运行同一 workflow 时只上传构建产物。这些包未签名。
 
 核心源码：
 
