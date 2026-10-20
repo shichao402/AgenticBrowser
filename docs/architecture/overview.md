@@ -16,6 +16,9 @@
 - `src/main/watchdog.ts`：应用外进程监督、心跳超时、重启预算和状态记录。
 - `src/main/health-monitor.ts`：短超时主动页面探针、连续失败阈值与恢复通知。
 - `src/main/recovery-policy.ts`：时间窗预算、指数退避、分级恢复与熔断决策。
+- `src/main/strategy-network.ts`：Strategy 宿主网络桥的边界规则，包括请求头禁止清单与 CRLF 注入拦截、响应头白名单、1 MiB 响应上限和重定向判定。
+- `src/main/latency-stats.ts`：采样延迟的平均值、p95 与最大值统计。
+- `src/main/monitor-snapshot.ts`：多 supervisor 与多 Project Runtime 的监控聚合，含隔离名单去重、下载计数求和和状态分类。
 - `src/main/capability-store.ts`：版本化默认策略、精确 Origin 覆盖、旧配置迁移和能力解析。
 - `src/main/strategy-match.ts`：HTTP(S) match/exclude、frame scope 和 Project allowlist 解析。
 - `src/main/strategy-store.ts`：schema v1 Strategy manifest、严格校验、串行原子更新和损坏文件隔离。
