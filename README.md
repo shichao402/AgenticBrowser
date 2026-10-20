@@ -42,11 +42,20 @@ MVP 不包含 Widevine DRM、Chrome Sync、Google 浏览器私有 API或完整 C
 
 ## 开发
 
-要求 Node.js 22 或更高版本。
+要求 Node.js 22 LTS（仓库内 `.nvmrc` 已锁定，`engines` 要求 `>=22`）。
 
 ```bash
 npm install
 npm run dev
+```
+
+代码风格与静态检查：
+
+```bash
+npm run lint          # ESLint
+npm run lint:fix      # 自动修复可修复项
+npm run format        # Prettier 写入
+npm run format:check  # 只检查不写入
 ```
 
 验证完整工程基线：
@@ -54,6 +63,8 @@ npm run dev
 ```bash
 npm run check
 ```
+
+`npm run check` 依次执行版本一致性检查、Prettier 格式检查、ESLint、类型检查、Vitest、生产构建和生产依赖审计。CI 在 `windows-latest` 与 `macos-latest` 两个平台各跑一次同一门禁。
 
 验证 renderer 故障与应用外 Watchdog 恢复：
 

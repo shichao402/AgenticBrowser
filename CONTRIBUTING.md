@@ -37,6 +37,12 @@ AgenticBrowser 采用文档随实现同步演进的方式开发。
 
 ## 验证门禁
 
-- Pull Request 与 `main` push 的 Windows CI 执行 `npm ci` 和 `npm run check`。
-- `npm run check` 只覆盖类型检查、Vitest、生产构建和生产依赖审计，不包含 Electron smoke。
+- Pull Request 与 `main` push 的 CI 在 `windows-latest` 和 `macos-latest` 上分别执行 `npm ci` 和 `npm run check`。
+- `npm run check` 覆盖版本一致性、Prettier 格式检查、ESLint、类型检查、Vitest、生产构建和生产依赖审计，不包含 Electron smoke。
 - 改动浏览器生命周期、Strategy、Project、下载、Watchdog 或打包入口时，必须额外运行 README 中对应的 smoke，并在验证文档记录结果。
+
+## 代码风格
+
+- 统一由 Prettier 格式化，配置见 `prettier.config.js`，提交前执行 `npm run format`。
+- 静态检查由 ESLint 承担，配置见 `eslint.config.js`，提交前执行 `npm run lint`。
+- 确需违反某条规则时，使用带说明的行内豁免注释，并解释为什么该规则在此处不适用；不要放宽全局规则来绕过单个位置。

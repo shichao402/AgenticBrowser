@@ -11,10 +11,18 @@ permissions:
   contents: read
 
 jobs:
-  windows-check:
-    name: Windows fast check
-    runs-on: windows-latest
-    timeout-minutes: 15
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 两个受支持的目标平台都必须通过门禁，避免只在 Windows 上验证过的代码路径
+        # 进入 macOS 打包产物。
+        os:
+          - windows-latest
+          - macos-latest
 
     steps:
       - name: Checkout
@@ -29,5 +37,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck, test, build, and audit
+      - name: Format, lint, typecheck, test, build, and audit
         run: npm run check
