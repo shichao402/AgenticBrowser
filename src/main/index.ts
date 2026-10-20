@@ -22,7 +22,6 @@ import {
   type JsonValue,
   type AutomationPlaygroundInstallResult,
   type MonitorSnapshot,
-  type ProjectDefinition,
   type ProjectDraft,
   type ProjectRuntimeSnapshot,
   type ProjectWorkspaceSnapshot,
@@ -34,6 +33,16 @@ import {
   type StartupSettings
 } from '../shared/contracts'
 import { writeJsonAtomic } from './atomic-file'
+import {
+  cloneProjectDefinition,
+  cloneStrategyDefinitions,
+  formatUnknownError,
+  isTerminalProjectRuntime,
+  normalizeComparableUrl,
+  parseDownloadIntentPayload,
+  parseTakeoverReason,
+  toProfileSummaries
+} from './main-helpers'
 import { BackgroundProjectRuntime } from './background-project-runtime'
 import { BrowserTabManager } from './browser-tab-manager'
 import type {
@@ -102,8 +111,7 @@ import {
 import { StructuredEventLog } from './structured-event-log'
 import {
   DEFAULT_PROFILE_ID,
-  ProfileStore,
-  type ProfileState
+  ProfileStore
 } from './profile-store'
 import {
   StrategyPolicyStore,
@@ -2373,138 +2381,6 @@ async function createMainWindow(
     },
     prepareForShutdown
   }
-}
-
-function toProfileSummaries(state: ProfileState): ProfileSummary[] {
-  return state.profiles.map((profile) => ({
-    ...profile,
-    active: profile.id === state.activeProfileId
-  }))
-}
-
-function cloneProjectDefinition(project: ProjectDefinition): ProjectDefinition {
-  return structuredClone(project)
-}
-
-function cloneStrategyDefinitions(
-  definitions: StrategyDefinition[]
-): StrategyDefinition[] {
-  return definitions.map((definition) => ({
-    ...definition,
-    manifest: {
-      ...definition.manifest,
-      matches: [...definition.manifest.matches],
-      excludes: [...definition.manifest.excludes],
-      permissions: [...definition.manifest.permissions],
-      networkMatches: [...definition.manifest.networkMatches],
-      config: structuredClone(definition.manifest.config),
-      timeouts: { ...definition.manifest.timeouts }
-    }
-  }))
-}
-
-function parseDownloadIntentPayload(value: unknown): {
-  businessItemId: string
-  attachmentId: string
-  sourceUrl: string
-  originalFileName: string
-  mime?: string
-  expectedBytes: number | null
-} | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null
-  }
-  const record = value as Record<string, unknown>
-  const allowedKeys = new Set([
-    'businessItemId',
-    'attachmentId',
-    'sourceUrl',
-    'fileName',
-    'mime',
-    'expectedBytes'
-  ])
-  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
-    return null
-  }
-  const required = [
-    record.businessItemId,
-    record.attachmentId,
-    record.sourceUrl,
-    record.fileName
-  ]
-  if (
-    required.some(
-      (item) => typeof item !== 'string' || item.trim().length === 0
-    ) ||
-    (record.mime !== undefined &&
-      (typeof record.mime !== 'string' || record.mime.trim().length === 0)) ||
-    (record.expectedBytes !== undefined &&
-      (!Number.isSafeInteger(record.expectedBytes) ||
-        (record.expectedBytes as number) < 0))
-  ) {
-    return null
-  }
-  try {
-    const sourceUrl = new URL(record.sourceUrl as string)
-    if (sourceUrl.protocol !== 'http:' && sourceUrl.protocol !== 'https:') {
-      return null
-    }
-    return {
-      businessItemId: record.businessItemId as string,
-      attachmentId: record.attachmentId as string,
-      sourceUrl: sourceUrl.toString(),
-      originalFileName: record.fileName as string,
-      ...(typeof record.mime === 'string' ? { mime: record.mime } : {}),
-      expectedBytes:
-        record.expectedBytes === undefined
-          ? null
-          : (record.expectedBytes as number)
-    }
-  } catch {
-    return null
-  }
-}
-
-function normalizeComparableUrl(value: string): string {
-  try {
-    const url = new URL(value)
-    url.hash = ''
-    return url.toString()
-  } catch {
-    return value
-  }
-}
-
-function parseTakeoverReason(
-  value: JsonValue | undefined,
-  fallback: string
-): string {
-  if (
-    value &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    typeof value.reason === 'string' &&
-    value.reason.trim().length > 0
-  ) {
-    return value.reason.trim().slice(0, 4_000)
-  }
-  return fallback
-}
-
-function formatUnknownError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function isTerminalProjectRuntime(
-  runtime: ProjectRuntimeSnapshot | null | undefined
-): boolean {
-  return (
-    runtime !== null &&
-    runtime !== undefined &&
-    (runtime.status === 'completed' ||
-      runtime.status === 'failed' ||
-      runtime.status === 'cancelled')
-  )
 }
 
 function collectMonitorSnapshot(
