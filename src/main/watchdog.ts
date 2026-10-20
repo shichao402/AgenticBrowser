@@ -3,45 +3,8 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import { isNodeError, readJsonFile, writeJsonAtomic } from './atomic-file'
-
-interface WatchdogConfig {
-  schemaVersion: 1
-  command: string
-  args: string[]
-  cwd: string
-  env: Record<string, string>
-  heartbeatPath: string
-  statePath: string
-  lockPath?: string
-  maxRestarts: number
-  startupGraceMs: number
-  heartbeatTimeoutMs: number
-  heartbeatPollMs: number
-  restartBackoffMs: number
-}
-
-interface WatchdogState {
-  schemaVersion: 1
-  phase: 'starting' | 'running' | 'backoff' | 'stopped' | 'failed'
-  watchdogPid: number
-  childPid: number | null
-  restartCount: number
-  launches: number
-  timestamp: string
-  detail?: string
-  lastExit?: {
-    code: number | null
-    signal: NodeJS.Signals | null
-    heartbeatTimedOut: boolean
-  }
-  restartHistory?: Array<{
-    restartCount: number
-    code: number | null
-    signal: NodeJS.Signals | null
-    heartbeatTimedOut: boolean
-    timestamp: string
-  }>
-}
+import { isRecord, parseWatchdogConfig } from './watchdog-config'
+import type { WatchdogConfig, WatchdogState } from './watchdog-types'
 
 interface ChildOutcome {
   code: number | null
@@ -366,110 +329,6 @@ async function writeState(
     timestamp: new Date().toISOString(),
     ...state
   } satisfies WatchdogState)
-}
-
-function parseWatchdogConfig(value: unknown): WatchdogConfig {
-  if (!isRecord(value) || value.schemaVersion !== 1) {
-    throw new Error('Watchdog 配置版本无效')
-  }
-
-  const command = requireString(value.command, 'command')
-  const cwd = requireString(value.cwd, 'cwd')
-  const heartbeatPath = requireString(value.heartbeatPath, 'heartbeatPath')
-  const statePath = requireString(value.statePath, 'statePath')
-  const lockPath =
-    value.lockPath === undefined
-      ? undefined
-      : requireString(value.lockPath, 'lockPath')
-  const args = requireStringArray(value.args, 'args')
-  const env = requireStringRecord(value.env ?? {}, 'env')
-
-  return {
-    schemaVersion: 1,
-    command,
-    args,
-    cwd,
-    env,
-    heartbeatPath,
-    statePath,
-    ...(lockPath ? { lockPath } : {}),
-    maxRestarts: requireInteger(value.maxRestarts, 'maxRestarts', 0, 20),
-    startupGraceMs: requireInteger(
-      value.startupGraceMs,
-      'startupGraceMs',
-      100,
-      120_000
-    ),
-    heartbeatTimeoutMs: requireInteger(
-      value.heartbeatTimeoutMs,
-      'heartbeatTimeoutMs',
-      100,
-      120_000
-    ),
-    heartbeatPollMs: requireInteger(
-      value.heartbeatPollMs,
-      'heartbeatPollMs',
-      50,
-      10_000
-    ),
-    restartBackoffMs: requireInteger(
-      value.restartBackoffMs,
-      'restartBackoffMs',
-      0,
-      120_000
-    )
-  }
-}
-
-function requireString(value: unknown, name: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`Watchdog ${name} 必须是非空字符串`)
-  }
-  return value
-}
-
-function requireStringArray(value: unknown, name: string): string[] {
-  if (
-    !Array.isArray(value) ||
-    !value.every((item) => typeof item === 'string')
-  ) {
-    throw new Error(`Watchdog ${name} 必须是字符串数组`)
-  }
-  return value
-}
-
-function requireStringRecord(
-  value: unknown,
-  name: string
-): Record<string, string> {
-  if (
-    !isRecord(value) ||
-    !Object.values(value).every((item) => typeof item === 'string')
-  ) {
-    throw new Error(`Watchdog ${name} 必须是字符串字典`)
-  }
-  return value as Record<string, string>
-}
-
-function requireInteger(
-  value: unknown,
-  name: string,
-  minimum: number,
-  maximum: number
-): number {
-  if (
-    typeof value !== 'number' ||
-    !Number.isInteger(value) ||
-    value < minimum ||
-    value > maximum
-  ) {
-    throw new Error(`Watchdog ${name} 必须是 ${minimum}–${maximum} 的整数`)
-  }
-  return value
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function requestStop(): void {
