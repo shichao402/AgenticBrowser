@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -116,6 +116,7 @@ import {
   initMainProcessHeartbeat,
   type MainWindowRuntime
 } from './smoke-runtime'
+import { writeSmokeResultFile } from './smoke-result-writer'
 import { StructuredEventLog } from './structured-event-log'
 import { DEFAULT_PROFILE_ID, ProfileStore } from './profile-store'
 import {
@@ -141,35 +142,6 @@ const TOOLBAR_HEIGHT = 104
 const MIN_PAGE_SIZE = 240
 
 let mainWindow: BaseWindow | null = null
-const smokeResultPath = join(process.cwd(), 'phase0-smoke-result.json')
-const recoverySmokeResultPath = join(
-  process.cwd(),
-  'phase1-recovery-smoke-result.json'
-)
-const strategyFaultSmokeResultPath = join(
-  process.cwd(),
-  'phase2-strategy-fault-smoke-result.json'
-)
-const strategyWorkspaceSmokeResultPath = join(
-  process.cwd(),
-  'phase2-strategy-workspace-smoke-result.json'
-)
-const projectDownloadSmokeResultPath = join(
-  process.cwd(),
-  'phase3-project-download-smoke-result.json'
-)
-const projectConcurrencySmokeResultPath = join(
-  process.cwd(),
-  'phase3-project-concurrency-smoke-result.json'
-)
-const projectTakeoverSmokeResultPath = join(
-  process.cwd(),
-  'phase3-project-takeover-smoke-result.json'
-)
-const automationPlaygroundSmokeResultPath = join(
-  process.cwd(),
-  'phase3-automation-playground-smoke-result.json'
-)
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
 let automatedDownloadDirectory: string | null = null
 initMainProcessHeartbeat()
@@ -201,85 +173,40 @@ async function prepareApplicationLaunch(): Promise<boolean> {
   return true
 }
 
-function writeSmokeResult(result: unknown): void {
-  if (smokeTest) {
-    writeFileSync(
-      smokeResultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
+/**
+ * 冒烟场景的结果落盘目标。新增场景时在此登记一行即可。
+ */
+const smokeResultTargets = {
+  smoke: { enabled: smokeTest, fileName: 'phase0-smoke-result.json' },
+  recovery: {
+    enabled: recoverySmokeTest,
+    fileName: 'phase1-recovery-smoke-result.json'
+  },
+  strategyFault: {
+    enabled: strategyFaultSmokeTest,
+    fileName: 'phase2-strategy-fault-smoke-result.json'
+  },
+  strategyWorkspace: {
+    enabled: strategyWorkspaceSmokeTest,
+    fileName: 'phase2-strategy-workspace-smoke-result.json'
+  },
+  projectDownload: {
+    enabled: projectDownloadSmokeTest,
+    fileName: 'phase3-project-download-smoke-result.json'
+  },
+  projectConcurrency: {
+    enabled: projectConcurrencySmokeTest,
+    fileName: 'phase3-project-concurrency-smoke-result.json'
+  },
+  projectTakeover: {
+    enabled: projectTakeoverSmokeTest,
+    fileName: 'phase3-project-takeover-smoke-result.json'
+  },
+  automationPlayground: {
+    enabled: automationPlaygroundSmokeTest,
+    fileName: 'phase3-automation-playground-smoke-result.json'
   }
-}
-
-function writeRecoverySmokeResult(result: unknown): void {
-  if (recoverySmokeTest) {
-    writeFileSync(
-      recoverySmokeResultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
-  }
-}
-
-function writeStrategyFaultSmokeResult(result: unknown): void {
-  if (strategyFaultSmokeTest) {
-    writeFileSync(
-      strategyFaultSmokeResultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
-  }
-}
-
-function writeStrategyWorkspaceSmokeResult(result: unknown): void {
-  if (strategyWorkspaceSmokeTest) {
-    writeFileSync(
-      strategyWorkspaceSmokeResultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
-  }
-}
-
-function writeProjectDownloadSmokeResult(result: unknown): void {
-  if (projectDownloadSmokeTest) {
-    writeFileSync(
-      projectDownloadSmokeResultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
-  }
-}
-
-function writeProjectConcurrencySmokeResult(result: unknown): void {
-  if (projectConcurrencySmokeTest) {
-    writeFileSync(
-      projectConcurrencySmokeResultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
-  }
-}
-
-function writeProjectTakeoverSmokeResult(result: unknown): void {
-  if (projectTakeoverSmokeTest) {
-    writeFileSync(
-      projectTakeoverSmokeResultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
-  }
-}
-
-function writeAutomationPlaygroundSmokeResult(result: unknown): void {
-  if (automationPlaygroundSmokeTest) {
-    writeFileSync(
-      automationPlaygroundSmokeResultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
-  }
-}
+} as const
 
 interface CreateMainWindowOptions {
   show?: boolean
@@ -2756,7 +2683,7 @@ if (runApplication) {
           interactionDuringCapture,
           multiViewCapture
         }
-        writeSmokeResult(result)
+        writeSmokeResultFile(smokeResultTargets.smoke, result)
         console.log(`AGENTIC_BROWSER_SMOKE ${JSON.stringify(result)}`)
 
         runtime.window.close()
@@ -2776,7 +2703,7 @@ if (runApplication) {
           phaseZeroProbe,
           join(automatedDownloadDirectory, 'concurrency-output')
         )
-        writeProjectConcurrencySmokeResult(result)
+        writeSmokeResultFile(smokeResultTargets.projectConcurrency, result)
         console.log(
           `AGENTIC_BROWSER_PROJECT_CONCURRENCY_SMOKE ${JSON.stringify(result)}`
         )
@@ -2798,7 +2725,7 @@ if (runApplication) {
           profileId,
           join(automatedDownloadDirectory, 'takeover-output')
         )
-        writeProjectTakeoverSmokeResult(result)
+        writeSmokeResultFile(smokeResultTargets.projectTakeover, result)
         console.log(
           `AGENTIC_BROWSER_PROJECT_TAKEOVER_SMOKE ${JSON.stringify(result)}`
         )
@@ -2818,7 +2745,7 @@ if (runApplication) {
           runtime,
           join(automatedDownloadDirectory, 'automation-playground-output')
         )
-        writeAutomationPlaygroundSmokeResult(result)
+        writeSmokeResultFile(smokeResultTargets.automationPlayground, result)
         console.log(
           `AGENTIC_BROWSER_AUTOMATION_PLAYGROUND_SMOKE ${JSON.stringify(
             result
@@ -2835,7 +2762,7 @@ if (runApplication) {
           throw new Error('Recovery smoke probe server 未启动')
         }
         const result = await runRecoverySmoke(runtime, phaseZeroProbe)
-        writeRecoverySmokeResult(result)
+        writeSmokeResultFile(smokeResultTargets.recovery, result)
         console.log(`AGENTIC_BROWSER_RECOVERY_SMOKE ${JSON.stringify(result)}`)
         runtime.window.close()
         await phaseZeroProbe.close()
@@ -2850,7 +2777,7 @@ if (runApplication) {
           throw new Error('Strategy fault smoke probe server 未启动')
         }
         const result = await runStrategyFaultSmoke(runtime)
-        writeStrategyFaultSmokeResult(result)
+        writeSmokeResultFile(smokeResultTargets.strategyFault, result)
         console.log(
           `AGENTIC_BROWSER_STRATEGY_FAULT_SMOKE ${JSON.stringify(result)}`
         )
@@ -2867,7 +2794,7 @@ if (runApplication) {
           throw new Error('Strategy workspace smoke probe server 未启动')
         }
         const result = await runStrategyWorkspaceSmoke(runtime)
-        writeStrategyWorkspaceSmokeResult(result)
+        writeSmokeResultFile(smokeResultTargets.strategyWorkspace, result)
         console.log(
           `AGENTIC_BROWSER_STRATEGY_WORKSPACE_SMOKE ${JSON.stringify(result)}`
         )
@@ -2889,7 +2816,7 @@ if (runApplication) {
           profileId,
           join(automatedDownloadDirectory, 'project-output')
         )
-        writeProjectDownloadSmokeResult(result)
+        writeSmokeResultFile(smokeResultTargets.projectDownload, result)
         console.log(
           `AGENTIC_BROWSER_PROJECT_DOWNLOAD_SMOKE ${JSON.stringify(result)}`
         )
@@ -2947,14 +2874,14 @@ if (runApplication) {
             ? (error.stack ?? error.message)
             : String(error)
       }
-      writeSmokeResult(result)
-      writeRecoverySmokeResult(result)
-      writeStrategyFaultSmokeResult(result)
-      writeStrategyWorkspaceSmokeResult(result)
-      writeProjectDownloadSmokeResult(result)
-      writeProjectConcurrencySmokeResult(result)
-      writeProjectTakeoverSmokeResult(result)
-      writeAutomationPlaygroundSmokeResult(result)
+      writeSmokeResultFile(smokeResultTargets.smoke, result)
+      writeSmokeResultFile(smokeResultTargets.recovery, result)
+      writeSmokeResultFile(smokeResultTargets.strategyFault, result)
+      writeSmokeResultFile(smokeResultTargets.strategyWorkspace, result)
+      writeSmokeResultFile(smokeResultTargets.projectDownload, result)
+      writeSmokeResultFile(smokeResultTargets.projectConcurrency, result)
+      writeSmokeResultFile(smokeResultTargets.projectTakeover, result)
+      writeSmokeResultFile(smokeResultTargets.automationPlayground, result)
       writeProjectDownloadFaultSmokeChildResult(result)
       writeProjectDownloadRendererSmokeChildResult(result)
       void phaseZeroProbe?.close()
