@@ -29,7 +29,8 @@ export const IPC_CHANNELS = {
   setStrategyAllowed: 'strategies:set-allowed',
   deleteStrategy: 'strategies:delete',
   navigate: 'browser:navigate',
-  reload: 'browser:reload'
+  reload: 'browser:reload',
+  setPageViewsVisible: 'shell:set-page-views-visible'
 } as const
 
 export const STRATEGY_IPC_CHANNELS = {
@@ -562,6 +563,24 @@ export interface StrategyHostCall {
   payload: JsonValue
 }
 
+/**
+ * Strategy 脚本在页面隔离 world 中拿到的宿主对象 `agenticStrategy`。
+ *
+ * 该对象的成员由 `src/preload/strategy-bootstrap.ts` 通过模板字符串注入，
+ * 此处声明是唯一的类型真源，文档与运行时校验均以此为准。
+ * `config` 仅在 manifest 声明 `config.read` 权限时携带内容，否则为 `{}`。
+ */
+export interface StrategyHostApi {
+  readonly config: Record<string, JsonValue>
+  log(message: string, data?: JsonValue): Promise<void>
+  debug(message: string, data?: JsonValue): Promise<void>
+  warn(message: string, data?: JsonValue): Promise<void>
+  error(message: string, data?: JsonValue): Promise<void>
+  emit(name: string, payload?: JsonValue): Promise<void>
+  request(request: StrategyNetworkRequest): Promise<StrategyNetworkResponse>
+  evaluateMainWorld(source: string): Promise<unknown>
+}
+
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
@@ -606,5 +625,6 @@ export interface BrowserShellApi {
   deleteStrategy(strategyId: string): Promise<StrategyWorkspaceSnapshot>
   navigate(url: string): Promise<BrowserSnapshot>
   reload(options: ReloadOptions): Promise<BrowserSnapshot>
+  setPageViewsVisible(visible: boolean): Promise<void>
   onBrowserEvent(listener: (event: BrowserEvent) => void): () => void
 }

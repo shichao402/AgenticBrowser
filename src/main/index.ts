@@ -21,6 +21,11 @@ import {
   type StartupSettings
 } from '../shared/contracts'
 import {
+  currentChannel,
+  currentProfile,
+  isDevChannel
+} from '../shared/channel-runtime'
+import {
   cloneProjectDefinition,
   cloneStrategyDefinitions,
   formatUnknownError,
@@ -131,10 +136,24 @@ import {
   WATCHDOG_AUTOSTART_ARGUMENT
 } from './watchdog-launcher'
 
+// 档位身份在构建期注入，这里只读结果。应用名必须在设置 userData
+// 之前定好：Electron 用应用名推导默认数据目录，两档共用同一个名字
+// 会让它们互相覆盖登录态与配置。
+app.setName(currentProfile.displayName)
+
 const managedUserDataPath = process.env.AGENTIC_USER_DATA_PATH
 if (managedUserDataPath) {
   mkdirSync(managedUserDataPath, { recursive: true })
   app.setPath('userData', managedUserDataPath)
+} else if (isDevChannel) {
+  // 开发档必须落在自己的数据目录。app.setName 已经让它与正式档分开，
+  // 这里再显式钉死一次，避免未来改动 setName 的时机把两档合回一处。
+  const channelUserDataPath = join(
+    app.getPath('appData'),
+    currentProfile.userDataDirectoryName
+  )
+  mkdirSync(channelUserDataPath, { recursive: true })
+  app.setPath('userData', channelUserDataPath)
 }
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
@@ -162,7 +181,8 @@ async function prepareApplicationLaunch(): Promise<boolean> {
     return false
   }
 
-  if (!app.requestSingleInstanceLock()) {
+  // 单实例锁按档位区分：两档必须能同时运行，共用一把锁会互相顶掉。
+  if (!app.requestSingleInstanceLock({ channel: currentChannel })) {
     app.exit(0)
     return false
   }
@@ -297,7 +317,7 @@ async function createMainWindow(
     height: 900,
     minWidth: 960,
     minHeight: 640,
-    title: 'AgenticBrowser',
+    title: currentProfile.displayName,
     show: false
   })
 
@@ -399,6 +419,12 @@ async function createMainWindow(
   let workflowTickInFlight = false
   const finalizedProjectRuntimeIds = new Set<string>()
   const activeQuarantinedStrategyIds = new Set<string>()
+  /**
+   * 全屏覆盖层（设置页）是否压住了页面视图。
+   * 原生 WebContentsView 的层位高于壳层渲染层，React 的 z-index 无法覆盖它，
+   * 因此覆盖层打开时必须由主进程关闭页面视图的可见性。
+   */
+  let pageOverlayVisible = false
   const createSupervisor = (
     nextProfileId: string,
     nextInitialUrl?: string
@@ -443,6 +469,7 @@ async function createMainWindow(
         strategyDefinitions: activeStrategyDefinitions,
         allowedStrategyIds: activeAllowedStrategyIds,
         quarantinedStrategyIds: activeQuarantinedStrategyIds,
+        visible: !pageOverlayVisible,
         onStrategyDomainEvent: (event) => handleStrategyDomainEvent?.(event)
       }
     )
@@ -459,25 +486,25 @@ async function createMainWindow(
     }
     return supervisor
   }
+  /** 覆盖层打开时，任何视图都不得显示。 */
+  const isPageViewVisible = (selected: boolean): boolean =>
+    !pageOverlayVisible && selected
+  const applyPageViewVisibility = (): void => {
+    supervisor.setVisible(isPageViewVisible(!visibleBackgroundRuntimeId))
+    for (const [runtimeId, runtime] of backgroundProjectRuntimes) {
+      runtime.setVisible(
+        isPageViewVisible(runtimeId === visibleBackgroundRuntimeId)
+      )
+    }
+  }
   const showProjectSupervisor = (projectId: string | null): void => {
     const background = projectId
       ? [...backgroundProjectRuntimes.entries()].find(
           ([, runtime]) => runtime.getRuntime().projectId === projectId
         )
       : undefined
-    if (background) {
-      supervisor.setVisible(false)
-      for (const [runtimeId, runtime] of backgroundProjectRuntimes) {
-        runtime.setVisible(runtimeId === background[0])
-      }
-      visibleBackgroundRuntimeId = background[0]
-      return
-    }
-    for (const runtime of backgroundProjectRuntimes.values()) {
-      runtime.setVisible(false)
-    }
-    visibleBackgroundRuntimeId = null
-    supervisor.setVisible(true)
+    visibleBackgroundRuntimeId = background ? background[0] : null
+    applyPageViewVisibility()
   }
 
   const browserBounds = () => {
@@ -796,11 +823,9 @@ async function createMainWindow(
         supervisor.dispose()
         activeProfileId = runtimeProject.profileId
         supervisor = createSupervisor(runtimeProject.profileId, startupUrl)
-        if (visibleBackgroundRuntimeId) {
-          supervisor.setVisible(false)
-        }
         await supervisor.start()
         layout()
+        applyPageViewVisibility()
         await profileStore.setActive(runtimeProject.profileId)
       }
 
@@ -872,11 +897,9 @@ async function createMainWindow(
           supervisor.dispose()
           activeProfileId = previousProfileId
           supervisor = createSupervisor(previousProfileId, previousUrl)
-          if (visibleBackgroundRuntimeId) {
-            supervisor.setVisible(false)
-          }
           await supervisor.start()
           layout()
+          applyPageViewVisibility()
           await profileStore.setActive(previousProfileId)
         } else {
           if (activeCapabilityPolicy) {
@@ -1500,7 +1523,7 @@ async function createMainWindow(
     const url = context.supervisor.getSnapshot().url
     if (visibleBackgroundRuntimeId === runtime.runtimeId) {
       visibleBackgroundRuntimeId = null
-      supervisor.setVisible(true)
+      applyPageViewVisibility()
     }
     context.dispose()
     publish({
@@ -2109,6 +2132,18 @@ async function createMainWindow(
       getVisibleSupervisor().reload(normalized)
     )
   })
+
+  ipcMain.handle(
+    IPC_CHANNELS.setPageViewsVisible,
+    (event, visible: unknown): void => {
+      assertTrustedSender(event.sender.id)
+      if (typeof visible !== 'boolean') {
+        throw new TypeError('视图可见性必须是布尔值')
+      }
+      pageOverlayVisible = !visible
+      applyPageViewVisibility()
+    }
+  )
 
   let shutdownPrepared = false
   const prepareForShutdown = async (): Promise<void> => {

@@ -1,3 +1,21 @@
 {
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "channels": {
+    "release": {
+      "displayName": "AgenticBrowser",
+      "installDirectoryName": "AgenticBrowser",
+      "appId": "com.firoyang.agenticbrowser",
+      "iconSet": "release",
+      "userDataDirectoryName": "AgenticBrowser",
+      "artifactPrefix": "AgenticBrowser"
+    },
+    "dev": {
+      "displayName": "AgenticBrowser Dev",
+      "installDirectoryName": "AgenticBrowserDev",
+      "appId": "com.firoyang.agenticbrowser.dev",
+      "iconSet": "dev",
+      "userDataDirectoryName": "AgenticBrowserDev",
+      "artifactPrefix": "AgenticBrowser-Dev"
+    }
+  }
 }

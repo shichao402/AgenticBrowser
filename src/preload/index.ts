@@ -89,6 +89,8 @@ const api: BrowserShellApi = {
   navigate: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, url),
   reload: (options: ReloadOptions) =>
     ipcRenderer.invoke(IPC_CHANNELS.reload, options),
+  setPageViewsVisible: (visible: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setPageViewsVisible, visible),
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => {
     const wrapped = (
       _event: Electron.IpcRendererEvent,

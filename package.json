@@ -33,11 +33,16 @@
     "audit:prod": "npm audit --omit=dev",
     "version:check": "node scripts/version-ssot.mjs check",
     "version:sync": "node scripts/version-ssot.mjs sync",
-    "check": "npm run version:check && npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run audit:prod",
+    "check": "npm run version:check && npm run channel:check && npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run audit:prod",
     "dist": "npm run version:check && npm run build && electron-builder --publish never",
     "dist:win": "npm run version:check && npm run build && electron-builder --win --x64 --publish never",
     "dist:mac": "npm run version:check && npm run build && electron-builder --mac --arm64 --x64 --publish never",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "channel:check": "node scripts/channel-check.mjs",
+    "dist:release": "node scripts/package-channel.mjs release",
+    "dist:dev": "node scripts/package-channel.mjs dev",
+    "deploy:release": "node scripts/deploy-channel.mjs release",
+    "deploy:dev": "node scripts/deploy-channel.mjs dev"
   },
   "engines": {
     "node": ">=22"
@@ -70,7 +75,8 @@
     "appId": "com.firoyang.agenticbrowser",
     "productName": "AgenticBrowser",
     "directories": {
-      "output": "release"
+      "output": "release/AgenticBrowser",
+      "buildResources": "build"
     },
     "files": [
       "out/**",
@@ -82,6 +88,10 @@
       "artifactName": "${productName}-${version}-win-${arch}.${ext}"
     },
     "nsis": {
+      "perMachine": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "AgenticBrowser",
       "artifactName": "${productName}-${version}-win-${arch}.${ext}"
     },
     "mac": {

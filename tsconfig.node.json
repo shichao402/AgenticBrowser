@@ -1,10 +1,13 @@
 {
   "compilerOptions": {
     "composite": true,
+    "allowJs": true,
+    "checkJs": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "target": "ES2023",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "types": ["node", "electron"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -15,9 +18,13 @@
   "include": [
     "electron.vite.config.ts",
     "vitest.config.ts",
+    "scripts/channel-identity.mjs",
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
+    "src/renderer/src/settings/settings-model.ts",
+    "src/renderer/src/settings/settings-validation.ts",
+    "src/renderer/src/app-format.ts",
     "tests/**/*.ts"
   ]
 }

@@ -20,7 +20,9 @@ const calls = {
   heartbeatStart: 0,
   heartbeatStop: 0,
   loginItemSettings: [] as Array<{ path?: string; args?: string[] }>,
-  readyHandlers: [] as Array<() => unknown>
+  readyHandlers: [] as Array<() => unknown>,
+  appName: '' as string,
+  pathSettings: {} as Record<string, string>
 }
 
 const heartbeatInstances: Array<{
@@ -32,9 +34,20 @@ const heartbeatInstances: Array<{
 }> = []
 
 vi.mock('electron', () => {
+  // 记录入口对应用身份做的设置，用来断言两档确实分开。
+  const pathSettings: Record<string, string> = {}
   const app = {
     isPackaged: false,
-    getPath: (name: string) => join(tmpdir(), `agentic-entry-${name}`),
+    getName: () => 'AgenticBrowser',
+    setName: (name: string) => {
+      calls.appName = name
+    },
+    setPath: (name: string, value: string) => {
+      pathSettings[name] = value
+      calls.pathSettings[name] = value
+    },
+    getPath: (name: string) =>
+      pathSettings[name] ?? join(tmpdir(), `agentic-entry-${name}`),
     getLoginItemSettings: (options?: { path?: string; args?: string[] }) => {
       calls.loginItemSettings.push(options ?? {})
       return { openAtLogin: false }
@@ -213,6 +226,14 @@ describe('main entry wiring', () => {
     expect(flags.automatedTestRun).toBe(false)
     expect(flags.usesPhaseZeroProbe).toBe(false)
     expect(flags.usesAutomatedDownloadDirectory).toBe(false)
+  })
+
+  it('takes its application name from the injected channel profile', async () => {
+    await import('../src/main/index')
+
+    // 应用名决定 Electron 的默认数据目录。若这里退回硬编码字符串，
+    // 开发档会与正式档共用同一份登录态与配置。
+    expect(calls.appName).toBe('AgenticBrowser')
   })
 })
 

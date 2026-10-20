@@ -7,24 +7,17 @@ import type {
   CapabilityPolicySnapshot,
   CapabilitySettings,
   MonitorSnapshot,
-  ProjectDraft,
   ProjectWorkspaceSnapshot,
   ProfileSummary,
-  StrategyDefinition,
-  StrategyManifest,
   StrategyWorkspaceSnapshot,
   StartupSettings
 } from '../../shared/contracts'
-import {
-  createDefaultProjectDraft,
-  createDefaultStrategyManifest,
-  formatBytes,
-  formatTime,
-  isActiveProjectRuntime,
-  toProjectDraft
-} from './app-format'
+import { formatBytes, formatTime, isActiveProjectRuntime } from './app-format'
+import { currentProfile } from '../../shared/channel-runtime'
 import { CapabilityPanel, EventPanel } from './app-panels'
 import { ProjectPanel, StrategyPanel } from './app-sections'
+import { SettingsPage } from './settings/settings-page'
+import type { SettingsTarget } from './settings/settings-page'
 
 export function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null)
@@ -38,22 +31,15 @@ export function App(): React.JSX.Element {
     useState<StrategyWorkspaceSnapshot | null>(null)
   const [projectWorkspace, setProjectWorkspace] =
     useState<ProjectWorkspaceSnapshot | null>(null)
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
-  const [projectDraftText, setProjectDraftText] = useState(
-    JSON.stringify(createDefaultProjectDraft('profile-default'), null, 2)
-  )
   const [activeSection, setActiveSection] = useState<
     'projects' | 'strategies' | 'filters'
   >('projects')
-  const [editingStrategyId, setEditingStrategyId] = useState<string | null>(
-    null
-  )
-  const [strategyManifestText, setStrategyManifestText] = useState(
-    JSON.stringify(createDefaultStrategyManifest(), null, 2)
-  )
-  const [strategySource, setStrategySource] = useState(
-    'agenticStrategy.log("strategy ready")'
-  )
+  /** 视图状态：工作台 or 全屏设置页（需求 1.1）。 */
+  const [view, setView] = useState<'workbench' | 'settings'>('workbench')
+  const [settingsTarget, setSettingsTarget] = useState<SettingsTarget>({
+    kind: 'project',
+    projectId: null
+  })
   const [newProfileName, setNewProfileName] = useState('')
   const [events, setEvents] = useState<BrowserEvent[]>([])
   const [address, setAddress] = useState('https://example.com/')
@@ -90,15 +76,7 @@ export function App(): React.JSX.Element {
   }, [])
 
   const refreshProjects = useCallback(async (): Promise<void> => {
-    const next = await window.agenticBrowser.getProjectWorkspace()
-    setProjectWorkspace(next)
-    const selected =
-      next.projects.find((project) => project.id === next.activeProjectId) ??
-      null
-    if (selected) {
-      setEditingProjectId(selected.id)
-      setProjectDraftText(JSON.stringify(toProjectDraft(selected), null, 2))
-    }
+    setProjectWorkspace(await window.agenticBrowser.getProjectWorkspace())
   }, [])
 
   useEffect(() => {
@@ -157,6 +135,16 @@ export function App(): React.JSX.Element {
     }, 2_000)
     return () => window.clearInterval(timer)
   }, [refreshMonitor])
+
+  useEffect(() => {
+    // 原生页面视图的层位高于壳层渲染层，必须由主进程切换其可见性，
+    // 否则设置页会被内嵌网页整片覆盖（见 main/index.ts 的 applyPageViewVisibility）。
+    void window.agenticBrowser
+      .setPageViewsVisible(view === 'workbench')
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+  }, [view])
 
   const navigate = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
@@ -316,27 +304,14 @@ export function App(): React.JSX.Element {
     }
   }
 
-  const applyProjectWorkspace = (
-    next: ProjectWorkspaceSnapshot,
-    preferredProjectId?: string
-  ): void => {
+  const applyProjectWorkspace = (next: ProjectWorkspaceSnapshot): void => {
     setProjectWorkspace(next)
-    const selected =
-      next.projects.find(
-        (project) => project.id === (preferredProjectId ?? next.activeProjectId)
-      ) ?? null
-    if (selected) {
-      setEditingProjectId(selected.id)
-      setProjectDraftText(JSON.stringify(toProjectDraft(selected), null, 2))
-    } else {
-      setEditingProjectId(null)
-    }
   }
 
   const selectProject = async (projectId: string): Promise<void> => {
     try {
       const workspace = await window.agenticBrowser.setActiveProject(projectId)
-      applyProjectWorkspace(workspace, projectId)
+      applyProjectWorkspace(workspace)
       await Promise.all([
         refreshSnapshot(),
         refreshTabs(),
@@ -348,14 +323,19 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const openProjectSettings = (projectId: string | null): void => {
+    setSettingsTarget({ kind: 'project', projectId })
+    setView('settings')
+  }
+
+  const openStrategySettings = (strategyId: string | null): void => {
+    setSettingsTarget({ kind: 'strategy', strategyId })
+    setView('settings')
+  }
+
   const newProject = (): void => {
-    const profileId =
-      profiles.find((profile) => profile.active)?.id ?? 'profile-default'
-    setEditingProjectId(null)
-    setProjectDraftText(
-      JSON.stringify(createDefaultProjectDraft(profileId), null, 2)
-    )
     setActiveSection('projects')
+    openProjectSettings(null)
   }
 
   const installAutomationPlayground = async (): Promise<void> => {
@@ -382,22 +362,6 @@ export function App(): React.JSX.Element {
     }
   }
 
-  const saveProject = async (): Promise<void> => {
-    setError(null)
-    try {
-      const draft = JSON.parse(projectDraftText) as ProjectDraft
-      if (editingProjectId !== null && draft.id !== editingProjectId) {
-        throw new Error('编辑现有 Project 时不能修改 ID；请使用“新建”')
-      }
-      applyProjectWorkspace(
-        await window.agenticBrowser.saveProject(draft),
-        draft.id
-      )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
   const deleteProject = async (projectId: string): Promise<void> => {
     if (!window.confirm(`确认删除 Project ${projectId}？`)) {
       return
@@ -415,8 +379,7 @@ export function App(): React.JSX.Element {
     setError(null)
     try {
       applyProjectWorkspace(
-        await window.agenticBrowser.startProjectRuntime(projectId),
-        projectId
+        await window.agenticBrowser.startProjectRuntime(projectId)
       )
       await Promise.all([
         refreshProfiles(),
@@ -452,8 +415,7 @@ export function App(): React.JSX.Element {
     setError(null)
     try {
       applyProjectWorkspace(
-        await window.agenticBrowser.pauseProjectRuntime(projectId),
-        projectId
+        await window.agenticBrowser.pauseProjectRuntime(projectId)
       )
       await Promise.all([
         refreshTabs(),
@@ -470,8 +432,7 @@ export function App(): React.JSX.Element {
     setError(null)
     try {
       applyProjectWorkspace(
-        await window.agenticBrowser.resumeProjectRuntime(projectId),
-        projectId
+        await window.agenticBrowser.resumeProjectRuntime(projectId)
       )
       await Promise.all([
         refreshTabs(),
@@ -484,41 +445,8 @@ export function App(): React.JSX.Element {
     }
   }
 
-  const editStrategy = (definition: StrategyDefinition): void => {
-    setEditingStrategyId(definition.manifest.id)
-    setStrategyManifestText(JSON.stringify(definition.manifest, null, 2))
-    setStrategySource(definition.source)
-    setActiveSection('strategies')
-  }
-
   const newStrategy = (): void => {
-    setEditingStrategyId(null)
-    setStrategyManifestText(
-      JSON.stringify(createDefaultStrategyManifest(), null, 2)
-    )
-    setStrategySource('agenticStrategy.log("strategy ready")')
-  }
-
-  const saveStrategy = async (): Promise<void> => {
-    setError(null)
-    try {
-      const manifest = JSON.parse(strategyManifestText) as StrategyManifest
-      const existing = strategyWorkspace?.strategies.find(
-        (definition) => definition.manifest.id === editingStrategyId
-      )
-      if (editingStrategyId !== null && manifest.id !== editingStrategyId) {
-        throw new Error('编辑现有 Strategy 时不能修改 ID；请使用“新建”')
-      }
-      const workspace = await window.agenticBrowser.saveStrategy({
-        manifest,
-        source: strategySource,
-        enabled: existing?.enabled ?? true
-      })
-      setStrategyWorkspace(workspace)
-      setEditingStrategyId(manifest.id)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    }
+    openStrategySettings(null)
   }
 
   const toggleStrategyEnabled = async (
@@ -542,9 +470,6 @@ export function App(): React.JSX.Element {
       setStrategyWorkspace(
         await window.agenticBrowser.deleteStrategy(strategyId)
       )
-      if (editingStrategyId === strategyId) {
-        newStrategy()
-      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -576,11 +501,35 @@ export function App(): React.JSX.Element {
 
   return (
     <main className="app-shell">
-      <aside className="sidebar">
+      {/*
+        设置页以全屏覆盖层形式渲染，不卸载 toolbar / browser-placeholder，
+        保证内嵌浏览器页面与运行时不中断（需求 1.5）。
+      */}
+      {view === 'settings' ? (
+        <SettingsPage
+          target={settingsTarget}
+          projectWorkspace={projectWorkspace}
+          strategyWorkspace={strategyWorkspace}
+          profiles={profiles}
+          anyRuntimeActive={activeProjectRuntime !== null}
+          activeProfileId={
+            profiles.find((profile) => profile.active)?.id ?? 'profile-default'
+          }
+          onClose={() => setView('workbench')}
+          onSavedProjects={(workspace) => setProjectWorkspace(workspace)}
+          onSavedStrategies={(workspace) => setStrategyWorkspace(workspace)}
+          onReloadPage={() => void reload(false)}
+        />
+      ) : null}
+      <aside
+        className="sidebar"
+        hidden={view === 'settings'}
+        aria-hidden={view === 'settings'}
+      >
         <header className="brand">
           <span className="brand-mark">AB</span>
           <div>
-            <h1>AgenticBrowser</h1>
+            <h1>{currentProfile.displayName}</h1>
             <p>Phase 3 · Project Runtime</p>
           </div>
         </header>
@@ -621,13 +570,13 @@ export function App(): React.JSX.Element {
             activeProject={activeProject}
             anyRuntimeActive={activeProjectRuntime !== null}
             selectedRuntime={selectedActiveProjectRuntime}
-            draftText={projectDraftText}
-            onDraftChange={setProjectDraftText}
             onSelectProject={(id) => void selectProject(id)}
             onDeleteProject={(id) => void deleteProject(id)}
             onInstallPlayground={() => void installAutomationPlayground()}
             onNewProject={newProject}
-            onSaveProject={() => void saveProject()}
+            onOpenSettings={() =>
+              openProjectSettings(activeProject?.id ?? null)
+            }
             onStartProject={(id) => void startProject(id)}
             onPauseProject={(id) => void pauseProject(id)}
             onResumeProject={(id) => void resumeProject(id)}
@@ -640,18 +589,16 @@ export function App(): React.JSX.Element {
             workspace={strategyWorkspace}
             activeProjectStrategies={activeProject?.strategies ?? []}
             strategyEntries={monitor?.strategies.entries ?? []}
-            manifestText={strategyManifestText}
-            sourceText={strategySource}
             anyRuntimeActive={activeProjectRuntime !== null}
-            onManifestChange={setStrategyManifestText}
-            onSourceChange={setStrategySource}
             onNewStrategy={newStrategy}
-            onEditStrategy={editStrategy}
+            onEditStrategy={(definition) =>
+              openStrategySettings(definition.manifest.id)
+            }
             onToggleEnabled={(id, enabled) =>
               void toggleStrategyEnabled(id, enabled)
             }
             onDeleteStrategy={(id) => void deleteStrategy(id)}
-            onSaveStrategy={() => void saveStrategy()}
+            onOpenSettings={() => openStrategySettings(null)}
           />
         ) : null}
 
@@ -828,7 +775,7 @@ export function App(): React.JSX.Element {
         <EventPanel events={events} />
       </aside>
 
-      <header className="toolbar">
+      <header className="toolbar" hidden={view === 'settings'}>
         <div className="tab-strip" role="tablist" aria-label="浏览器标签页">
           {tabs.map((tab) => (
             <div
@@ -884,7 +831,12 @@ export function App(): React.JSX.Element {
         {error ? <p className="toolbar-error">{error}</p> : null}
       </header>
 
-      <section className="browser-placeholder" aria-label="内嵌浏览器区域">
+      <section
+        className={`browser-placeholder ${
+          view === 'settings' ? 'browser-placeholder-hidden' : ''
+        }`}
+        aria-label="内嵌浏览器区域"
+      >
         {snapshot?.recovery.status === 'circuit-open' ? (
           <div className="error-page">
             <span className="eyebrow">Recovery circuit open</span>

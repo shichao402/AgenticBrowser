@@ -5,8 +5,8 @@ import type {
 } from '../../shared/contracts'
 
 // 两个面板只负责渲染，状态与 IPC 调用全部留在 App。
-// 这样面板可以脱离真实 Electron 环境单独审查，也让 App 的
-// 状态编排部分不再夹在几百行 JSX 里。
+// 设置页上线后，侧边栏不再承载任何配置文本域：编辑动作统一跳到
+// 全屏设置页，侧边栏只保留运行期信息与入口（需求 9）。
 
 export interface ProjectRuntimeSummary {
   projectId: string
@@ -18,13 +18,11 @@ export interface ProjectPanelProps {
   activeProject: { id: string; name: string } | null
   anyRuntimeActive: boolean
   selectedRuntime: ProjectRuntimeSummary | null
-  draftText: string
-  onDraftChange: (value: string) => void
   onSelectProject: (projectId: string) => void
   onDeleteProject: (projectId: string) => void
   onInstallPlayground: () => void
   onNewProject: () => void
-  onSaveProject: () => void
+  onOpenSettings: () => void
   onStartProject: (projectId: string) => void
   onPauseProject: (projectId: string) => void
   onResumeProject: (projectId: string) => void
@@ -32,13 +30,7 @@ export interface ProjectPanelProps {
 }
 
 export function ProjectPanel(props: ProjectPanelProps): React.JSX.Element {
-  const {
-    workspace,
-    activeProject,
-    anyRuntimeActive,
-    selectedRuntime,
-    draftText
-  } = props
+  const { workspace, activeProject, anyRuntimeActive, selectedRuntime } = props
 
   return (
     <section className="project-panel">
@@ -49,7 +41,7 @@ export function ProjectPanel(props: ProjectPanelProps): React.JSX.Element {
           disabled={anyRuntimeActive}
           onClick={props.onInstallPlayground}
         >
-          安装自动化验收模板
+          安装验收模板
         </button>
         <button type="button" onClick={props.onNewProject}>
           新建
@@ -99,24 +91,16 @@ export function ProjectPanel(props: ProjectPanelProps): React.JSX.Element {
           <p className="event-empty">尚无 Project</p>
         )}
       </div>
-      <div className="project-editor">
-        <label>
-          Project JSON
-          <textarea
-            aria-label="Project JSON"
-            spellCheck={false}
-            value={draftText}
-            onChange={(event) => props.onDraftChange(event.target.value)}
-          />
-        </label>
+
+      <div className="project-actions-panel">
+        <button
+          className="project-open-settings"
+          type="button"
+          onClick={props.onOpenSettings}
+        >
+          打开设置（表单配置）
+        </button>
         <div className="project-actions">
-          <button
-            type="button"
-            disabled={anyRuntimeActive}
-            onClick={props.onSaveProject}
-          >
-            保存
-          </button>
           <button
             type="button"
             disabled={!activeProject || selectedRuntime !== null}
@@ -178,16 +162,12 @@ export interface StrategyPanelProps {
   workspace: StrategyWorkspaceSnapshot | null
   activeProjectStrategies: Array<{ id: string; version: string }>
   strategyEntries: Array<{ strategyId: string; status: string }>
-  manifestText: string
-  sourceText: string
   anyRuntimeActive: boolean
-  onManifestChange: (value: string) => void
-  onSourceChange: (value: string) => void
   onNewStrategy: () => void
   onEditStrategy: (definition: StrategyDefinition) => void
   onToggleEnabled: (strategyId: string, enabled: boolean) => void
   onDeleteStrategy: (strategyId: string) => void
-  onSaveStrategy: () => void
+  onOpenSettings: () => void
 }
 
 export function StrategyPanel(props: StrategyPanelProps): React.JSX.Element {
@@ -267,33 +247,14 @@ export function StrategyPanel(props: StrategyPanelProps): React.JSX.Element {
           <p className="event-empty">尚无 Strategy</p>
         )}
       </div>
-      <div className="strategy-editor">
-        <label>
-          Manifest JSON
-          <textarea
-            aria-label="Strategy Manifest JSON"
-            spellCheck={false}
-            value={props.manifestText}
-            onChange={(event) => props.onManifestChange(event.target.value)}
-          />
-        </label>
-        <label>
-          隔离 world 源码
-          <textarea
-            aria-label="Strategy 源码"
-            spellCheck={false}
-            value={props.sourceText}
-            onChange={(event) => props.onSourceChange(event.target.value)}
-          />
-        </label>
-        <button
-          type="button"
-          disabled={props.anyRuntimeActive}
-          onClick={props.onSaveStrategy}
-        >
-          保存并重载页面
-        </button>
-      </div>
+
+      <button
+        className="strategy-open-settings"
+        type="button"
+        onClick={props.onOpenSettings}
+      >
+        打开设置（表单配置）
+      </button>
     </section>
   )
 }
