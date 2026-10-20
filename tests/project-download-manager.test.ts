@@ -262,6 +262,38 @@ describe('ProjectDownloadManager', () => {
     ])
   })
 
+  it('treats a disk rejection as one record even when retried from another node', async () => {
+    const retrying = new ProjectDownloadManager(
+      join(temporaryRoot, 'records', 'disk-cross-node.json'),
+      {
+        minimumFreeBytes: 100,
+        createId: () => `diskcross${++sequence}`,
+        getAvailableBytes: async () => 0
+      }
+    )
+
+    const first = await retrying.reserve(project, intent())
+    expect(first.kind).toBe('rejected')
+    if (first.kind !== 'rejected') {
+      throw new Error('expected rejected reservation')
+    }
+
+    // 工作流推进到下一个节点后，同一附件会被再次提交。节点不属于磁盘拒绝的
+    // 身份标识，若把它纳入匹配条件，就会为同一次拒绝留下第二条记录并把失败
+    // 计数重复累加。
+    const second = await retrying.reserve(project, {
+      ...intent(),
+      workflowNodeId: 'wait-download-failed'
+    })
+
+    expect(second).toEqual({
+      kind: 'rejected',
+      record: first.record,
+      newlyCreated: false
+    })
+    expect((await retrying.read()).records).toHaveLength(1)
+  })
+
   it('classifies interrupted downloads and preserves their temporary evidence', async () => {
     const reservation = await manager.reserve(project, intent())
     if (reservation.kind !== 'reserved') {

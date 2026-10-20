@@ -160,11 +160,15 @@ export class ProjectDownloadManager {
             }
           }
         }
+        // 磁盘拒绝的身份由「项目 + 附件 + 本次运行」决定，不含工作流节点。
+        // 节点会随流程推进而变化（例如从 open-download-page 走到
+        // wait-download-failed，重跑时又会从上次失败节点恢复），把它纳入
+        // 条件会为同一次拒绝留下多条记录，并把 failed 计数重复累加。
+        // 反过来，新的 runtime 表示一次新的运行，应当允许真正重试。
         const rejected = state.records.find(
           (record) =>
             record.projectId === project.id &&
             record.runtimeId === intent.runtimeId &&
-            record.workflowNodeId === intent.workflowNodeId &&
             record.idempotencyKey === idempotencyKey &&
             record.status === 'failed' &&
             record.errorCategory === 'disk'
