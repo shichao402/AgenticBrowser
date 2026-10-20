@@ -31,7 +31,6 @@ import type {
   PageHealthSnapshot,
   RecoverySnapshot,
   ReloadOptions,
-  StrategyBootstrapRequest,
   StrategyDefinition,
   StrategyNetworkRequest,
   StrategyNetworkResponse,
@@ -57,6 +56,13 @@ import { sanitizeDownloadFileName } from './download-path'
 import { ContentFilter } from './content-filter'
 import { RecoveryPolicy, type RecoveryAction } from './recovery-policy'
 import { urlMatchesStrategyPattern } from './strategy-match'
+import {
+  isRedirectStatus,
+  parseStrategyBootstrapRequest,
+  readStrategyResponseBody,
+  sanitizeStrategyRequestHeaders,
+  selectStrategyResponseHeaders
+} from './strategy-network'
 import {
   StrategyRuntime,
   type StrategyDomainEvent,
@@ -1898,104 +1904,6 @@ function summarizeLatencies(durations: number[]): LatencyStats {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
-}
-
-function parseStrategyBootstrapRequest(
-  value: unknown
-): StrategyBootstrapRequest | null {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    !('href' in value) ||
-    !('isMainFrame' in value) ||
-    typeof value.href !== 'string' ||
-    value.href.length > 8_192 ||
-    typeof value.isMainFrame !== 'boolean'
-  ) {
-    return null
-  }
-  return {
-    href: value.href,
-    isMainFrame: value.isMainFrame
-  }
-}
-
-function sanitizeStrategyRequestHeaders(
-  value: Record<string, string>
-): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const [name, headerValue] of Object.entries(value)) {
-    const normalized = name.toLowerCase()
-    if (
-      !/^[!#$%&'*+\-.^_`|~0-9a-z]+$/.test(normalized) ||
-      /^(?:authorization|cookie|host|origin|referer|proxy-|sec-)/i.test(
-        normalized
-      ) ||
-      /[\r\n]/.test(headerValue)
-    ) {
-      throw new Error(`Strategy 请求头不允许：${name}`)
-    }
-    result[normalized] = headerValue
-  }
-  return result
-}
-
-async function readStrategyResponseBody(
-  response: Response,
-  maximumBytes: number
-): Promise<Buffer> {
-  if (!response.body) {
-    return Buffer.alloc(0)
-  }
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let byteLength = 0
-  try {
-    while (true) {
-      const next = await reader.read()
-      if (next.done) {
-        break
-      }
-      byteLength += next.value.byteLength
-      if (byteLength > maximumBytes) {
-        await reader.cancel('Strategy 网络响应超过大小限制')
-        throw new Error('Strategy 网络响应超过 1 MiB')
-      }
-      chunks.push(next.value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-  return Buffer.concat(
-    chunks.map((chunk) =>
-      Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
-    ),
-    byteLength
-  )
-}
-
-function selectStrategyResponseHeaders(
-  headers: Headers
-): Record<string, string> {
-  const allowed = new Set([
-    'cache-control',
-    'content-language',
-    'content-length',
-    'content-type',
-    'etag',
-    'last-modified'
-  ])
-  const result: Record<string, string> = {}
-  for (const [name, value] of headers.entries()) {
-    if (allowed.has(name.toLowerCase())) {
-      result[name.toLowerCase()] = value
-    }
-  }
-  return result
-}
-
-function isRedirectStatus(status: number): boolean {
-  return [301, 302, 303, 307, 308].includes(status)
 }
 
 function formatError(error: unknown): string {
