@@ -14,6 +14,9 @@ updates:
           - electron
           - electron-builder
           - electron-vite
+      # vitest 与 @vitest/* 必须同组同版本升级。coverage provider 对
+      # vitest 是精确 peer 依赖（peer vitest@5.0.4），拆开升级会让
+      # npm ci 直接以 ERESOLVE 失败。
       vitest:
         patterns:
           - vitest
