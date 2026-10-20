@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# 冒烟要跑满十二个场景，属于最贵的作业。PR 上只保留最新一次，
+# 避免连续推送让多份冒烟同时占用 runner 并互相拖慢。
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   electron-smoke:
     name: Electron smoke (${{ matrix.os }})
