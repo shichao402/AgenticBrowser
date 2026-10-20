@@ -4,7 +4,6 @@ import type { BaseWindow, WebContentsView } from 'electron'
 import type { BrowserEvent, StartupSettings } from '../shared/contracts'
 import type { BrowserTabManager } from './browser-tab-manager'
 import { MainProcessHeartbeat } from './main-process-heartbeat'
-import type { PhaseZeroProbeServer } from './phase0-probe-server'
 import { WATCHDOG_AUTOSTART_ARGUMENT } from './watchdog-launcher'
 
 /**
@@ -23,25 +22,6 @@ export interface MainWindowRuntime {
   getEventCount(): number
   suppressShellEvents(): void
   prepareForShutdown(): Promise<void>
-}
-
-let phaseZeroProbe: PhaseZeroProbeServer | null = null
-let automatedDownloadDirectory: string | null = null
-
-export function getPhaseZeroProbe(): PhaseZeroProbeServer | null {
-  return phaseZeroProbe
-}
-
-export function setPhaseZeroProbe(probe: PhaseZeroProbeServer | null): void {
-  phaseZeroProbe = probe
-}
-
-export function getAutomatedDownloadDirectory(): string | null {
-  return automatedDownloadDirectory
-}
-
-export function setAutomatedDownloadDirectory(directory: string | null): void {
-  automatedDownloadDirectory = directory
 }
 
 /**

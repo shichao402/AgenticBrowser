@@ -113,9 +113,7 @@ import {
 import {
   closeSmokeRuntime,
   getMainProcessHeartbeat,
-  getPhaseZeroProbe,
   initMainProcessHeartbeat,
-  setPhaseZeroProbe,
   type MainWindowRuntime
 } from './smoke-runtime'
 import { StructuredEventLog } from './structured-event-log'
@@ -2764,7 +2762,7 @@ if (runApplication) {
         runtime.window.close()
         await phaseZeroProbe?.close()
         phaseZeroProbe = null
-        cleanupAutomatedDownloads()
+        cleanupAutomatedDownloads(automatedDownloadDirectory)
         app.exit(passed ? 0 : 1)
         return
       }
@@ -2785,7 +2783,7 @@ if (runApplication) {
         await closeSmokeRuntime(runtime)
         await phaseZeroProbe.close()
         phaseZeroProbe = null
-        cleanupAutomatedDownloads()
+        cleanupAutomatedDownloads(automatedDownloadDirectory)
         app.exit(result.passed === true ? 0 : 1)
         return
       }
@@ -2807,7 +2805,7 @@ if (runApplication) {
         await closeSmokeRuntime(runtime)
         await phaseZeroProbe.close()
         phaseZeroProbe = null
-        cleanupAutomatedDownloads()
+        cleanupAutomatedDownloads(automatedDownloadDirectory)
         app.exit(result.passed === true ? 0 : 1)
         return
       }
@@ -2827,7 +2825,7 @@ if (runApplication) {
           )}`
         )
         await closeSmokeRuntime(runtime)
-        cleanupAutomatedDownloads()
+        cleanupAutomatedDownloads(automatedDownloadDirectory)
         app.exit(result.passed === true ? 0 : 1)
         return
       }
@@ -2842,7 +2840,7 @@ if (runApplication) {
         runtime.window.close()
         await phaseZeroProbe.close()
         phaseZeroProbe = null
-        cleanupAutomatedDownloads()
+        cleanupAutomatedDownloads(automatedDownloadDirectory)
         app.exit(result.passed === true ? 0 : 1)
         return
       }
@@ -2859,7 +2857,7 @@ if (runApplication) {
         await closeSmokeRuntime(runtime)
         await phaseZeroProbe.close()
         phaseZeroProbe = null
-        cleanupAutomatedDownloads()
+        cleanupAutomatedDownloads(automatedDownloadDirectory)
         app.exit(result.passed === true ? 0 : 1)
         return
       }
@@ -2876,7 +2874,7 @@ if (runApplication) {
         await closeSmokeRuntime(runtime)
         await phaseZeroProbe.close()
         phaseZeroProbe = null
-        cleanupAutomatedDownloads()
+        cleanupAutomatedDownloads(automatedDownloadDirectory)
         app.exit(result.passed === true ? 0 : 1)
         return
       }
@@ -2898,7 +2896,7 @@ if (runApplication) {
         await closeSmokeRuntime(runtime)
         await phaseZeroProbe.close()
         phaseZeroProbe = null
-        cleanupAutomatedDownloads()
+        cleanupAutomatedDownloads(automatedDownloadDirectory)
         app.exit(result.passed === true ? 0 : 1)
         return
       }
@@ -2959,9 +2957,9 @@ if (runApplication) {
       writeAutomationPlaygroundSmokeResult(result)
       writeProjectDownloadFaultSmokeChildResult(result)
       writeProjectDownloadRendererSmokeChildResult(result)
-      void getPhaseZeroProbe()?.close()
-      setPhaseZeroProbe(null)
-      cleanupAutomatedDownloads()
+      void phaseZeroProbe?.close()
+      phaseZeroProbe = null
+      cleanupAutomatedDownloads(automatedDownloadDirectory)
       void getMainProcessHeartbeat()?.stop()
       console.error(error)
       app.exit(1)

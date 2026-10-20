@@ -68,12 +68,10 @@ import {
 } from './smoke-flags'
 import {
   closeSmokeRuntime,
-  getAutomatedDownloadDirectory,
   getMainProcessHeartbeat,
   getStartupSettings,
   parsePositiveInteger,
   requireEnvironmentValue,
-  setAutomatedDownloadDirectory,
   waitUntil,
   watchdogRestartCount,
   type MainWindowRuntime
@@ -2129,8 +2127,7 @@ export async function runRecoverySmoke(
   }
 }
 
-export function cleanupAutomatedDownloads(): void {
-  const directory = getAutomatedDownloadDirectory()
+export function cleanupAutomatedDownloads(directory: string | null): void {
   if (directory) {
     rmSync(directory, {
       recursive: true,
@@ -2138,7 +2135,6 @@ export function cleanupAutomatedDownloads(): void {
       maxRetries: 10,
       retryDelay: 100
     })
-    setAutomatedDownloadDirectory(null)
   }
 }
 
