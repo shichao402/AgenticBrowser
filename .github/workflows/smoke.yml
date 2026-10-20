@@ -1,8 +1,10 @@
 name: Smoke
 
 on:
-  # 冒烟需要真实图形会话与进程派生，尚未在 GitHub 托管 runner 上验证过。
-  # 先只允许手动触发：确认一次绿之后，再打开 push/pull_request 让它成为门禁。
+  push:
+    branches:
+      - main
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -12,13 +14,12 @@ jobs:
   electron-smoke:
     name: Electron smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        # 冒烟场景覆盖启动编排、watchdog 守护、下载事务与恢复链路，这些是
-        # 单元测试无法触达的部分。macOS 与 Windows 的主进程分支不同，两个
-        # 平台都要跑。
+        # 冒烟覆盖启动编排、watchdog 守护、下载事务与恢复链路，这些是单元测试
+        # 触达不到的部分。两个平台的主进程分支不同，都必须跑。
         os:
           - macos-latest
           - windows-latest
@@ -27,7 +28,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # Electron 冒烟需要真实图形会话；CI 上以 xvfb 之外的平台原生方式启动。
       - name: Use Node.js 22
         uses: actions/setup-node@v5
         with:
@@ -37,26 +37,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      # 每个 smoke:* 脚本内部都会先跑一次 build。这里统一构建一次，下面直接调用
+      # electron 或脚本本身，避免同一份产物重复构建十次。
+      - name: Build once
         run: npm run build
 
-      - name: Phase 0 smoke
-        run: npm run smoke:electron
+      # 逐条串行执行，任一场景失败即中断；用 ::group:: 把每个场景的输出折叠，
+      # 便于在日志里直接定位是哪一步红了。
+      - name: Run smoke scenarios
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_smoke() {
+            local name="$1"
+            shift
+            echo "::group::$name"
+            "$@"
+            echo "::endgroup::"
+          }
 
-      - name: Recovery smoke
-        run: npm run smoke:recovery
-
-      - name: Project download smoke
-        run: npm run smoke:project-download
-
-      - name: Project download recovery smoke
-        run: npm run smoke:project-download-recovery
-
-      - name: Project download fault smoke
-        run: npm run smoke:project-download-fault
-
-      - name: Watchdog smoke
-        run: npm run smoke:watchdog
+          run_smoke "Phase 0" npx electron . --smoke-test
+          run_smoke "Recovery" npx electron . --recovery-smoke-test
+          run_smoke "Strategy fault" npx electron . --strategy-fault-smoke-test
+          run_smoke "Strategy workspace" npx electron . --strategy-workspace-smoke-test
+          run_smoke "Project download" npx electron . --project-download-smoke-test
+          run_smoke "Project download recovery" node scripts/project-download-recovery-smoke.mjs
+          run_smoke "Project download fault" node scripts/project-download-fault-smoke.mjs
+          run_smoke "Project download renderer recovery" node scripts/project-download-renderer-recovery-smoke.mjs
+          run_smoke "Project concurrency" npx electron . --project-concurrency-smoke-test
+          run_smoke "Project takeover" npx electron . --project-takeover-smoke-test
+          run_smoke "Automation playground" npx electron . --automation-playground-smoke-test
+          run_smoke "Watchdog" node scripts/watchdog-smoke.mjs
 
       - name: Upload smoke results
         if: always()
@@ -65,6 +76,6 @@ jobs:
           name: smoke-results-${{ matrix.os }}
           path: |
             phase*.json
-            *-smoke-result.json
+            *smoke-result.json
           if-no-files-found: ignore
           retention-days: 7
