@@ -32,6 +32,7 @@ import {
 } from './main-helpers'
 import { BackgroundProjectRuntime } from './background-project-runtime'
 import { BrowserTabManager } from './browser-tab-manager'
+import { buildMonitorSnapshot } from './monitor-snapshot'
 import type {
   BrowserDownloadAdapter,
   BrowserDownloadRequest
@@ -2246,80 +2247,19 @@ function collectMonitorSnapshot(
   additionalSupervisors: BrowserTabManager[] = [],
   projectRuntimes: ProjectRuntimeSnapshot[] = []
 ): MonitorSnapshot {
-  const supervisors = [supervisor, ...additionalSupervisors]
-  const strategySnapshots = supervisors.map((current) =>
-    current.getStrategyRuntimeSnapshot()
-  )
-  const strategies = {
-    activeCount: strategySnapshots.reduce(
-      (total, snapshot) => total + snapshot.activeCount,
-      0
-    ),
-    quarantinedStrategyIds: [
-      ...new Set(
-        strategySnapshots.flatMap((snapshot) => snapshot.quarantinedStrategyIds)
-      )
-    ].sort(),
-    entries: strategySnapshots.flatMap((snapshot) => snapshot.entries)
-  }
-  const downloads = supervisors.reduce(
-    (summary, current) => {
-      const next = current.getDownloadSummary()
-      summary.active += next.active
-      summary.completed += next.completed
-      summary.failed += next.failed
-      summary.receivedBytes += next.receivedBytes
-      return summary
-    },
-    {
-      active: 0,
-      completed: 0,
-      failed: 0,
-      receivedBytes: 0
-    }
-  )
-  const processes = app.getAppMetrics().map((metric) => ({
-    pid: metric.pid,
-    type: metric.type,
-    cpuPercent: metric.cpu.percentCPUUsage,
-    workingSetBytes: metric.memory.workingSetSize * 1024
-  }))
-
-  return {
-    generatedAt: new Date().toISOString(),
-    browser: supervisor.getSnapshot(),
-    projectRuntime,
-    projectRuntimes: projectRuntimes.map((runtime) => structuredClone(runtime)),
-    activeProjectCount: projectRuntimes.filter(
-      (runtime) =>
-        runtime.status !== 'queued' &&
-        runtime.status !== 'paused' &&
-        !isTerminalProjectRuntime(runtime)
-    ).length,
-    pausedProjectCount: projectRuntimes.filter(
-      (runtime) => runtime.status === 'paused'
-    ).length,
-    queuedProjectCount: projectRuntimes.filter(
-      (runtime) => runtime.status === 'queued'
-    ).length,
+  return buildMonitorSnapshot({
+    supervisor,
+    additionalSupervisors,
     browserEventCount,
-    activePageCount: supervisors.reduce(
-      (total, current) => total + current.listTabs().length,
-      0
-    ),
-    activeStrategyCount: strategies.activeCount,
-    strategies,
-    totalCpuPercent: processes.reduce(
-      (total, metric) => total + metric.cpuPercent,
-      0
-    ),
-    totalWorkingSetBytes: processes.reduce(
-      (total, metric) => total + metric.workingSetBytes,
-      0
-    ),
-    processes,
-    downloads
-  }
+    projectRuntime,
+    projectRuntimes,
+    processes: app.getAppMetrics().map((metric) => ({
+      pid: metric.pid,
+      type: metric.type,
+      cpuPercent: metric.cpu.percentCPUUsage,
+      workingSetBytes: metric.memory.workingSetSize * 1024
+    }))
+  })
 }
 
 if (runApplication) {
