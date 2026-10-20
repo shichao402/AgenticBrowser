@@ -52,11 +52,32 @@ function runtime(
   overrides: Partial<ProjectRuntimeSnapshot> = {}
 ): ProjectRuntimeSnapshot {
   return {
-    id: 'runtime-1',
+    runtimeId: 'runtime-1',
     projectId: 'project-1',
+    projectRevision: 1,
+    trigger: 'manual',
     status: 'running',
+    currentNodeId: 'start',
+    nodeAttempt: 0,
+    checkpointNodeId: null,
+    checkpointData: {},
+    lastHeartbeatAt: '2026-01-01T00:00:00.000Z',
+    nextWakeAt: null,
+    lastError: null,
+    lastFailureCategory: null,
+    counters: {
+      scanned: 0,
+      matched: 0,
+      skipped: 0,
+      downloaded: 0,
+      failed: 0,
+      downloadedBytes: 0
+    },
+    startedAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    completedAt: null,
     ...overrides
-  } as ProjectRuntimeSnapshot
+  }
 }
 
 describe('summarizeStrategySnapshots', () => {
@@ -204,7 +225,12 @@ describe('countActiveProjectRuntimes', () => {
   })
 
   it('excludes terminal runtimes', () => {
-    for (const status of ['completed', 'failed', 'cancelled']) {
+    const terminal: ProjectRuntimeSnapshot['status'][] = [
+      'completed',
+      'failed',
+      'cancelled'
+    ]
+    for (const status of terminal) {
       expect(countActiveProjectRuntimes([runtime({ status })])).toBe(0)
     }
   })
