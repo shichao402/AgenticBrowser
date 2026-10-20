@@ -44,15 +44,26 @@ jobs:
 
       # 逐条串行执行，任一场景失败即中断；用 ::group:: 把每个场景的输出折叠，
       # 便于在日志里直接定位是哪一步红了。
+      #
+      # 每条命令都套一层硬超时：冒烟会拉起并结束真实进程，一旦某个场景在等待
+      # 进程退出时挂住，没有超时就会一直占着 runner（实测出现过单步十余分钟
+      # 仍未结束）。超时后杀掉整棵进程树并判定失败，让问题立刻可见。
       - name: Run smoke scenarios
         shell: bash
         run: |
           set -euo pipefail
+          SMOKE_TIMEOUT_SECONDS=240
+
           run_smoke() {
             local name="$1"
             shift
             echo "::group::$name"
-            "$@"
+            if ! timeout --kill-after=15 "${SMOKE_TIMEOUT_SECONDS}s" "$@"; then
+              local status=$?
+              echo "::error::$name failed or timed out (exit ${status})"
+              echo "::endgroup::"
+              exit "${status}"
+            fi
             echo "::endgroup::"
           }
 
