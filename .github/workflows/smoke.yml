@@ -1,0 +1,70 @@
+name: Smoke
+
+on:
+  # 冒烟需要真实图形会话与进程派生，尚未在 GitHub 托管 runner 上验证过。
+  # 先只允许手动触发：确认一次绿之后，再打开 push/pull_request 让它成为门禁。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  electron-smoke:
+    name: Electron smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # 冒烟场景覆盖启动编排、watchdog 守护、下载事务与恢复链路，这些是
+        # 单元测试无法触达的部分。macOS 与 Windows 的主进程分支不同，两个
+        # 平台都要跑。
+        os:
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Electron 冒烟需要真实图形会话；CI 上以 xvfb 之外的平台原生方式启动。
+      - name: Use Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Phase 0 smoke
+        run: npm run smoke:electron
+
+      - name: Recovery smoke
+        run: npm run smoke:recovery
+
+      - name: Project download smoke
+        run: npm run smoke:project-download
+
+      - name: Project download recovery smoke
+        run: npm run smoke:project-download-recovery
+
+      - name: Project download fault smoke
+        run: npm run smoke:project-download-fault
+
+      - name: Watchdog smoke
+        run: npm run smoke:watchdog
+
+      - name: Upload smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-results-${{ matrix.os }}
+          path: |
+            phase*.json
+            *-smoke-result.json
+          if-no-files-found: ignore
+          retention-days: 7
