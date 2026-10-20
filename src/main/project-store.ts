@@ -18,11 +18,7 @@ import type {
   WorkflowNode,
   WorkflowNodeBase
 } from '../shared/contracts'
-import {
-  isNodeError,
-  readJsonFile,
-  writeJsonAtomic
-} from './atomic-file'
+import { isNodeError, readJsonFile, writeJsonAtomic } from './atomic-file'
 import {
   cloneCapabilityPolicy,
   parseCapabilityPolicy
@@ -182,11 +178,7 @@ export function emptyProjectState(): ProjectState {
 export function parseProjectState(value: unknown): ProjectState | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, [
-      'schemaVersion',
-      'activeProjectId',
-      'projects'
-    ]) ||
+    !hasExactKeys(value, ['schemaVersion', 'activeProjectId', 'projects']) ||
     value.schemaVersion !== 1 ||
     (value.activeProjectId !== null &&
       typeof value.activeProjectId !== 'string') ||
@@ -364,9 +356,7 @@ function parseStrategyPins(value: unknown[]): ProjectStrategyPin[] | null {
   return pins.sort((left, right) => left.id.localeCompare(right.id))
 }
 
-function parseRuntimeSettings(
-  value: unknown
-): ProjectRuntimeSettings | null {
+function parseRuntimeSettings(value: unknown): ProjectRuntimeSettings | null {
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, [
@@ -416,8 +406,7 @@ function parseSchedule(value: unknown): ProjectSchedule | null {
     value.times.length <= 24 &&
     value.times.every(
       (time) =>
-        typeof time === 'string' &&
-        /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)
+        typeof time === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)
     ) &&
     new Set(value.times).size === value.times.length
   ) {
@@ -616,6 +605,8 @@ function parseOutput(value: unknown): ProjectDraft['output'] | null {
     typeof value.fileNameTemplate !== 'string' ||
     value.fileNameTemplate.length === 0 ||
     value.fileNameTemplate.length > 200 ||
+    // 有意匹配 ASCII 控制字符，拒绝含不可见字符的文件名模板
+    // eslint-disable-next-line no-control-regex
     /[/\\\u0000-\u001f]/.test(value.fileNameTemplate)
   ) {
     return null
@@ -687,12 +678,7 @@ function parseContentFilter(value: unknown): ContentFilterDefinition | null {
 function parseNetworkRule(value: unknown): ContentFilterNetworkRule | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, [
-      'id',
-      'action',
-      'urlPattern',
-      'resourceTypes'
-    ]) ||
+    !hasExactKeys(value, ['id', 'action', 'urlPattern', 'resourceTypes']) ||
     typeof value.id !== 'string' ||
     !FILTER_RULE_ID.test(value.id) ||
     (value.action !== 'allow' && value.action !== 'block') ||
@@ -788,11 +774,7 @@ function isValidTimezone(value: string): boolean {
 }
 
 function isCrossPlatformAbsolute(value: string): boolean {
-  return (
-    isAbsolute(value) ||
-    win32.isAbsolute(value) ||
-    posix.isAbsolute(value)
-  )
+  return isAbsolute(value) || win32.isAbsolute(value) || posix.isAbsolute(value)
 }
 
 function requireProjectId(projectId: string): void {

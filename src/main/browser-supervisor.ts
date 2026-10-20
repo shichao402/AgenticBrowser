@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
-  BaseWindow,
+  type BaseWindow,
   WebContentsView,
   session,
   type DownloadItem,
@@ -55,10 +55,7 @@ import { HealthMonitor } from './health-monitor'
 import { normalizeNavigationUrl } from './navigation'
 import { sanitizeDownloadFileName } from './download-path'
 import { ContentFilter } from './content-filter'
-import {
-  RecoveryPolicy,
-  type RecoveryAction
-} from './recovery-policy'
+import { RecoveryPolicy, type RecoveryAction } from './recovery-policy'
 import { urlMatchesStrategyPattern } from './strategy-match'
 import {
   StrategyRuntime,
@@ -218,13 +215,9 @@ export type BrowserDownloadReservation =
     }
 
 export interface BrowserDownloadAdapter {
-  reserve(
-    request: BrowserDownloadRequest
-  ): Promise<BrowserDownloadReservation>
+  reserve(request: BrowserDownloadRequest): Promise<BrowserDownloadReservation>
   markDownloading(downloadId: string): Promise<void>
-  complete(
-    downloadId: string
-  ): Promise<{ finalPath: string; size: number }>
+  complete(downloadId: string): Promise<{ finalPath: string; size: number }>
   fail(
     downloadId: string,
     category: 'network' | 'cancelled' | 'unknown',
@@ -379,9 +372,13 @@ export class BrowserSupervisor {
     const contents = this.pageView?.webContents
 
     return {
-      url: contents && !contents.isDestroyed() ? contents.getURL() || this.currentUrl : this.currentUrl,
+      url:
+        contents && !contents.isDestroyed()
+          ? contents.getURL() || this.currentUrl
+          : this.currentUrl,
       title: contents && !contents.isDestroyed() ? contents.getTitle() : '',
-      loading: contents && !contents.isDestroyed() ? contents.isLoading() : false,
+      loading:
+        contents && !contents.isDestroyed() ? contents.isLoading() : false,
       responsive: this.responsive,
       generation: this.generation,
       lastEvent: this.lastEvent,
@@ -536,7 +533,9 @@ export class BrowserSupervisor {
     return this.getSnapshot()
   }
 
-  async collectDiagnostics(shellWebContentsId: number): Promise<BrowserDiagnostics> {
+  async collectDiagnostics(
+    shellWebContentsId: number
+  ): Promise<BrowserDiagnostics> {
     const contents = this.requireContents()
     const pageWorld = (await contents.executeJavaScript(`
       ({
@@ -560,7 +559,9 @@ export class BrowserSupervisor {
         this.options.strategyPreloadPath !== undefined &&
         this.profileSession
           .getPreloadScripts()
-          .some((script) => script.filePath === this.options.strategyPreloadPath),
+          .some(
+            (script) => script.filePath === this.options.strategyPreloadPath
+          ),
       preloadErrors: [...this.preloadErrors],
       generation: this.generation
     }
@@ -584,10 +585,7 @@ export class BrowserSupervisor {
             privateVisible:
               Boolean(globalThis.__agenticStrategyPrivate)
           }
-        })`)) as Pick<
-          FrameDiagnostics,
-          'observation' | 'currentStrategy'
-        >
+        })`)) as Pick<FrameDiagnostics, 'observation' | 'currentStrategy'>
 
         return {
           url: frame.url,
@@ -668,8 +666,11 @@ export class BrowserSupervisor {
     }
   }
 
-  async benchmarkCapture(frameCount = 20, intervalMs = 100): Promise<CaptureBenchmark> {
-    const contents = this.requireContents()
+  async benchmarkCapture(
+    frameCount = 20,
+    intervalMs = 100
+  ): Promise<CaptureBenchmark> {
+    this.requireContents()
     const durations: number[] = []
     const ring = new CaptureRingBuffer(10, 1024 * 1024)
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -716,7 +717,8 @@ export class BrowserSupervisor {
             ((frameStartedAt.at(-1) ?? startedAt) - frameStartedAt[0]!)
           : 0,
       averageCaptureMs:
-        durations.reduce((total, duration) => total + duration, 0) / durations.length,
+        durations.reduce((total, duration) => total + duration, 0) /
+        durations.length,
       p95CaptureMs: sortedDurations[p95Index] ?? 0,
       encodedBytes,
       emptyFrames,
@@ -860,7 +862,8 @@ export class BrowserSupervisor {
     const startedAt = performance.now()
     let rendererExecutionFinished = false
     const execution = contents
-      .executeJavaScript(`
+      .executeJavaScript(
+        `
         {
           const blockedUntil = performance.now() + ${blockMs};
           while (performance.now() < blockedUntil) {
@@ -868,7 +871,8 @@ export class BrowserSupervisor {
           }
           true;
         }
-      `)
+      `
+      )
       .finally(() => {
         rendererExecutionFinished = true
       })
@@ -883,7 +887,9 @@ export class BrowserSupervisor {
       const liveEvidence = await this.capturePageWithRetry()
       liveEvidenceBytes = liveEvidence.toJPEG(70).byteLength
       liveEvidenceCapturedBeforeRecovery =
-        !rendererExecutionFinished && !liveEvidence.isEmpty() && liveEvidenceBytes > 0
+        !rendererExecutionFinished &&
+        !liveEvidence.isEmpty() &&
+        liveEvidenceBytes > 0
     } catch {
       // The frozen pre-failure ring remains available when live capture is impossible.
     }
@@ -1088,10 +1094,7 @@ export class BrowserSupervisor {
           ('securityOrigin' in details ? details.securityOrigin : undefined) ??
           details.requestingUrl ??
           contents.getURL()
-        const allowed = this.isPermissionAllowed(
-          permission,
-          requestingOrigin
-        )
+        const allowed = this.isPermissionAllowed(permission, requestingOrigin)
         callback(allowed)
       }
     )
@@ -1104,10 +1107,7 @@ export class BrowserSupervisor {
       quarantinedStrategyIds: this.quarantinedStrategyIds,
       onEvent: (event) => {
         if (this.strategyRuntime === runtime && !this.disposed) {
-          this.emit(
-            event.type,
-            `${event.strategyId}; ${event.detail}`
-          )
+          this.emit(event.type, `${event.strategyId}; ${event.detail}`)
         }
       },
       onDomainEvent: (event) => {
@@ -1135,9 +1135,7 @@ export class BrowserSupervisor {
           return
         }
         const frame = this.parseStrategyFrame(event.senderFrame, value)
-        event.returnValue = frame
-          ? runtime.bootstrap(frame)
-          : { entries: [] }
+        event.returnValue = frame ? runtime.bootstrap(frame) : { entries: [] }
       }
     )
     webContents.ipc.on(
@@ -1227,10 +1225,7 @@ export class BrowserSupervisor {
   ): Promise<StrategyNetworkResponse> {
     const headers = sanitizeStrategyRequestHeaders(request.headers ?? {})
     const method = request.method ?? 'GET'
-    if (
-      (method === 'GET' || method === 'HEAD') &&
-      request.body !== undefined
-    ) {
+    if ((method === 'GET' || method === 'HEAD') && request.body !== undefined) {
       throw new Error(`${method} 请求不能包含 body`)
     }
 
@@ -1297,9 +1292,7 @@ export class BrowserSupervisor {
         session: this.profileSession,
         additionalArguments: [
           '--agentic-strategy-runtime',
-          ...(this.options.phaseZeroProbe
-            ? ['--agentic-phase0-probe']
-            : [])
+          ...(this.options.phaseZeroProbe ? ['--agentic-phase0-probe'] : [])
         ]
       }
     })
@@ -1351,14 +1344,17 @@ export class BrowserSupervisor {
       this.preloadErrors.push(`${preloadPath}: ${error.message}`)
     })
 
-    webContents.on('did-start-navigation', (_event, url, _isInPlace, isMainFrame) => {
-      if (!isMainFrame) {
-        return
-      }
+    webContents.on(
+      'did-start-navigation',
+      (_event, url, _isInPlace, isMainFrame) => {
+        if (!isMainFrame) {
+          return
+        }
 
-      this.currentUrl = url
-      this.emit('navigation-started')
-    })
+        this.currentUrl = url
+        this.emit('navigation-started')
+      }
+    )
 
     webContents.on('did-navigate', (_event, url) => {
       this.currentUrl = url
@@ -1465,11 +1461,7 @@ export class BrowserSupervisor {
       return
     }
     if (this.downloadAdapter) {
-      this.handleManagedDownload(
-        item,
-        sourceUrl,
-        this.downloadAdapter
-      )
+      this.handleManagedDownload(item, sourceUrl, this.downloadAdapter)
       return
     }
 
@@ -1551,10 +1543,7 @@ export class BrowserSupervisor {
         let diagnosticNetworkDropInjected = false
         item.on('updated', () => {
           const received = item.getReceivedBytes()
-          this.downloads.receivedBytes += Math.max(
-            0,
-            received - accountedBytes
-          )
+          this.downloads.receivedBytes += Math.max(0, received - accountedBytes)
           accountedBytes = received
           if (this.injectManagedDownloadNetworkDrop(received)) {
             diagnosticNetworkDropInjected = true
@@ -1573,10 +1562,7 @@ export class BrowserSupervisor {
         })
         item.once('done', (_event, state) => {
           const received = item.getReceivedBytes()
-          this.downloads.receivedBytes += Math.max(
-            0,
-            received - accountedBytes
-          )
+          this.downloads.receivedBytes += Math.max(0, received - accountedBytes)
           this.downloads.active = Math.max(0, this.downloads.active - 1)
           if (state === 'completed') {
             void adapter
@@ -1596,12 +1582,11 @@ export class BrowserSupervisor {
                 )
               })
           } else {
-            const category =
-              diagnosticNetworkDropInjected
-                ? 'network'
-                : state === 'cancelled'
-                  ? 'cancelled'
-                  : 'network'
+            const category = diagnosticNetworkDropInjected
+              ? 'network'
+              : state === 'cancelled'
+                ? 'cancelled'
+                : 'network'
             const detail = diagnosticNetworkDropInjected
               ? 'diagnostic-offline'
               : state
@@ -1695,7 +1680,11 @@ export class BrowserSupervisor {
     let reason = initialReason
 
     while (!this.disposed && epoch === this.recoveryEpoch) {
-      const decision = this.recoveryPolicy.next(reason, Date.now(), minimumAction)
+      const decision = this.recoveryPolicy.next(
+        reason,
+        Date.now(),
+        minimumAction
+      )
       this.recovery = {
         status:
           decision.action === 'open-circuit' ? 'circuit-open' : 'scheduled',
@@ -1771,7 +1760,10 @@ export class BrowserSupervisor {
     await this.reloadAndWait(action === 'reload-ignore-cache')
   }
 
-  private reloadAndWait(ignoreCache: boolean, timeoutMs = 15_000): Promise<void> {
+  private reloadAndWait(
+    ignoreCache: boolean,
+    timeoutMs = 15_000
+  ): Promise<void> {
     const contents = this.requireContents()
 
     return new Promise((resolve, reject) => {
@@ -1982,7 +1974,9 @@ async function readStrategyResponseBody(
   )
 }
 
-function selectStrategyResponseHeaders(headers: Headers): Record<string, string> {
+function selectStrategyResponseHeaders(
+  headers: Headers
+): Record<string, string> {
   const allowed = new Set([
     'cache-control',
     'content-language',

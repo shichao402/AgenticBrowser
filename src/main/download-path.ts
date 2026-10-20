@@ -1,5 +1,7 @@
 export function sanitizeDownloadFileName(input: string): string {
   let sanitized = input
+    // 有意匹配 ASCII 控制字符，用于从下载文件名中剔除不可见字符
+    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
     .replace(/[.\s]+$/g, '')
     .trim()

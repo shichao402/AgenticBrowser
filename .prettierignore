@@ -1,0 +1,15 @@
+# 构建产物与依赖
+node_modules/
+out/
+dist/
+release/
+coverage/
+.agentic-browser/
+
+# 锁文件由 npm 维护，不做格式化
+package-lock.json
+
+# 说明性文档与散文不做自动换行重排，避免产生与代码无关的大规模 diff
+docs/
+README.md
+CONTRIBUTING.md

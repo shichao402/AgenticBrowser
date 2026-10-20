@@ -5,9 +5,9 @@ import type {
   WorkflowFailureCategory,
   WorkflowNode
 } from '../shared/contracts'
-import {
+import type {
   ProjectRuntimeStore,
-  type ProjectRuntimeEnvelope
+  ProjectRuntimeEnvelope
 } from './project-runtime-store'
 
 export interface ProjectWorkflowHost {
@@ -134,15 +134,11 @@ export class ProjectWorkflowEngine {
         remainingWakeMs:
           envelope.runtime.nextWakeAt === null
             ? null
-            : Math.max(
-                0,
-                Date.parse(envelope.runtime.nextWakeAt) - this.now()
-              )
+            : Math.max(0, Date.parse(envelope.runtime.nextWakeAt) - this.now())
       }
       const paused = await this.transition('paused', {
         nextWakeAt: null,
-        lastError:
-          reason === null ? null : truncate(reason, 4_000),
+        lastError: reason === null ? null : truncate(reason, 4_000),
         lastFailureCategory: category
       })
       return paused.runtime
@@ -165,9 +161,7 @@ export class ProjectWorkflowEngine {
         nextWakeAt:
           pausedState.remainingWakeMs === null
             ? null
-            : new Date(
-                this.now() + pausedState.remainingWakeMs
-              ).toISOString(),
+            : new Date(this.now() + pausedState.remainingWakeMs).toISOString(),
         lastError: null,
         lastFailureCategory: null
       })
@@ -248,10 +242,7 @@ export class ProjectWorkflowEngine {
         : null
       if (
         key &&
-        (await this.store.findIdempotency(
-          envelope.runtime.projectId,
-          key
-        ))
+        (await this.store.findIdempotency(envelope.runtime.projectId, key))
       ) {
         await this.moveToNext(envelope, node)
         continue
@@ -278,7 +269,9 @@ export class ProjectWorkflowEngine {
       }
 
       const running = await this.transition(
-        envelope.runtime.status === 'starting' ? 'running' : envelope.runtime.status,
+        envelope.runtime.status === 'starting'
+          ? 'running'
+          : envelope.runtime.status,
         {
           nodeAttempt: envelope.runtime.nodeAttempt + 1,
           nextWakeAt: null,
@@ -321,10 +314,7 @@ export class ProjectWorkflowEngine {
       ...structuredClone(checkpointPatch)
     }
     if (node.idempotencyKey) {
-      const key = resolveIdempotencyKey(
-        node.idempotencyKey,
-        checkpointData
-      )
+      const key = resolveIdempotencyKey(node.idempotencyKey, checkpointData)
       await this.store.completeIdempotency({
         key,
         projectId: envelope.runtime.projectId,
@@ -412,11 +402,7 @@ export class ProjectWorkflowEngine {
     status: ProjectRuntimeRecord['status'],
     patch: Parameters<ProjectRuntimeStore['transition']>[2]
   ): Promise<ProjectRuntimeEnvelope> {
-    const envelope = await this.store.transition(
-      this.runtimeId,
-      status,
-      patch
-    )
+    const envelope = await this.store.transition(this.runtimeId, status, patch)
     this.host.onRuntimeChanged?.(structuredClone(envelope.runtime))
     return envelope
   }
@@ -455,9 +441,7 @@ function requireNode(envelope: ProjectRuntimeEnvelope): WorkflowNode {
     (candidate) => candidate.id === envelope.runtime.currentNodeId
   )
   if (!node) {
-    throw new Error(
-      `Workflow 节点不存在：${envelope.runtime.currentNodeId}`
-    )
+    throw new Error(`Workflow 节点不存在：${envelope.runtime.currentNodeId}`)
   }
   return node
 }
@@ -531,10 +515,7 @@ function classifyWorkflowError(error: unknown): WorkflowFailureCategory {
     ) {
       return 'authentication'
     }
-    if (
-      message.includes('renderer') ||
-      message.includes('render process')
-    ) {
+    if (message.includes('renderer') || message.includes('render process')) {
       return 'renderer'
     }
     if (
@@ -579,15 +560,12 @@ function validateEvent(event: ProjectWorkflowEvent): void {
   if (
     !/^[a-z][a-z0-9.-]{0,79}$/.test(event.name) ||
     (event.payload !== undefined &&
-      Buffer.byteLength(JSON.stringify(event.payload), 'utf8') >
-        128 * 1024)
+      Buffer.byteLength(JSON.stringify(event.payload), 'utf8') > 128 * 1024)
   ) {
     throw new Error('Workflow 领域事件格式无效')
   }
 }
 
 function truncate(value: string, maximum: number): string {
-  return value.length <= maximum
-    ? value
-    : `${value.slice(0, maximum - 1)}…`
+  return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`
 }
