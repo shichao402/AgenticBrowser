@@ -515,7 +515,13 @@ export class BrowserSupervisor {
     this.resetRecovery()
     this.pageView?.setVisible(this.visible)
     this.currentUrl = url
-    await contents.loadURL(url)
+
+    // 加载失败会由 did-fail-load 事件驱动恢复流程（重试、重建视图、熔断），
+    // 这里只负责发起导航。若把 loadURL 的 reject 继续向上抛，调用方一旦没有
+    // await（例如策略侧触发导航）就会变成未捕获异常，直接把主进程带崩，
+    // 反而剥夺了恢复机制介入的机会。
+    await contents.loadURL(url).catch(() => undefined)
+
     return this.getSnapshot()
   }
 
@@ -1307,7 +1313,9 @@ export class BrowserSupervisor {
     this.registerPageEvents(view)
     this.emit(eventType, detail)
 
-    await view.webContents.loadURL(this.currentUrl)
+    // 与 navigate 同理：失败的加载已经通过 did-fail-load 进入恢复流程，
+    // 恢复路径上再抛异常会让「恢复」本身成为崩溃源。
+    await view.webContents.loadURL(this.currentUrl).catch(() => undefined)
   }
 
   private registerPageEvents(view: WebContentsView): void {
