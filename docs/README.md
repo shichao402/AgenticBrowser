@@ -27,14 +27,15 @@
 3. [产品领域模型](architecture/product-model.md)
 4. [MVP 路线图](roadmap/mvp.md)
 5. [公开自动化测试站点验收试点](roadmap/automation-playground-pilot.md)
-6. [浏览器内核与兼容性研究](research/browser-runtime-and-compatibility.md)
-7. [示教录制与 Agent 研究](research/recording-and-agent.md)
-8. [Phase 0 验证记录](research/phase0-validation.md)
-9. [Phase 1 验证记录](research/phase1-validation.md)
-10. [Phase 2 验证记录](research/phase2-validation.md)
-11. [Phase 3 验证记录](research/phase3-validation.md)
-12. [MVP 完成度审计](research/mvp-completion-audit.md)
-13. [架构决策记录](ADR/README.md)
+6. [测试与质量门禁](architecture/testing-and-quality-gates.md)
+7. [浏览器内核与兼容性研究](research/browser-runtime-and-compatibility.md)
+8. [示教录制与 Agent 研究](research/recording-and-agent.md)
+9. [Phase 0 验证记录](research/phase0-validation.md)
+10. [Phase 1 验证记录](research/phase1-validation.md)
+11. [Phase 2 验证记录](research/phase2-validation.md)
+12. [Phase 3 验证记录](research/phase3-validation.md)
+13. [MVP 完成度审计](research/mvp-completion-audit.md)
+14. [架构决策记录](ADR/README.md)
 
 ## 同步原则
 

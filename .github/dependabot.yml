@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  # Electron 及其构建链路的大版本跳跃风险较高，单独分组便于人工评审。
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      electron:
+        patterns:
+          - electron
+          - electron-builder
+          - electron-vite
+      vitest:
+        patterns:
+          - vitest
+          - '@vitest/*'
+      dev-dependencies:
+        dependency-type: development
+
+  # Actions 版本也需要跟进，否则会因运行时弃用而突然失败。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
