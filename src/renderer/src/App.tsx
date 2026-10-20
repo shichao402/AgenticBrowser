@@ -24,6 +24,7 @@ import {
   toProjectDraft
 } from './app-format'
 import { CapabilityPanel, EventPanel } from './app-panels'
+import { ProjectPanel, StrategyPanel } from './app-sections'
 
 export function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null)
@@ -615,262 +616,43 @@ export function App(): React.JSX.Element {
         </nav>
 
         {activeSection === 'projects' ? (
-          <section className="project-panel">
-            <div className="panel-heading">
-              <h2>Project</h2>
-              <button
-                type="button"
-                disabled={activeProjectRuntime !== null}
-                onClick={() => void installAutomationPlayground()}
-              >
-                安装自动化验收模板
-              </button>
-              <button type="button" onClick={newProject}>
-                新建
-              </button>
-            </div>
-            <p className="project-help">
-              Project 固定 Profile、Strategy 版本、能力和 Workflow；
-              运行时配置使用启动快照。
-            </p>
-            <div className="project-list">
-              {projectWorkspace?.projects.length ? (
-                projectWorkspace.projects.map((project) => {
-                  const runtime = [...(projectWorkspace.runtimes ?? [])]
-                    .reverse()
-                    .find((candidate) => candidate.projectId === project.id)
-                  return (
-                    <article
-                      className={`project-list-item ${
-                        project.id === projectWorkspace.activeProjectId
-                          ? 'project-list-item-active'
-                          : ''
-                      }`}
-                      key={project.id}
-                    >
-                      <button
-                        className="project-select"
-                        type="button"
-                        onClick={() => void selectProject(project.id)}
-                      >
-                        <strong>{project.name}</strong>
-                        <small>
-                          r{project.revision} · {runtime?.status ?? '未运行'}
-                        </small>
-                      </button>
-                      <button
-                        className="project-delete"
-                        type="button"
-                        disabled={activeProjectRuntime !== null}
-                        onClick={() => void deleteProject(project.id)}
-                      >
-                        删除
-                      </button>
-                    </article>
-                  )
-                })
-              ) : (
-                <p className="event-empty">尚无 Project</p>
-              )}
-            </div>
-            <div className="project-editor">
-              <label>
-                Project JSON
-                <textarea
-                  aria-label="Project JSON"
-                  spellCheck={false}
-                  value={projectDraftText}
-                  onChange={(event) => setProjectDraftText(event.target.value)}
-                />
-              </label>
-              <div className="project-actions">
-                <button
-                  type="button"
-                  disabled={activeProjectRuntime !== null}
-                  onClick={() => void saveProject()}
-                >
-                  保存
-                </button>
-                <button
-                  type="button"
-                  disabled={
-                    !activeProject || selectedActiveProjectRuntime !== null
-                  }
-                  onClick={() =>
-                    activeProject
-                      ? void startProject(activeProject.id)
-                      : undefined
-                  }
-                >
-                  启动
-                </button>
-                <button
-                  type="button"
-                  disabled={
-                    selectedActiveProjectRuntime === null ||
-                    selectedActiveProjectRuntime.status === 'paused'
-                  }
-                  onClick={() =>
-                    activeProject
-                      ? void pauseProject(activeProject.id)
-                      : undefined
-                  }
-                >
-                  {selectedActiveProjectRuntime?.status === 'queued'
-                    ? '暂停排队'
-                    : '暂停并接管'}
-                </button>
-                <button
-                  type="button"
-                  disabled={selectedActiveProjectRuntime?.status !== 'paused'}
-                  onClick={() =>
-                    activeProject
-                      ? void resumeProject(activeProject.id)
-                      : undefined
-                  }
-                >
-                  恢复自动化
-                </button>
-                <button
-                  type="button"
-                  disabled={selectedActiveProjectRuntime === null}
-                  onClick={() =>
-                    activeProject
-                      ? void stopProject(activeProject.id)
-                      : undefined
-                  }
-                >
-                  停止
-                </button>
-              </div>
-              {projectWorkspace?.strategyResolutions.length ? (
-                <ul className="project-resolution-list">
-                  {projectWorkspace.strategyResolutions.map((resolution) => (
-                    <li key={resolution.strategyId}>
-                      {resolution.strategyId}@{resolution.pinnedVersion}
-                      {' · '}
-                      {resolution.status}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          </section>
+          <ProjectPanel
+            workspace={projectWorkspace}
+            activeProject={activeProject}
+            anyRuntimeActive={activeProjectRuntime !== null}
+            selectedRuntime={selectedActiveProjectRuntime}
+            draftText={projectDraftText}
+            onDraftChange={setProjectDraftText}
+            onSelectProject={(id) => void selectProject(id)}
+            onDeleteProject={(id) => void deleteProject(id)}
+            onInstallPlayground={() => void installAutomationPlayground()}
+            onNewProject={newProject}
+            onSaveProject={() => void saveProject()}
+            onStartProject={(id) => void startProject(id)}
+            onPauseProject={(id) => void pauseProject(id)}
+            onResumeProject={(id) => void resumeProject(id)}
+            onStopProject={(id) => void stopProject(id)}
+          />
         ) : null}
 
         {activeSection === 'strategies' ? (
-          <section className="strategy-panel">
-            <div className="panel-heading">
-              <h2>Strategy</h2>
-              <button
-                type="button"
-                disabled={activeProjectRuntime !== null}
-                onClick={newStrategy}
-              >
-                新建
-              </button>
-            </div>
-            <p className="strategy-help">
-              启用控制注册表定义；运行时 allowlist 由 Project
-              固定版本生成。项目运行期间定义不可修改。
-            </p>
-            <div className="strategy-list">
-              {strategyWorkspace?.strategies.length ? (
-                strategyWorkspace.strategies.map((definition) => {
-                  const projectPin = activeProject?.strategies.find(
-                    (pin) => pin.id === definition.manifest.id
-                  )
-                  const runtimeEntries =
-                    monitor?.strategies.entries.filter(
-                      (entry) => entry.strategyId === definition.manifest.id
-                    ) ?? []
-                  return (
-                    <article
-                      className="strategy-card"
-                      key={definition.manifest.id}
-                    >
-                      <button
-                        className="strategy-edit"
-                        type="button"
-                        onClick={() => editStrategy(definition)}
-                      >
-                        <strong>{definition.manifest.name}</strong>
-                        <small>
-                          {definition.manifest.id} ·{' '}
-                          {definition.manifest.version}
-                        </small>
-                        <small>
-                          {runtimeEntries.length === 0
-                            ? '未运行'
-                            : runtimeEntries
-                                .map((entry) => entry.status)
-                                .join(', ')}
-                        </small>
-                        {projectPin ? (
-                          <small>当前 Project 固定 {projectPin.version}</small>
-                        ) : null}
-                      </button>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={definition.enabled}
-                          disabled={activeProjectRuntime !== null}
-                          onChange={(event) =>
-                            void toggleStrategyEnabled(
-                              definition.manifest.id,
-                              event.target.checked
-                            )
-                          }
-                        />
-                        启用
-                      </label>
-                      <button
-                        className="strategy-delete"
-                        type="button"
-                        disabled={activeProjectRuntime !== null}
-                        onClick={() =>
-                          void deleteStrategy(definition.manifest.id)
-                        }
-                      >
-                        删除
-                      </button>
-                    </article>
-                  )
-                })
-              ) : (
-                <p className="event-empty">尚无 Strategy</p>
-              )}
-            </div>
-            <div className="strategy-editor">
-              <label>
-                Manifest JSON
-                <textarea
-                  aria-label="Strategy Manifest JSON"
-                  spellCheck={false}
-                  value={strategyManifestText}
-                  onChange={(event) =>
-                    setStrategyManifestText(event.target.value)
-                  }
-                />
-              </label>
-              <label>
-                隔离 world 源码
-                <textarea
-                  aria-label="Strategy 源码"
-                  spellCheck={false}
-                  value={strategySource}
-                  onChange={(event) => setStrategySource(event.target.value)}
-                />
-              </label>
-              <button
-                type="button"
-                disabled={activeProjectRuntime !== null}
-                onClick={() => void saveStrategy()}
-              >
-                保存并重载页面
-              </button>
-            </div>
-          </section>
+          <StrategyPanel
+            workspace={strategyWorkspace}
+            activeProjectStrategies={activeProject?.strategies ?? []}
+            strategyEntries={monitor?.strategies.entries ?? []}
+            manifestText={strategyManifestText}
+            sourceText={strategySource}
+            anyRuntimeActive={activeProjectRuntime !== null}
+            onManifestChange={setStrategyManifestText}
+            onSourceChange={setStrategySource}
+            onNewStrategy={newStrategy}
+            onEditStrategy={editStrategy}
+            onToggleEnabled={(id, enabled) =>
+              void toggleStrategyEnabled(id, enabled)
+            }
+            onDeleteStrategy={(id) => void deleteStrategy(id)}
+            onSaveStrategy={() => void saveStrategy()}
+          />
         ) : null}
 
         <section className="profile-panel">
