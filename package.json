@@ -33,11 +33,10 @@
     "audit:prod": "npm audit --omit=dev",
     "version:check": "node scripts/version-ssot.mjs check",
     "version:sync": "node scripts/version-ssot.mjs sync",
-    "check": "npm run version:check && npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run audit:prod",
+    "check": "npm run version:check && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run audit:prod",
     "dist": "npm run version:check && npm run build && electron-builder --publish never",
     "dist:win": "npm run version:check && npm run build && electron-builder --win --x64 --publish never",
-    "dist:mac": "npm run version:check && npm run build && electron-builder --mac --arm64 --x64 --publish never",
-    "test:coverage": "vitest run --coverage"
+    "dist:mac": "npm run version:check && npm run build && electron-builder --mac --arm64 --x64 --publish never"
   },
   "engines": {
     "node": ">=22"
@@ -52,7 +51,6 @@
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.1.2",
-    "@vitest/coverage-v8": "^5.0.4",
     "electron": "44.7.2",
     "electron-builder": "26.15.3",
     "electron-vite": "6.0.0",
