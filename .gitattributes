@@ -1,0 +1,23 @@
+# 统一以 LF 存放与检出，保证 Windows 与 macOS 上的格式化结果一致。
+# 缺少本文件时，Windows 检出会把行尾转成 CRLF，导致 prettier 的
+# endOfLine: lf 检查在 Windows 上整体失败。
+* text=auto eol=lf
+
+# 二进制文件不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.dmg binary
+*.exe binary
+*.node binary
+
+# 批处理脚本在 Windows 上需要 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# PowerShell 脚本保持 CRLF 以便在 Windows 上直接执行
+*.ps1 text eol=crlf
