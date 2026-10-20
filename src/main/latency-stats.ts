@@ -26,12 +26,18 @@ export function summarizeLatencies(durations: number[]): LatencyStats {
     Math.ceil(sorted.length * 0.95) - 1
   )
 
+  // sorted 非空（上方已判空），p95Index 被 clamp 到 length - 1，
+  // 因此两个下标都必然命中元素。用非空断言表达这个已证明的前提，
+  // 而不是留下永远走不到的兜底分支去稀释覆盖率。
+  const p95Ms = sorted[p95Index]!
+  const maximumMs = sorted[sorted.length - 1]!
+
   return {
     sampleCount: durations.length,
     averageMs:
       durations.reduce((total, duration) => total + duration, 0) /
       durations.length,
-    p95Ms: sorted[p95Index] ?? 0,
-    maximumMs: sorted.at(-1) ?? 0
+    p95Ms,
+    maximumMs
   }
 }
