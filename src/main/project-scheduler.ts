@@ -134,8 +134,7 @@ export class ProjectScheduler {
         .reverse()
         .find(
           ({ runtime }) =>
-            runtime.projectId === projectId &&
-            runtime.status === 'paused'
+            runtime.projectId === projectId && runtime.status === 'paused'
         )
       if (!paused) {
         throw new Error(`没有可恢复的 paused Runtime：${projectId}`)
@@ -182,8 +181,7 @@ export class ProjectScheduler {
     void this.enqueue(async () => {
       const state = await this.runtimeStore.read()
       const envelope = state.runtimes.find(
-        (candidate) =>
-          candidate.runtime.runtimeId === runtime.runtimeId
+        (candidate) => candidate.runtime.runtimeId === runtime.runtimeId
       )
       if (
         envelope?.projectSnapshot.runtime.mode === 'resident' &&
@@ -204,9 +202,7 @@ export class ProjectScheduler {
     const state = await this.runtimeStore.read()
     const executingRuntimeIds = new Set(
       state.runtimes
-        .filter(({ runtime }) =>
-          EXECUTING_STATUSES.has(runtime.status)
-        )
+        .filter(({ runtime }) => EXECUTING_STATUSES.has(runtime.status))
         .map(({ runtime }) => runtime.runtimeId)
     )
     for (const runtimeId of this.dispatchingRuntimeIds) {
@@ -255,10 +251,7 @@ export class ProjectScheduler {
     )
 
     for (const project of projectState.projects) {
-      if (
-        !project.enabled ||
-        this.suspendedProjectIds.has(project.id)
-      ) {
+      if (!project.enabled || this.suspendedProjectIds.has(project.id)) {
         continue
       }
 
@@ -317,13 +310,12 @@ export class ProjectScheduler {
       const reason =
         `Project Runtime 超过最大运行时长 ` +
         `${projectSnapshot.runtime.maxRunMs}ms`
-      void this.host.timeoutRuntime(
-        structuredClone(envelope),
-        reason
-      ).catch((error: unknown) => {
-        this.timingOutRuntimeIds.delete(runtime.runtimeId)
-        this.host.reportError?.('scheduler-timeout', error)
-      })
+      void this.host
+        .timeoutRuntime(structuredClone(envelope), reason)
+        .catch((error: unknown) => {
+          this.timingOutRuntimeIds.delete(runtime.runtimeId)
+          this.host.reportError?.('scheduler-timeout', error)
+        })
     }
   }
 
@@ -341,17 +333,14 @@ export class ProjectScheduler {
           this.heldPausedRuntimeIds.has(runtime.runtimeId) &&
           !executingRuntimeIds.has(runtime.runtimeId)
       )
-      const executing =
-        executingRuntimes.length + heldPausedRuntimes.length
+      const executing = executingRuntimes.length + heldPausedRuntimes.length
       const occupiedProfileIds = new Set(
         [...executingRuntimes, ...heldPausedRuntimes].map(
           ({ projectSnapshot }) => projectSnapshot.profileId
         )
       )
       const available =
-        this.maxConcurrent -
-        executing -
-        this.dispatchingRuntimeIds.size
+        this.maxConcurrent - executing - this.dispatchingRuntimeIds.size
       if (available <= 0) {
         return
       }
@@ -389,16 +378,11 @@ export class ProjectScheduler {
     error: unknown
   ): Promise<void> {
     this.executionStartedAt.delete(envelope.runtime.runtimeId)
-    const reason =
-      error instanceof Error ? error.message : String(error)
+    const reason = error instanceof Error ? error.message : String(error)
     const current = (await this.runtimeStore.read()).runtimes.find(
-      (candidate) =>
-        candidate.runtime.runtimeId === envelope.runtime.runtimeId
+      (candidate) => candidate.runtime.runtimeId === envelope.runtime.runtimeId
     )
-    if (
-      current &&
-      !TERMINAL_STATUSES.has(current.runtime.status)
-    ) {
+    if (current && !TERMINAL_STATUSES.has(current.runtime.status)) {
       if (current.runtime.status === 'queued') {
         await this.runtimeStore.transition(
           current.runtime.runtimeId,
@@ -409,23 +393,16 @@ export class ProjectScheduler {
         (candidate) =>
           candidate.runtime.runtimeId === envelope.runtime.runtimeId
       )
-      if (
-        refreshed &&
-        !TERMINAL_STATUSES.has(refreshed.runtime.status)
-      ) {
+      if (refreshed && !TERMINAL_STATUSES.has(refreshed.runtime.status)) {
         const terminalStatus =
-          refreshed.runtime.status === 'paused'
-            ? 'cancelled'
-            : 'failed'
+          refreshed.runtime.status === 'paused' ? 'cancelled' : 'failed'
         await this.runtimeStore.transition(
           refreshed.runtime.runtimeId,
           terminalStatus,
           {
             lastError: `Project Runtime 调度启动失败：${reason}`,
             lastFailureCategory: 'unknown',
-            ...(terminalStatus === 'failed'
-              ? { counters: { failed: 1 } }
-              : {})
+            ...(terminalStatus === 'failed' ? { counters: { failed: 1 } } : {})
           }
         )
       }
@@ -485,17 +462,13 @@ export function isProjectScheduleDue(
   const previousRuns = runtimes
     .filter(
       ({ runtime }) =>
-        runtime.projectId === project.id &&
-        runtime.trigger === 'schedule'
+        runtime.projectId === project.id && runtime.trigger === 'schedule'
     )
     .map(({ runtime }) => Date.parse(runtime.startedAt))
     .filter(Number.isFinite)
 
   if (schedule.kind === 'interval') {
-    const anchor = Math.max(
-      Date.parse(project.updatedAt),
-      ...previousRuns
-    )
+    const anchor = Math.max(Date.parse(project.updatedAt), ...previousRuns)
     return now >= anchor + schedule.everyMinutes * 60_000
   }
 
@@ -523,8 +496,7 @@ function compareQueuedRuntimes(
       left.projectSnapshot.runtime.priority ||
     TRIGGER_PRIORITY[right.runtime.trigger] -
       TRIGGER_PRIORITY[left.runtime.trigger] ||
-    Date.parse(left.runtime.startedAt) -
-      Date.parse(right.runtime.startedAt) ||
+    Date.parse(left.runtime.startedAt) - Date.parse(right.runtime.startedAt) ||
     left.runtime.runtimeId.localeCompare(right.runtime.runtimeId)
   )
 }

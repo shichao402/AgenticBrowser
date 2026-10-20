@@ -36,11 +36,17 @@ const ACTION_ORDER: Exclude<RecoveryAction, 'open-circuit'>[] = [
 export class RecoveryPolicy {
   private readonly failures: number[] = []
 
-  constructor(private readonly options: RecoveryPolicyOptions = DEFAULT_OPTIONS) {
+  constructor(
+    private readonly options: RecoveryPolicyOptions = DEFAULT_OPTIONS
+  ) {
     if (!Number.isInteger(options.maxAttempts) || options.maxAttempts <= 0) {
       throw new Error('maxAttempts 必须是正整数')
     }
-    if (options.windowMs <= 0 || options.baseDelayMs < 0 || options.maximumDelayMs < 0) {
+    if (
+      options.windowMs <= 0 ||
+      options.baseDelayMs < 0 ||
+      options.maximumDelayMs < 0
+    ) {
       throw new Error('Recovery 时间配置无效')
     }
   }
@@ -103,5 +109,7 @@ function laterAction(
   left: Exclude<RecoveryAction, 'open-circuit'>,
   right: Exclude<RecoveryAction, 'open-circuit'>
 ): Exclude<RecoveryAction, 'open-circuit'> {
-  return ACTION_ORDER.indexOf(left) >= ACTION_ORDER.indexOf(right) ? left : right
+  return ACTION_ORDER.indexOf(left) >= ACTION_ORDER.indexOf(right)
+    ? left
+    : right
 }

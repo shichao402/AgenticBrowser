@@ -27,7 +27,9 @@ export class HealthMonitor {
   constructor(
     private readonly probe: () => Promise<boolean>,
     private readonly onChange: (snapshot: PageHealthSnapshot) => void,
-    private readonly onUnhealthy: (snapshot: PageHealthSnapshot) => void | Promise<void>,
+    private readonly onUnhealthy: (
+      snapshot: PageHealthSnapshot
+    ) => void | Promise<void>,
     private readonly options: HealthMonitorOptions = DEFAULT_OPTIONS
   ) {
     if (

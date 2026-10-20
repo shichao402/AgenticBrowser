@@ -21,9 +21,7 @@ describe('ProjectRuntimeStore', () => {
 
   beforeEach(async () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), 'agentic-runtime-test-'))
-    const projectStore = new ProjectStore(
-      join(temporaryRoot, 'projects.json')
-    )
+    const projectStore = new ProjectStore(join(temporaryRoot, 'projects.json'))
     project = (await projectStore.save(createProjectDraft())).projects[0]!
     now = Date.parse('2026-10-15T00:00:00.000Z')
     sequence = 0
@@ -76,9 +74,7 @@ describe('ProjectRuntimeStore', () => {
       created.runtime.runtimeId,
       'completed'
     )
-    expect(completed.runtime.completedAt).toBe(
-      '2026-10-15T00:00:02.000Z'
-    )
+    expect(completed.runtime.completedAt).toBe('2026-10-15T00:00:02.000Z')
   })
 
   it('enforces a project single-instance lock across persisted state', async () => {
@@ -93,20 +89,20 @@ describe('ProjectRuntimeStore', () => {
     await store.transition(created.runtime.runtimeId, 'starting')
     await store.transition(created.runtime.runtimeId, 'running')
 
-    const running = await store.incrementCounters(
-      created.runtime.runtimeId,
-      { scanned: 2, matched: 1 }
-    )
+    const running = await store.incrementCounters(created.runtime.runtimeId, {
+      scanned: 2,
+      matched: 1
+    })
     expect(running.runtime).toMatchObject({
       status: 'running',
       counters: { scanned: 2, matched: 1 }
     })
 
     await store.transition(created.runtime.runtimeId, 'completed')
-    const completed = await store.incrementCounters(
-      created.runtime.runtimeId,
-      { downloaded: 1, downloadedBytes: 4096 }
-    )
+    const completed = await store.incrementCounters(created.runtime.runtimeId, {
+      downloaded: 1,
+      downloadedBytes: 4096
+    })
     expect(completed.runtime).toMatchObject({
       status: 'completed',
       counters: {

@@ -17,9 +17,10 @@ describe('ContentFilter', () => {
     expect(
       filter.decide('https://ads.example.com/banner.png', 'script')
     ).toEqual({ blocked: false, ruleId: null })
-    expect(
-      filter.decide('https://ads.example.com/', 'mainFrame')
-    ).toEqual({ blocked: false, ruleId: null })
+    expect(filter.decide('https://ads.example.com/', 'mainFrame')).toEqual({
+      blocked: false,
+      ruleId: null
+    })
     expect(onHit).toHaveBeenCalledOnce()
   })
 
@@ -33,9 +34,10 @@ describe('ContentFilter', () => {
     })
     const filter = new ContentFilter(value)
 
-    expect(
-      filter.decide('https://ads.example.com/logo.png', 'image')
-    ).toEqual({ blocked: false, ruleId: 'allow-logo' })
+    expect(filter.decide('https://ads.example.com/logo.png', 'image')).toEqual({
+      blocked: false,
+      ruleId: 'allow-logo'
+    })
   })
 
   it('builds CSS only for matching pages', () => {

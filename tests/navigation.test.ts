@@ -14,13 +14,18 @@ describe('normalizeNavigationUrl', () => {
   })
 
   it('allows http for local and compatibility testing', () => {
-    expect(normalizeNavigationUrl('http://localhost:4173')).toBe('http://localhost:4173/')
+    expect(normalizeNavigationUrl('http://localhost:4173')).toBe(
+      'http://localhost:4173/'
+    )
   })
 
-  it.each(['', '   ', 'file:///etc/passwd', 'javascript:alert(1)', 'data:text/plain,test'])(
-    'rejects an unsafe input: %s',
-    (input) => {
-      expect(() => normalizeNavigationUrl(input)).toThrow()
-    }
-  )
+  it.each([
+    '',
+    '   ',
+    'file:///etc/passwd',
+    'javascript:alert(1)',
+    'data:text/plain,test'
+  ])('rejects an unsafe input: %s', (input) => {
+    expect(() => normalizeNavigationUrl(input)).toThrow()
+  })
 })

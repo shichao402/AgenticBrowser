@@ -2,11 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import {
-  isNodeError,
-  readJsonFile,
-  writeJsonAtomic
-} from './atomic-file'
+import { isNodeError, readJsonFile, writeJsonAtomic } from './atomic-file'
 
 interface WatchdogConfig {
   schemaVersion: 1
@@ -398,14 +394,24 @@ function parseWatchdogConfig(value: unknown): WatchdogConfig {
     statePath,
     ...(lockPath ? { lockPath } : {}),
     maxRestarts: requireInteger(value.maxRestarts, 'maxRestarts', 0, 20),
-    startupGraceMs: requireInteger(value.startupGraceMs, 'startupGraceMs', 100, 120_000),
+    startupGraceMs: requireInteger(
+      value.startupGraceMs,
+      'startupGraceMs',
+      100,
+      120_000
+    ),
     heartbeatTimeoutMs: requireInteger(
       value.heartbeatTimeoutMs,
       'heartbeatTimeoutMs',
       100,
       120_000
     ),
-    heartbeatPollMs: requireInteger(value.heartbeatPollMs, 'heartbeatPollMs', 50, 10_000),
+    heartbeatPollMs: requireInteger(
+      value.heartbeatPollMs,
+      'heartbeatPollMs',
+      50,
+      10_000
+    ),
     restartBackoffMs: requireInteger(
       value.restartBackoffMs,
       'restartBackoffMs',
@@ -423,13 +429,19 @@ function requireString(value: unknown, name: string): string {
 }
 
 function requireStringArray(value: unknown, name: string): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === 'string')
+  ) {
     throw new Error(`Watchdog ${name} 必须是字符串数组`)
   }
   return value
 }
 
-function requireStringRecord(value: unknown, name: string): Record<string, string> {
+function requireStringRecord(
+  value: unknown,
+  name: string
+): Record<string, string> {
   if (
     !isRecord(value) ||
     !Object.values(value).every((item) => typeof item === 'string')

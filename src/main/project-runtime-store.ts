@@ -9,11 +9,7 @@ import type {
   ProjectRuntimeStatus,
   WorkflowFailureCategory
 } from '../shared/contracts'
-import {
-  isNodeError,
-  readJsonFile,
-  writeJsonAtomic
-} from './atomic-file'
+import { isNodeError, readJsonFile, writeJsonAtomic } from './atomic-file'
 import { parseProjectDefinition } from './project-store'
 
 export interface ProjectRuntimeEnvelope {
@@ -58,7 +54,10 @@ const INTERRUPTED_STATUSES = new Set<ProjectRuntimeStatus>([
   'waiting',
   'recovering'
 ])
-const TRANSITIONS: Record<ProjectRuntimeStatus, ReadonlySet<ProjectRuntimeStatus>> = {
+const TRANSITIONS: Record<
+  ProjectRuntimeStatus,
+  ReadonlySet<ProjectRuntimeStatus>
+> = {
   queued: new Set(['starting', 'paused', 'cancelled']),
   starting: new Set([
     'running',
@@ -84,13 +83,7 @@ const TRANSITIONS: Record<ProjectRuntimeStatus, ReadonlySet<ProjectRuntimeStatus
     'completed',
     'cancelled'
   ]),
-  recovering: new Set([
-    'running',
-    'waiting',
-    'paused',
-    'failed',
-    'cancelled'
-  ]),
+  recovering: new Set(['running', 'waiting', 'paused', 'failed', 'cancelled']),
   paused: new Set(['queued', 'waiting', 'failed', 'cancelled']),
   failed: new Set(),
   completed: new Set(),
@@ -392,16 +385,16 @@ export class ProjectRuntimeStore {
   ): Promise<ProjectIdempotencyRecord | null> {
     const state = await this.read()
     const record = state.idempotency.find(
-      (candidate) =>
-        candidate.projectId === projectId && candidate.key === key
+      (candidate) => candidate.projectId === projectId && candidate.key === key
     )
     return record ? structuredClone(record) : null
   }
 
   private async update<T>(
-    transform: (
+    transform: (state: ProjectRuntimeState) => {
       state: ProjectRuntimeState
-    ) => { state: ProjectRuntimeState; result: T }
+      result: T
+    }
   ): Promise<T> {
     let result: T | undefined
     const operation = this.queue.then(async () => {
@@ -660,12 +653,8 @@ function applyTransitionPatch(
     ...(patch.checkpointData === undefined
       ? {}
       : { checkpointData: structuredClone(patch.checkpointData) }),
-    ...(patch.nextWakeAt === undefined
-      ? {}
-      : { nextWakeAt: patch.nextWakeAt }),
-    ...(patch.lastError === undefined
-      ? {}
-      : { lastError: patch.lastError }),
+    ...(patch.nextWakeAt === undefined ? {} : { nextWakeAt: patch.nextWakeAt }),
+    ...(patch.lastError === undefined ? {} : { lastError: patch.lastError }),
     ...(patch.lastFailureCategory === undefined
       ? {}
       : { lastFailureCategory: patch.lastFailureCategory }),
@@ -705,20 +694,14 @@ function pruneRuntimes(
 
 function createRuntimeId(createId: () => string): string {
   const value = createId()
-  if (
-    typeof value !== 'string' ||
-    !/^[a-zA-Z0-9_-]{8,200}$/.test(value)
-  ) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{8,200}$/.test(value)) {
     throw new Error('无法创建 Project Runtime ID')
   }
   return `runtime-${value}`
 }
 
 function isCounters(value: unknown): value is ProjectRuntimeCounters {
-  if (
-    !isRecord(value) ||
-    !hasExactKeys(value, Object.keys(EMPTY_COUNTERS))
-  ) {
+  if (!isRecord(value) || !hasExactKeys(value, Object.keys(EMPTY_COUNTERS))) {
     return false
   }
   return Object.values(value).every(
@@ -745,9 +728,7 @@ function isFailureCategory(value: unknown): value is WorkflowFailureCategory {
   )
 }
 
-function isJsonRecord(
-  value: unknown
-): value is Record<string, JsonValue> {
+function isJsonRecord(value: unknown): value is Record<string, JsonValue> {
   return isRecord(value) && isJsonValue(value)
 }
 

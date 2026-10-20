@@ -151,7 +151,9 @@ export class BrowserTabManager {
     }
 
     const tab = this.requireTab(tabId)
-    const remaining = [...this.tabs.values()].filter((entry) => entry.id !== tabId)
+    const remaining = [...this.tabs.values()].filter(
+      (entry) => entry.id !== tabId
+    )
     if (tabId === this.sessionHandlerOwnerId) {
       const nextOwner = remaining[0]
       if (!nextOwner) {
@@ -254,9 +256,7 @@ export class BrowserTabManager {
       ),
       quarantinedStrategyIds: [
         ...new Set(
-          snapshots.flatMap(
-            (snapshot) => snapshot.quarantinedStrategyIds
-          )
+          snapshots.flatMap((snapshot) => snapshot.quarantinedStrategyIds)
         )
       ].sort(),
       entries: snapshots.flatMap((snapshot) => snapshot.entries)
@@ -336,28 +336,33 @@ export class BrowserTabManager {
     return this.activeSupervisor().hasProfileCookie(name)
   }
 
-  setProfileCookieForDiagnostics(
-    name: string,
-    value: string
-  ): Promise<void> {
+  setProfileCookieForDiagnostics(name: string, value: string): Promise<void> {
     return this.activeSupervisor().setProfileCookieForDiagnostics(name, value)
   }
 
-  benchmarkCapture(frameCount?: number, intervalMs?: number): Promise<CaptureBenchmark> {
+  benchmarkCapture(
+    frameCount?: number,
+    intervalMs?: number
+  ): Promise<CaptureBenchmark> {
     return this.activeSupervisor().benchmarkCapture(frameCount, intervalMs)
   }
 
   benchmarkInteractionDuringCapture(
     sampleCount?: number
   ): Promise<InteractionCaptureBenchmark> {
-    return this.activeSupervisor().benchmarkInteractionDuringCapture(sampleCount)
+    return this.activeSupervisor().benchmarkInteractionDuringCapture(
+      sampleCount
+    )
   }
 
   benchmarkMultiViewCapture(
     frameCount?: number,
     intervalMs?: number
   ): Promise<MultiViewCaptureBenchmark> {
-    return this.activeSupervisor().benchmarkMultiViewCapture(frameCount, intervalMs)
+    return this.activeSupervisor().benchmarkMultiViewCapture(
+      frameCount,
+      intervalMs
+    )
   }
 
   probeHeartbeatStall(
@@ -377,9 +382,7 @@ export class BrowserTabManager {
 
   async prepareForShutdown(): Promise<void> {
     await Promise.all(
-      [...this.tabs.values()].map((tab) =>
-        tab.supervisor.prepareForShutdown()
-      )
+      [...this.tabs.values()].map((tab) => tab.supervisor.prepareForShutdown())
     )
   }
 
@@ -417,7 +420,7 @@ export class BrowserTabManager {
         allowedStrategyIds: this.allowedStrategyIds,
         strategyPaused: this.strategyPaused,
         quarantinedStrategyIds: this.quarantinedStrategyIds,
-        ...(initialUrl ?? _initialUrl
+        ...((initialUrl ?? _initialUrl)
           ? { initialUrl: initialUrl ?? _initialUrl }
           : {}),
         ...(isFirst && checkpointStore ? { checkpointStore } : {}),

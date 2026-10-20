@@ -13,8 +13,7 @@ export const IPC_CHANNELS = {
   activateProfile: 'profiles:activate',
   deleteProfile: 'profiles:delete',
   getProjectWorkspace: 'projects:get-workspace',
-  installAutomationPlayground:
-    'projects:install-automation-playground',
+  installAutomationPlayground: 'projects:install-automation-playground',
   saveProject: 'projects:save',
   setActiveProject: 'projects:set-active',
   deleteProject: 'projects:delete',
@@ -103,11 +102,7 @@ export interface BrowserSnapshot {
 }
 
 export type PageHealthStatus =
-  | 'starting'
-  | 'healthy'
-  | 'degraded'
-  | 'unresponsive'
-  | 'stopped'
+  'starting' | 'healthy' | 'degraded' | 'unresponsive' | 'stopped'
 
 export interface PageHealthSnapshot {
   status: PageHealthStatus
@@ -204,10 +199,7 @@ export interface CapabilityPolicySnapshot {
 }
 
 export type ProjectRuntimeMode =
-  | 'manual'
-  | 'autostart'
-  | 'resident'
-  | 'schedule'
+  'manual' | 'autostart' | 'resident' | 'schedule'
 
 export type ProjectSchedule =
   | {
@@ -225,13 +217,7 @@ export interface ProjectStrategyPin {
 }
 
 export type ContentFilterResourceType =
-  | 'stylesheet'
-  | 'image'
-  | 'media'
-  | 'font'
-  | 'script'
-  | 'xhr'
-  | 'other'
+  'stylesheet' | 'image' | 'media' | 'font' | 'script' | 'xhr' | 'other'
 
 export interface ContentFilterNetworkRule {
   id: string
@@ -351,10 +337,7 @@ export interface ProjectDraft {
 }
 
 export type ProjectStrategyResolutionStatus =
-  | 'ready'
-  | 'missing'
-  | 'version-mismatch'
-  | 'disabled'
+  'ready' | 'missing' | 'version-mismatch' | 'disabled'
 
 export interface ProjectStrategyResolution {
   strategyId: string
@@ -414,11 +397,7 @@ export interface ProjectRuntimeRecord {
 export type ProjectRuntimeSnapshot = ProjectRuntimeRecord
 
 export type DownloadRecordStatus =
-  | 'reserved'
-  | 'downloading'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
+  'reserved' | 'downloading' | 'completed' | 'failed' | 'cancelled'
 
 export interface ProjectDownloadRecord {
   downloadId: string
@@ -452,10 +431,7 @@ export interface StartupSettings {
   managedByWatchdog: boolean
 }
 
-export type StrategyRunAt =
-  | 'document-start'
-  | 'document-end'
-  | 'document-idle'
+export type StrategyRunAt = 'document-start' | 'document-end' | 'document-idle'
 
 export type StrategyFrameScope = 'top' | 'all'
 
@@ -510,11 +486,7 @@ export interface AutomationPlaygroundInstallResult {
 }
 
 export type StrategyRuntimeStatus =
-  | 'issued'
-  | 'scheduled'
-  | 'starting'
-  | 'running'
-  | 'failed'
+  'issued' | 'scheduled' | 'starting' | 'running' | 'failed'
 
 export interface StrategyRuntimeEntrySnapshot {
   strategyId: string
@@ -557,11 +529,7 @@ export interface StrategyBootstrapResponse {
 }
 
 export type StrategyRuntimeSignalType =
-  | 'installed'
-  | 'started'
-  | 'ready'
-  | 'heartbeat'
-  | 'failed'
+  'installed' | 'started' | 'ready' | 'heartbeat' | 'failed'
 
 export interface StrategyRuntimeSignal {
   token: string
@@ -586,10 +554,7 @@ export interface StrategyNetworkResponse {
 }
 
 export type StrategyHostMethod =
-  | 'log'
-  | 'emit-event'
-  | 'network-request'
-  | 'main-world-eval'
+  'log' | 'emit-event' | 'network-request' | 'main-world-eval'
 
 export interface StrategyHostCall {
   token: string
@@ -598,12 +563,7 @@ export interface StrategyHostCall {
 }
 
 export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue }
+  null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 export interface BrowserShellApi {
   getSnapshot(): Promise<BrowserSnapshot>

@@ -82,7 +82,10 @@ export function createProjectDownloadRecoveryProjectDraft(
   options: ProjectDownloadRecoverySmokeOptions
 ): ProjectDraft {
   const page = requireHttpUrl(options.pageUrl)
-  if (!Number.isSafeInteger(options.expectedBytes) || options.expectedBytes <= 0) {
+  if (
+    !Number.isSafeInteger(options.expectedBytes) ||
+    options.expectedBytes <= 0
+  ) {
     throw new Error('下载恢复 smoke 的预期字节数无效')
   }
 

@@ -11,10 +11,15 @@ describe('VERSION.json single source of truth', () => {
   })
 
   it('prints the declared version', () => {
-    const declared = JSON.parse(readFileSync('VERSION.json', 'utf8')).version as string
-    const printed = execFileSync(process.execPath, ['scripts/version-ssot.mjs', 'print'], {
-      encoding: 'utf8'
-    }).trim()
+    const declared = JSON.parse(readFileSync('VERSION.json', 'utf8'))
+      .version as string
+    const printed = execFileSync(
+      process.execPath,
+      ['scripts/version-ssot.mjs', 'print'],
+      {
+        encoding: 'utf8'
+      }
+    ).trim()
 
     expect(printed).toBe(declared)
   })

@@ -80,8 +80,7 @@ export class StrategyPolicyStore {
   }
 
   private async quarantineInvalidFile(): Promise<void> {
-    const quarantinePath =
-      `${this.filePath}.invalid-${Date.now()}-${randomUUID()}`
+    const quarantinePath = `${this.filePath}.invalid-${Date.now()}-${randomUUID()}`
     await rename(this.filePath, quarantinePath).catch((error: unknown) => {
       if (!isNodeError(error, 'ENOENT')) {
         throw error
@@ -108,8 +107,7 @@ export function parseStrategyPolicy(
     value.developmentAllowedStrategyIds.length > 256 ||
     !value.developmentAllowedStrategyIds.every(
       (entry) =>
-        typeof entry === 'string' &&
-        /^[a-z][a-z0-9-]{0,63}$/.test(entry)
+        typeof entry === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(entry)
     ) ||
     new Set(value.developmentAllowedStrategyIds).size !==
       value.developmentAllowedStrategyIds.length

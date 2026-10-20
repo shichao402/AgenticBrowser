@@ -47,8 +47,14 @@ describe('ProjectScheduler', () => {
     await projectStore.save(createDraft('project-a', 'manual', 0))
     await projectStore.save(createDraft('project-b', 'manual', 10))
     const projects = (await projectStore.read()).projects
-    await runtimeStore.create(projects.find(({ id }) => id === 'project-a')!, 'manual')
-    await runtimeStore.create(projects.find(({ id }) => id === 'project-b')!, 'manual')
+    await runtimeStore.create(
+      projects.find(({ id }) => id === 'project-a')!,
+      'manual'
+    )
+    await runtimeStore.create(
+      projects.find(({ id }) => id === 'project-b')!,
+      'manual'
+    )
     const starts: string[] = []
     const scheduler = new ProjectScheduler(
       projectStore,
@@ -56,14 +62,8 @@ describe('ProjectScheduler', () => {
       {
         startRuntime: async (envelope) => {
           starts.push(envelope.runtime.projectId)
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'running'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'running')
         },
         timeoutRuntime: async () => undefined
       },
@@ -82,10 +82,7 @@ describe('ProjectScheduler', () => {
       ({ runtime }) => runtime.projectId === 'project-b'
     )!
     const terminal = (
-      await runtimeStore.transition(
-        running.runtime.runtimeId,
-        'completed'
-      )
+      await runtimeStore.transition(running.runtime.runtimeId, 'completed')
     ).runtime
     scheduler.notifyRuntimeTerminal(terminal)
     await scheduler.tick()
@@ -113,14 +110,8 @@ describe('ProjectScheduler', () => {
       {
         startRuntime: async (envelope) => {
           starts.push(envelope.runtime.projectId)
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'running'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'running')
         },
         timeoutRuntime: async () => undefined
       },
@@ -138,11 +129,7 @@ describe('ProjectScheduler', () => {
     ).runtime
     scheduler.notifyRuntimeTerminal(terminal)
     await scheduler.tick()
-    expect(starts).toEqual([
-      'shared-high',
-      'independent',
-      'shared-low'
-    ])
+    expect(starts).toEqual(['shared-high', 'independent', 'shared-low'])
     scheduler.dispose()
   })
 
@@ -164,14 +151,8 @@ describe('ProjectScheduler', () => {
       {
         startRuntime: async (envelope) => {
           starts.push(envelope.runtime.projectId)
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'waiting'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'waiting')
         },
         timeoutRuntime: async () => undefined
       },
@@ -193,18 +174,11 @@ describe('ProjectScheduler', () => {
     })
 
     const stopped = (
-      await runtimeStore.transition(
-        takeover.runtime.runtimeId,
-        'cancelled'
-      )
+      await runtimeStore.transition(takeover.runtime.runtimeId, 'cancelled')
     ).runtime
     scheduler.notifyRuntimeTerminal(stopped)
     await scheduler.tick()
-    expect(starts).toEqual([
-      'takeover',
-      'independent',
-      'queued-shared'
-    ])
+    expect(starts).toEqual(['takeover', 'independent', 'queued-shared'])
     scheduler.dispose()
   })
 
@@ -222,14 +196,8 @@ describe('ProjectScheduler', () => {
       {
         startRuntime: async (envelope) => {
           starts.push(envelope)
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'running'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'running')
         },
         timeoutRuntime: async () => undefined
       },
@@ -248,12 +216,10 @@ describe('ProjectScheduler', () => {
     await projectStore.save(createDraft('autostart-project', 'autostart'))
     await projectStore.save(createDraft('resident-project', 'resident'))
     await projectStore.save(
-      createDraft(
-        'scheduled-project',
-        'schedule',
-        0,
-        { kind: 'interval', everyMinutes: 1 }
-      )
+      createDraft('scheduled-project', 'schedule', 0, {
+        kind: 'interval',
+        everyMinutes: 1
+      })
     )
     const scheduled = (await projectStore.read()).projects.find(
       ({ id }) => id === 'scheduled-project'
@@ -269,14 +235,8 @@ describe('ProjectScheduler', () => {
             projectId: envelope.runtime.projectId,
             trigger: envelope.runtime.trigger
           })
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'running'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'running')
         },
         timeoutRuntime: async () => undefined
       },
@@ -299,14 +259,8 @@ describe('ProjectScheduler', () => {
     await projectStore.save(createDraft('autostart-project', 'autostart'))
     const project = (await projectStore.read()).projects[0]!
     const interrupted = await runtimeStore.create(project, 'autostart')
-    await runtimeStore.transition(
-      interrupted.runtime.runtimeId,
-      'starting'
-    )
-    await runtimeStore.transition(
-      interrupted.runtime.runtimeId,
-      'running'
-    )
+    await runtimeStore.transition(interrupted.runtime.runtimeId, 'starting')
+    await runtimeStore.transition(interrupted.runtime.runtimeId, 'running')
     await runtimeStore.recoverInterrupted()
     const starts: ProjectRuntimeEnvelope[] = []
     const scheduler = new ProjectScheduler(
@@ -315,14 +269,8 @@ describe('ProjectScheduler', () => {
       {
         startRuntime: async (envelope) => {
           starts.push(envelope)
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'running'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'running')
         },
         timeoutRuntime: async () => undefined
       },
@@ -331,10 +279,7 @@ describe('ProjectScheduler', () => {
 
     await scheduler.start()
     const completed = (
-      await runtimeStore.transition(
-        starts[0]!.runtime.runtimeId,
-        'completed'
-      )
+      await runtimeStore.transition(starts[0]!.runtime.runtimeId, 'completed')
     ).runtime
     scheduler.notifyRuntimeTerminal(completed)
     await scheduler.tick()
@@ -353,14 +298,8 @@ describe('ProjectScheduler', () => {
       {
         startRuntime: async (envelope) => {
           starts.push(envelope)
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'running'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'running')
         },
         timeoutRuntime: async () => undefined
       },
@@ -388,22 +327,15 @@ describe('ProjectScheduler', () => {
   it('asks the host to stop a runtime that exceeds maxRunMs', async () => {
     await projectStore.save(createDraft('bounded-project', 'manual'))
     const timeoutRuntime = vi.fn(
-      async (_envelope: ProjectRuntimeEnvelope, _reason: string) =>
-        undefined
+      async (_envelope: ProjectRuntimeEnvelope, _reason: string) => undefined
     )
     const scheduler = new ProjectScheduler(
       projectStore,
       runtimeStore,
       {
         startRuntime: async (envelope) => {
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'running'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'running')
         },
         timeoutRuntime
       },
@@ -423,12 +355,7 @@ describe('ProjectScheduler', () => {
   it('retries timeout delivery when the host rejects it', async () => {
     await projectStore.save(createDraft('bounded-project', 'manual'))
     const timeoutRuntime = vi
-      .fn<
-        (
-          envelope: ProjectRuntimeEnvelope,
-          reason: string
-        ) => Promise<void>
-      >()
+      .fn<(envelope: ProjectRuntimeEnvelope, reason: string) => Promise<void>>()
       .mockRejectedValueOnce(new Error('host busy'))
       .mockResolvedValue(undefined)
     const scheduler = new ProjectScheduler(
@@ -436,14 +363,8 @@ describe('ProjectScheduler', () => {
       runtimeStore,
       {
         startRuntime: async (envelope) => {
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'starting'
-          )
-          await runtimeStore.transition(
-            envelope.runtime.runtimeId,
-            'running'
-          )
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'starting')
+          await runtimeStore.transition(envelope.runtime.runtimeId, 'running')
         },
         timeoutRuntime
       },
@@ -474,21 +395,17 @@ describe('isProjectScheduleDue', () => {
   })
 
   it('uses the project timezone and does not repeat a daily occurrence', async () => {
-    const projectStore = new ProjectStore(
-      join(temporaryRoot, 'projects.json')
-    )
+    const projectStore = new ProjectStore(join(temporaryRoot, 'projects.json'))
     const runtimeStore = new ProjectRuntimeStore(
       join(temporaryRoot, 'runtimes.json'),
       () => Date.parse('2026-10-15T00:35:00.000Z'),
       () => 'dailyruntime'
     )
     await projectStore.save(
-      createDraft(
-        'daily-project',
-        'schedule',
-        0,
-        { kind: 'daily', times: ['08:30'] }
-      )
+      createDraft('daily-project', 'schedule', 0, {
+        kind: 'daily',
+        times: ['08:30']
+      })
     )
     const project = (await projectStore.read()).projects[0]!
     const now = Date.parse('2026-10-15T00:35:00.000Z')

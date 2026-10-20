@@ -41,10 +41,7 @@ import type {
   BrowserDownloadAdapter,
   BrowserDownloadRequest
 } from './browser-supervisor'
-import {
-  CapabilityStore,
-  createCapabilityPolicy
-} from './capability-store'
+import { CapabilityStore, createCapabilityPolicy } from './capability-store'
 import {
   BrowserCheckpointStore,
   type BrowserCheckpoint
@@ -105,10 +102,7 @@ import {
   StrategyPolicyStore,
   type StrategyPolicyState
 } from './strategy-policy-store'
-import {
-  StrategyStore,
-  type StrategyState
-} from './strategy-store'
+import { StrategyStore, type StrategyState } from './strategy-store'
 import type { StrategyDomainEvent } from './strategy-runtime'
 import {
   launchPackagedWatchdog,
@@ -214,10 +208,7 @@ const mainProcessHeartbeat = process.env.AGENTIC_WATCHDOG_HEARTBEAT_PATH
 const runApplication = await prepareApplicationLaunch()
 
 async function prepareApplicationLaunch(): Promise<boolean> {
-  if (
-    app.isPackaged &&
-    process.env.AGENTIC_WATCHDOG_MANAGED !== '1'
-  ) {
+  if (app.isPackaged && process.env.AGENTIC_WATCHDOG_MANAGED !== '1') {
     await launchPackagedWatchdog(
       {
         executablePath: process.execPath,
@@ -244,7 +235,11 @@ async function prepareApplicationLaunch(): Promise<boolean> {
 
 function writeSmokeResult(result: unknown): void {
   if (smokeTest) {
-    writeFileSync(smokeResultPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8')
+    writeFileSync(
+      smokeResultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
   }
 }
 
@@ -319,28 +314,16 @@ function writeAutomationPlaygroundSmokeResult(result: unknown): void {
 }
 
 function writeProjectDownloadFaultSmokeChildResult(result: unknown): void {
-  const resultPath =
-    process.env.AGENTIC_PROJECT_DOWNLOAD_FAULT_RESULT_PATH
+  const resultPath = process.env.AGENTIC_PROJECT_DOWNLOAD_FAULT_RESULT_PATH
   if (projectDownloadFaultSmokeChild && resultPath) {
-    writeFileSync(
-      resultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
+    writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8')
   }
 }
 
-function writeProjectDownloadRendererSmokeChildResult(
-  result: unknown
-): void {
-  const resultPath =
-    process.env.AGENTIC_PROJECT_DOWNLOAD_RENDERER_RESULT_PATH
+function writeProjectDownloadRendererSmokeChildResult(result: unknown): void {
+  const resultPath = process.env.AGENTIC_PROJECT_DOWNLOAD_RENDERER_RESULT_PATH
   if (projectDownloadRendererRecoverySmokeChild && resultPath) {
-    writeFileSync(
-      resultPath,
-      `${JSON.stringify(result, null, 2)}\n`,
-      'utf8'
-    )
+    writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8')
   }
 }
 
@@ -414,7 +397,9 @@ function setOpenAtLogin(enabled: boolean): StartupSettings {
   return getStartupSettings()
 }
 
-async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<MainWindowRuntime> {
+async function createMainWindow(
+  options: CreateMainWindowOptions = {}
+): Promise<MainWindowRuntime> {
   const {
     show = true,
     initialUrl,
@@ -504,21 +489,15 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     networkRules: [],
     cssRules: []
   }
-  let activeContentFilter = structuredClone(
-    developmentContentFilter
-  )
+  let activeContentFilter = structuredClone(developmentContentFilter)
   let registryStrategyDefinitions = cloneStrategyDefinitions(
     strategyDefinitions ?? []
   )
-  let developmentAllowedStrategyIds = new Set(
-    allowedStrategyIds ?? []
-  )
+  let developmentAllowedStrategyIds = new Set(allowedStrategyIds ?? [])
   let activeStrategyDefinitions = cloneStrategyDefinitions(
     registryStrategyDefinitions
   )
-  let activeAllowedStrategyIds = new Set(
-    developmentAllowedStrategyIds
-  )
+  let activeAllowedStrategyIds = new Set(developmentAllowedStrategyIds)
   let activeWorkflowEngine: ProjectWorkflowEngine | null = null
   let activeDownloadManager: ProjectDownloadManager | null = null
   let activeItemStore: ProjectItemStore | null = null
@@ -528,10 +507,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   > = []
   let currentProjectRuntime: ProjectRuntimeSnapshot | null = null
   let projectScheduler: ProjectScheduler | null = null
-  const backgroundProjectRuntimes = new Map<
-    string,
-    BackgroundProjectRuntime
-  >()
+  const backgroundProjectRuntimes = new Map<string, BackgroundProjectRuntime>()
   let handleStrategyDomainEvent:
     | ((event: {
         strategyId: string
@@ -555,54 +531,55 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     nextProfileId: string,
     nextInitialUrl?: string
   ): BrowserTabManager =>
-    new BrowserTabManager(window, (event) => {
-      if (
-        currentProjectRuntime &&
-        !isTerminalProjectRuntime(currentProjectRuntime)
-      ) {
-        publish({
-          ...event,
-          projectId: currentProjectRuntime.projectId,
-          runtimeId: currentProjectRuntime.runtimeId
-        })
-        return
+    new BrowserTabManager(
+      window,
+      (event) => {
+        if (
+          currentProjectRuntime &&
+          !isTerminalProjectRuntime(currentProjectRuntime)
+        ) {
+          publish({
+            ...event,
+            projectId: currentProjectRuntime.projectId,
+            runtimeId: currentProjectRuntime.runtimeId
+          })
+          return
+        }
+        publish(event)
+      },
+      {
+        ...(nextInitialUrl ? { initialUrl: nextInitialUrl } : {}),
+        strategyPreloadPath: join(
+          currentDirectory,
+          '../preload/strategy-bootstrap.cjs'
+        ),
+        phaseZeroProbe,
+        healthMonitoring: healthMonitoring ?? !phaseZeroProbe,
+        recoveryEnabled: recoveryEnabled ?? !phaseZeroProbe,
+        ...(activeCapabilityPolicy
+          ? { capabilityPolicy: activeCapabilityPolicy }
+          : {}),
+        contentFilter: activeContentFilter,
+        ...(activeDownloadAdapter
+          ? { downloadAdapter: activeDownloadAdapter }
+          : {}),
+        ...(downloadRoot
+          ? { downloadDirectory: join(downloadRoot, nextProfileId) }
+          : {}),
+        profileId: nextProfileId,
+        ...(checkpointStore ? { checkpointStore } : {}),
+        strategyDefinitions: activeStrategyDefinitions,
+        allowedStrategyIds: activeAllowedStrategyIds,
+        quarantinedStrategyIds: activeQuarantinedStrategyIds,
+        onStrategyDomainEvent: (event) => handleStrategyDomainEvent?.(event)
       }
-      publish(event)
-    }, {
-      ...(nextInitialUrl ? { initialUrl: nextInitialUrl } : {}),
-      strategyPreloadPath: join(
-        currentDirectory,
-        '../preload/strategy-bootstrap.cjs'
-      ),
-      phaseZeroProbe,
-      healthMonitoring: healthMonitoring ?? !phaseZeroProbe,
-      recoveryEnabled: recoveryEnabled ?? !phaseZeroProbe,
-      ...(activeCapabilityPolicy
-        ? { capabilityPolicy: activeCapabilityPolicy }
-        : {}),
-      contentFilter: activeContentFilter,
-      ...(activeDownloadAdapter
-        ? { downloadAdapter: activeDownloadAdapter }
-        : {}),
-      ...(downloadRoot
-        ? { downloadDirectory: join(downloadRoot, nextProfileId) }
-        : {}),
-      profileId: nextProfileId,
-      ...(checkpointStore ? { checkpointStore } : {}),
-      strategyDefinitions: activeStrategyDefinitions,
-      allowedStrategyIds: activeAllowedStrategyIds,
-      quarantinedStrategyIds: activeQuarantinedStrategyIds,
-      onStrategyDomainEvent: (event) =>
-        handleStrategyDomainEvent?.(event)
-    })
+    )
   let supervisor = createSupervisor(activeProfileId, initialUrl)
   let visibleBackgroundRuntimeId: string | null = null
 
   const getVisibleSupervisor = (): BrowserTabManager => {
     if (visibleBackgroundRuntimeId) {
-      const runtime = backgroundProjectRuntimes.get(
-        visibleBackgroundRuntimeId
-      )
+      const runtime = backgroundProjectRuntimes.get(visibleBackgroundRuntimeId)
       if (runtime) {
         return runtime.supervisor
       }
@@ -613,8 +590,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   const showProjectSupervisor = (projectId: string | null): void => {
     const background = projectId
       ? [...backgroundProjectRuntimes.entries()].find(
-          ([, runtime]) =>
-            runtime.getRuntime().projectId === projectId
+          ([, runtime]) => runtime.getRuntime().projectId === projectId
         )
       : undefined
     if (background) {
@@ -674,9 +650,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     enqueueSupervisorOperation(() => read(getVisibleSupervisor()))
   const getStrategyWorkspaceSnapshot = (): StrategyWorkspaceSnapshot => ({
     strategies: cloneStrategyDefinitions(registryStrategyDefinitions),
-    developmentAllowedStrategyIds: [
-      ...developmentAllowedStrategyIds
-    ].sort()
+    developmentAllowedStrategyIds: [...developmentAllowedStrategyIds].sort()
   })
   const applyDevelopmentStrategyConfiguration = async (
     state: StrategyState,
@@ -687,16 +661,12 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     )
     registryStrategyDefinitions = cloneStrategyDefinitions(state.strategies)
     developmentAllowedStrategyIds = new Set(
-      policy.developmentAllowedStrategyIds.filter((id) =>
-        existingIds.has(id)
-      )
+      policy.developmentAllowedStrategyIds.filter((id) => existingIds.has(id))
     )
     activeStrategyDefinitions = cloneStrategyDefinitions(
       registryStrategyDefinitions
     )
-    activeAllowedStrategyIds = new Set(
-      developmentAllowedStrategyIds
-    )
+    activeAllowedStrategyIds = new Set(developmentAllowedStrategyIds)
     await supervisor.setStrategyConfiguration(
       activeStrategyDefinitions,
       activeAllowedStrategyIds
@@ -707,12 +677,11 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     state: ProjectState
   ): Promise<ProjectWorkspaceSnapshot> => {
     const activeProject =
-      state.projects.find(
-        (project) => project.id === state.activeProjectId
-      ) ?? null
+      state.projects.find((project) => project.id === state.activeProjectId) ??
+      null
     const runtimes = projectRuntimeStore
-      ? (await projectRuntimeStore.read()).runtimes.map(
-          ({ runtime }) => structuredClone(runtime)
+      ? (await projectRuntimeStore.read()).runtimes.map(({ runtime }) =>
+          structuredClone(runtime)
         )
       : []
     return {
@@ -720,10 +689,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       activeProjectId: state.activeProjectId,
       runtimes,
       strategyResolutions: activeProject
-        ? resolveProjectStrategies(
-            activeProject,
-            registryStrategyDefinitions
-          ).resolutions
+        ? resolveProjectStrategies(activeProject, registryStrategyDefinitions)
+            .resolutions
         : []
     }
   }
@@ -738,13 +705,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   ): Promise<void> => {
     const state = await projectRuntimeStore?.read()
     if (
-      state?.runtimes.some(
-        ({ runtime }) => !isTerminalProjectRuntime(runtime)
-      )
+      state?.runtimes.some(({ runtime }) => !isTerminalProjectRuntime(runtime))
     ) {
-      throw new Error(
-        `Project Runtime 运行期间不能${operation}；请先停止项目`
-      )
+      throw new Error(`Project Runtime 运行期间不能${operation}；请先停止项目`)
     }
   }
   const publishProjectRuntimeEvent = (
@@ -777,9 +740,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     const adapter: BrowserDownloadAdapter = {
       reserve: async (request: BrowserDownloadRequest) => {
         const requestUrls = new Set(
-          [request.sourceUrl, ...request.urlChain].map(
-            normalizeComparableUrl
-          )
+          [request.sourceUrl, ...request.urlChain].map(normalizeComparableUrl)
         )
         const index = pendingManagedDownloads.findIndex((reservation) => {
           const record = reservation.record
@@ -926,13 +887,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     const previousDownloadAdapter = activeDownloadAdapter
     const previousPendingDownloads = pendingManagedDownloads
 
-    activeStrategyDefinitions = cloneStrategyDefinitions(
-      resolved.definitions
-    )
+    activeStrategyDefinitions = cloneStrategyDefinitions(resolved.definitions)
     activeAllowedStrategyIds = new Set(resolved.allowedStrategyIds)
-    activeCapabilityPolicy = structuredClone(
-      runtimeProject.capabilities
-    )
+    activeCapabilityPolicy = structuredClone(runtimeProject.capabilities)
     activeContentFilter = structuredClone(runtimeProject.filter)
     let startingRuntimeId: string | null = null
 
@@ -966,10 +923,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       } else {
         supervisor.dispose()
         activeProfileId = runtimeProject.profileId
-        supervisor = createSupervisor(
-          runtimeProject.profileId,
-          startupUrl
-        )
+        supervisor = createSupervisor(runtimeProject.profileId, startupUrl)
         if (visibleBackgroundRuntimeId) {
           supervisor.setVisible(false)
         }
@@ -1021,23 +975,14 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         const starting = (await projectRuntimeStore.read()).runtimes.find(
           ({ runtime }) => runtime.runtimeId === startingRuntimeId
         )
-        if (
-          starting &&
-          !isTerminalProjectRuntime(starting.runtime)
-        ) {
+        if (starting && !isTerminalProjectRuntime(starting.runtime)) {
           const status =
-            starting.runtime.status === 'queued'
-              ? 'cancelled'
-              : 'failed'
+            starting.runtime.status === 'queued' ? 'cancelled' : 'failed'
           currentProjectRuntime = (
-            await projectRuntimeStore.transition(
-              startingRuntimeId,
-              status,
-              {
-                lastError: reason,
-                lastFailureCategory: 'unknown'
-              }
-            )
+            await projectRuntimeStore.transition(startingRuntimeId, status, {
+              lastError: reason,
+              lastFailureCategory: 'unknown'
+            })
           ).runtime
         }
       }
@@ -1092,9 +1037,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     activeStrategyDefinitions = cloneStrategyDefinitions(
       registryStrategyDefinitions
     )
-    activeAllowedStrategyIds = new Set(
-      developmentAllowedStrategyIds
-    )
+    activeAllowedStrategyIds = new Set(developmentAllowedStrategyIds)
     activeCapabilityPolicy = developmentCapabilityPolicy
     activeContentFilter = developmentContentFilter
     activeDownloadManager = null
@@ -1136,9 +1079,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     finalizedProjectRuntimeIds.add(runtime.runtimeId)
     const resolvedProjectName =
       projectName ??
-      (
-        await projectStore?.read()
-      )?.projects.find(
+      (await projectStore?.read())?.projects.find(
         (project) => project.id === runtime.projectId
       )?.name ??
       runtime.projectId
@@ -1162,15 +1103,10 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       await finalizeProjectRuntime(runtime)
     }
   }
-  const startWorkflowTicker = (
-    engine: ProjectWorkflowEngine
-  ): void => {
+  const startWorkflowTicker = (engine: ProjectWorkflowEngine): void => {
     stopWorkflowTicker()
     workflowTickTimer = setInterval(() => {
-      if (
-        workflowTickInFlight ||
-        activeWorkflowEngine !== engine
-      ) {
+      if (workflowTickInFlight || activeWorkflowEngine !== engine) {
         return
       }
       workflowTickInFlight = true
@@ -1184,9 +1120,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           await finalizeProjectRuntime(runtime)
         }
       })
-        .catch((error: unknown) =>
-          handleWorkflowFailure(engine, error)
-        )
+        .catch((error: unknown) => handleWorkflowFailure(engine, error))
         .finally(() => {
           workflowTickInFlight = false
         })
@@ -1201,8 +1135,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       if (!currentProjectRuntime || !requestManualTakeover) {
         throw new Error('当前 Project Runtime 不支持人工接管请求')
       }
-      const authentication =
-        event.name === 'project.authentication-required'
+      const authentication = event.name === 'project.authentication-required'
       requestManualTakeover(
         currentProjectRuntime.projectId,
         parseTakeoverReason(
@@ -1216,11 +1149,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       return { kind: 'pause-requested' }
     }
     if (event.name === 'project.item-observed') {
-      if (
-        !activeItemStore ||
-        !projectRuntimeStore ||
-        !currentProjectRuntime
-      ) {
+      if (!activeItemStore || !projectRuntimeStore || !currentProjectRuntime) {
         throw new Error('当前没有可接收帖子观测的 Project Runtime')
       }
       const result = await activeItemStore.observe(
@@ -1261,8 +1190,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       }
       const runtimeState = await projectRuntimeStore.read()
       const envelope = runtimeState.runtimes.find(
-        ({ runtime }) =>
-          runtime.runtimeId === currentProjectRuntime?.runtimeId
+        ({ runtime }) => runtime.runtimeId === currentProjectRuntime?.runtimeId
       )
       if (!envelope) {
         throw new Error('下载意图对应的 Project Runtime 不存在')
@@ -1300,8 +1228,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         }
       }
       if (reservation.kind === 'rejected') {
-        const detail =
-          reservation.record.error ?? '下载预检被宿主拒绝'
+        const detail = reservation.record.error ?? '下载预检被宿主拒绝'
         const failureEvent = {
           strategyId: 'host-download-manager',
           name: 'download.failed',
@@ -1345,8 +1272,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           kind: 'in-progress',
           downloadId: reservation.record.downloadId,
           canStart: pendingManagedDownloads.some(
-            ({ record }) =>
-              record.downloadId === reservation.record.downloadId
+            ({ record }) => record.downloadId === reservation.record.downloadId
           )
         }
       }
@@ -1409,119 +1335,111 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           ).runtime
     await finalizeProjectRuntime(runtime, envelope.projectSnapshot.name)
   }
-  const pauseProjectRuntime =
-    async (
-      projectId: string,
-      reason: string | null = null,
-      category: WorkflowFailureCategory | null = null
-    ): Promise<ProjectWorkspaceSnapshot> => {
-      if (!projectStore || !projectRuntimeStore) {
-        throw new Error('Project Runtime 依赖当前不可用')
-      }
-      const state = await projectRuntimeStore.read()
-      const envelope = [...state.runtimes]
-        .reverse()
-        .find(
-          ({ runtime }) =>
-            runtime.projectId === projectId &&
-            !isTerminalProjectRuntime(runtime)
-        )
-      if (!envelope) {
-        throw new Error('没有可暂停的 Project Runtime')
-      }
-      if (envelope.runtime.status === 'paused') {
-        showProjectSupervisor(projectId)
-        return readProjectWorkspace()
-      }
-      const { runtimeId } = envelope.runtime
-      const projectName =
-        (await projectStore.read()).projects.find(
-          (project) => project.id === projectId
-        )?.name ?? envelope.projectSnapshot.name
-      projectScheduler?.suspend(projectId)
+  const pauseProjectRuntime = async (
+    projectId: string,
+    reason: string | null = null,
+    category: WorkflowFailureCategory | null = null
+  ): Promise<ProjectWorkspaceSnapshot> => {
+    if (!projectStore || !projectRuntimeStore) {
+      throw new Error('Project Runtime 依赖当前不可用')
+    }
+    const state = await projectRuntimeStore.read()
+    const envelope = [...state.runtimes]
+      .reverse()
+      .find(
+        ({ runtime }) =>
+          runtime.projectId === projectId && !isTerminalProjectRuntime(runtime)
+      )
+    if (!envelope) {
+      throw new Error('没有可暂停的 Project Runtime')
+    }
+    if (envelope.runtime.status === 'paused') {
+      showProjectSupervisor(projectId)
+      return readProjectWorkspace()
+    }
+    const { runtimeId } = envelope.runtime
+    const projectName =
+      (await projectStore.read()).projects.find(
+        (project) => project.id === projectId
+      )?.name ?? envelope.projectSnapshot.name
+    projectScheduler?.suspend(projectId)
 
-      if (envelope.runtime.status === 'queued') {
-        const paused = (
-          await projectRuntimeStore.transition(runtimeId, 'paused', {
-            nextWakeAt: null,
-            lastError: reason ?? '等待人工恢复',
-            lastFailureCategory: category
-          })
-        ).runtime
+    if (envelope.runtime.status === 'queued') {
+      const paused = (
+        await projectRuntimeStore.transition(runtimeId, 'paused', {
+          nextWakeAt: null,
+          lastError: reason ?? '等待人工恢复',
+          lastFailureCategory: category
+        })
+      ).runtime
+      publish({
+        sequence: 0,
+        type: 'project-runtime-paused',
+        timestamp: new Date().toISOString(),
+        url: envelope.projectSnapshot.startupPages[0]!,
+        detail: `${projectName}; runtimeId=${runtimeId}; queued=true`,
+        projectId: paused.projectId,
+        runtimeId
+      })
+      return readProjectWorkspace()
+    }
+
+    projectScheduler?.holdPausedRuntime(runtimeId)
+    try {
+      const background = backgroundProjectRuntimes.get(runtimeId)
+      if (background) {
+        const paused = await background.pause(reason, category)
+        if (isTerminalProjectRuntime(paused)) {
+          projectScheduler?.releasePausedRuntime(runtimeId)
+          await finalizeBackgroundProjectRuntime(paused, projectName)
+          return readProjectWorkspace()
+        }
+        showProjectSupervisor(projectId)
         publish({
           sequence: 0,
           type: 'project-runtime-paused',
           timestamp: new Date().toISOString(),
-          url: envelope.projectSnapshot.startupPages[0]!,
+          url: background.supervisor.getSnapshot().url,
           detail:
-            `${projectName}; runtimeId=${runtimeId}; queued=true`,
-          projectId: paused.projectId,
+            `${projectName}; runtimeId=${runtimeId}; ` +
+            `manual-takeover=true${reason ? `; reason=${reason}` : ''}`,
+          projectId,
           runtimeId
         })
         return readProjectWorkspace()
       }
 
-      projectScheduler?.holdPausedRuntime(runtimeId)
-      try {
-        const background = backgroundProjectRuntimes.get(runtimeId)
-        if (background) {
-          const paused = await background.pause(reason, category)
-          if (isTerminalProjectRuntime(paused)) {
-            projectScheduler?.releasePausedRuntime(runtimeId)
-            await finalizeBackgroundProjectRuntime(paused, projectName)
-            return readProjectWorkspace()
-          }
-          showProjectSupervisor(projectId)
-          publish({
-            sequence: 0,
-            type: 'project-runtime-paused',
-            timestamp: new Date().toISOString(),
-            url: background.supervisor.getSnapshot().url,
-            detail:
-              `${projectName}; runtimeId=${runtimeId}; ` +
-              `manual-takeover=true${
-                reason ? `; reason=${reason}` : ''
-              }`,
-            projectId,
-            runtimeId
-          })
-          return readProjectWorkspace()
-        }
-
-        if (activeWorkflowEngine?.runtimeId !== runtimeId) {
-          throw new Error('Project Runtime 的浏览器执行上下文不可用')
-        }
-        const paused = await activeWorkflowEngine.pause(
-          reason,
-          category
-        )
-        currentProjectRuntime = structuredClone(paused)
-        if (isTerminalProjectRuntime(paused)) {
-          projectScheduler?.releasePausedRuntime(runtimeId)
-          await finalizeProjectRuntime(paused, projectName)
-          return readProjectWorkspace()
-        }
-        stopWorkflowTicker()
-        await supervisor.setStrategyPaused(true)
-        showProjectSupervisor(projectId)
-        publishProjectRuntimeEvent(
-          'project-runtime-paused',
-          `${projectName}; runtimeId=${runtimeId}; manual-takeover=true${
-            reason ? `; reason=${reason}` : ''
-          }`
-        )
-        return readProjectWorkspace()
-      } catch (error) {
-        const latest = (await projectRuntimeStore.read()).runtimes.find(
-          ({ runtime }) => runtime.runtimeId === runtimeId
-        )
-        if (latest?.runtime.status !== 'paused') {
-          projectScheduler?.releasePausedRuntime(runtimeId)
-          projectScheduler?.resume(projectId)
-        }
-        throw error
+      if (activeWorkflowEngine?.runtimeId !== runtimeId) {
+        throw new Error('Project Runtime 的浏览器执行上下文不可用')
       }
+      const paused = await activeWorkflowEngine.pause(reason, category)
+      currentProjectRuntime = structuredClone(paused)
+      if (isTerminalProjectRuntime(paused)) {
+        projectScheduler?.releasePausedRuntime(runtimeId)
+        await finalizeProjectRuntime(paused, projectName)
+        return readProjectWorkspace()
+      }
+      stopWorkflowTicker()
+      await supervisor.setStrategyPaused(true)
+      showProjectSupervisor(projectId)
+      publishProjectRuntimeEvent(
+        'project-runtime-paused',
+        `${projectName}; runtimeId=${runtimeId}; manual-takeover=true${
+          reason ? `; reason=${reason}` : ''
+        }`
+      )
+      return readProjectWorkspace()
+    } catch (error) {
+      const latest = (await projectRuntimeStore.read()).runtimes.find(
+        ({ runtime }) => runtime.runtimeId === runtimeId
+      )
+      if (latest?.runtime.status !== 'paused') {
+        projectScheduler?.releasePausedRuntime(runtimeId)
+        projectScheduler?.resume(projectId)
+      }
+      throw error
     }
+  }
   const pendingAutomaticTakeovers = new Set<string>()
   requestManualTakeover = (projectId, reason, category) => {
     if (pendingAutomaticTakeovers.has(projectId)) {
@@ -1540,11 +1458,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       if (!runtime || runtime.status === 'paused') {
         return
       }
-      await pauseProjectRuntime(
-        projectId,
-        reason,
-        category
-      )
+      await pauseProjectRuntime(projectId, reason, category)
     })
       .catch((error: unknown) => {
         console.error('自动请求人工接管失败', error)
@@ -1553,154 +1467,154 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         pendingAutomaticTakeovers.delete(projectId)
       })
   }
-  const resumeProjectRuntime =
-    async (projectId: string): Promise<ProjectWorkspaceSnapshot> => {
-      if (!projectStore || !projectRuntimeStore || !projectScheduler) {
-        throw new Error('Project Runtime 依赖当前不可用')
-      }
-      const state = await projectRuntimeStore.read()
-      const envelope = [...state.runtimes]
-        .reverse()
-        .find(
-          ({ runtime }) =>
-            runtime.projectId === projectId &&
-            runtime.status === 'paused'
-        )
-      if (!envelope) {
-        throw new Error('没有可恢复的 paused Project Runtime')
-      }
-      const { runtimeId } = envelope.runtime
-      const projectName =
-        (await projectStore.read()).projects.find(
-          (project) => project.id === projectId
-        )?.name ?? envelope.projectSnapshot.name
-      const background = backgroundProjectRuntimes.get(runtimeId)
-      if (background) {
-        const resumed = await background.resume()
-        projectScheduler.releasePausedRuntime(runtimeId, true)
-        projectScheduler.resume(projectId)
-        showProjectSupervisor(projectId)
-        publish({
-          sequence: 0,
-          type: 'project-runtime-resumed',
-          timestamp: new Date().toISOString(),
-          url: background.supervisor.getSnapshot().url,
-          detail: `${projectName}; runtimeId=${runtimeId}`,
-          projectId: resumed.projectId,
-          runtimeId
-        })
-        return readProjectWorkspace()
-      }
-
-      if (activeWorkflowEngine?.runtimeId === runtimeId) {
-        const engine = activeWorkflowEngine
-        const resumed = await engine.resume()
-        currentProjectRuntime = structuredClone(resumed)
-        try {
-          await supervisor.setStrategyPaused(false)
-        } catch (error) {
-          currentProjectRuntime = await engine
-            .pause()
-            .catch(() => currentProjectRuntime)
-          await supervisor.setStrategyPaused(true).catch(() => undefined)
-          throw error
-        }
-        startWorkflowTicker(engine)
-        projectScheduler.releasePausedRuntime(runtimeId, true)
-        projectScheduler.resume(projectId)
-        showProjectSupervisor(projectId)
-        publishProjectRuntimeEvent(
-          'project-runtime-resumed',
-          `${projectName}; runtimeId=${runtimeId}`
-        )
-        return readProjectWorkspace()
-      }
-
-      await projectScheduler.requestResume(projectId)
+  const resumeProjectRuntime = async (
+    projectId: string
+  ): Promise<ProjectWorkspaceSnapshot> => {
+    if (!projectStore || !projectRuntimeStore || !projectScheduler) {
+      throw new Error('Project Runtime 依赖当前不可用')
+    }
+    const state = await projectRuntimeStore.read()
+    const envelope = [...state.runtimes]
+      .reverse()
+      .find(
+        ({ runtime }) =>
+          runtime.projectId === projectId && runtime.status === 'paused'
+      )
+    if (!envelope) {
+      throw new Error('没有可恢复的 paused Project Runtime')
+    }
+    const { runtimeId } = envelope.runtime
+    const projectName =
+      (await projectStore.read()).projects.find(
+        (project) => project.id === projectId
+      )?.name ?? envelope.projectSnapshot.name
+    const background = backgroundProjectRuntimes.get(runtimeId)
+    if (background) {
+      const resumed = await background.resume()
+      projectScheduler.releasePausedRuntime(runtimeId, true)
+      projectScheduler.resume(projectId)
       showProjectSupervisor(projectId)
+      publish({
+        sequence: 0,
+        type: 'project-runtime-resumed',
+        timestamp: new Date().toISOString(),
+        url: background.supervisor.getSnapshot().url,
+        detail: `${projectName}; runtimeId=${runtimeId}`,
+        projectId: resumed.projectId,
+        runtimeId
+      })
       return readProjectWorkspace()
     }
-  const stopProjectRuntime =
-    async (projectId: string): Promise<ProjectWorkspaceSnapshot> => {
-      if (!projectStore || !projectRuntimeStore) {
-        throw new Error('Project Runtime 依赖当前不可用')
-      }
-      const runtimeState = await projectRuntimeStore.read()
-      const running =
-        runtimeState.runtimes.find(
-          ({ runtime }) =>
-            runtime.projectId === projectId &&
-            runtime.status !== 'queued' &&
-            !isTerminalProjectRuntime(runtime)
-        ) ??
-        runtimeState.runtimes.find(
-          ({ runtime }) =>
-            runtime.projectId === projectId &&
-            runtime.status === 'queued'
-        )
-      if (!running) {
-        throw new Error('没有正在运行的 Project Runtime')
-      }
-      projectScheduler?.suspend(running.runtime.projectId)
-      const projectName =
-        (await projectStore.read()).projects.find(
-          (project) => project.id === running.runtime.projectId
-        )?.name ?? running.projectSnapshot.name
+
+    if (activeWorkflowEngine?.runtimeId === runtimeId) {
+      const engine = activeWorkflowEngine
+      const resumed = await engine.resume()
+      currentProjectRuntime = structuredClone(resumed)
       try {
-        const background = backgroundProjectRuntimes.get(
-          running.runtime.runtimeId
-        )
-        if (background) {
-          const runtime = await background.cancel()
-          await finalizeBackgroundProjectRuntime(runtime, projectName)
-          return readProjectWorkspace()
-        }
-        const runtime =
-          activeWorkflowEngine?.runtimeId === running.runtime.runtimeId
-            ? await activeWorkflowEngine.cancel()
-            : (
-                await projectRuntimeStore.transition(
-                  running.runtime.runtimeId,
-                  'cancelled',
-                  {
-                    lastError: '用户停止 Project Runtime',
-                    lastFailureCategory: 'cancelled'
-                  }
-                )
-              ).runtime
-        if (activeWorkflowEngine?.runtimeId === runtime.runtimeId) {
-          await finalizeProjectRuntime(runtime, projectName)
-        } else {
-          publish({
-            sequence: 0,
-            type: 'project-runtime-stopped',
-            timestamp: new Date().toISOString(),
-            url:
-              running.projectSnapshot.startupPages[0] ??
-              supervisor.getSnapshot().url,
-            detail:
-              `${projectName}; status=${runtime.status}; ` +
-              `runtimeId=${runtime.runtimeId}; queued=true`,
-            projectId: runtime.projectId,
-            runtimeId: runtime.runtimeId
-          })
-          projectScheduler?.notifyRuntimeTerminal(runtime)
-        }
-        return readProjectWorkspace()
+        await supervisor.setStrategyPaused(false)
       } catch (error) {
-        const reason = formatUnknownError(error)
-        activeStrategyDefinitions = []
-        activeAllowedStrategyIds = new Set()
-        await supervisor
-          .setStrategyConfiguration([], new Set())
-          .catch(() => undefined)
-        publishProjectRuntimeEvent(
-          'project-runtime-failed',
-          `${projectName}; 停止失败：${reason}`
-        )
-        throw new Error(`Project Runtime 停止失败：${reason}`)
+        currentProjectRuntime = await engine
+          .pause()
+          .catch(() => currentProjectRuntime)
+        await supervisor.setStrategyPaused(true).catch(() => undefined)
+        throw error
       }
+      startWorkflowTicker(engine)
+      projectScheduler.releasePausedRuntime(runtimeId, true)
+      projectScheduler.resume(projectId)
+      showProjectSupervisor(projectId)
+      publishProjectRuntimeEvent(
+        'project-runtime-resumed',
+        `${projectName}; runtimeId=${runtimeId}`
+      )
+      return readProjectWorkspace()
     }
+
+    await projectScheduler.requestResume(projectId)
+    showProjectSupervisor(projectId)
+    return readProjectWorkspace()
+  }
+  const stopProjectRuntime = async (
+    projectId: string
+  ): Promise<ProjectWorkspaceSnapshot> => {
+    if (!projectStore || !projectRuntimeStore) {
+      throw new Error('Project Runtime 依赖当前不可用')
+    }
+    const runtimeState = await projectRuntimeStore.read()
+    const running =
+      runtimeState.runtimes.find(
+        ({ runtime }) =>
+          runtime.projectId === projectId &&
+          runtime.status !== 'queued' &&
+          !isTerminalProjectRuntime(runtime)
+      ) ??
+      runtimeState.runtimes.find(
+        ({ runtime }) =>
+          runtime.projectId === projectId && runtime.status === 'queued'
+      )
+    if (!running) {
+      throw new Error('没有正在运行的 Project Runtime')
+    }
+    projectScheduler?.suspend(running.runtime.projectId)
+    const projectName =
+      (await projectStore.read()).projects.find(
+        (project) => project.id === running.runtime.projectId
+      )?.name ?? running.projectSnapshot.name
+    try {
+      const background = backgroundProjectRuntimes.get(
+        running.runtime.runtimeId
+      )
+      if (background) {
+        const runtime = await background.cancel()
+        await finalizeBackgroundProjectRuntime(runtime, projectName)
+        return readProjectWorkspace()
+      }
+      const runtime =
+        activeWorkflowEngine?.runtimeId === running.runtime.runtimeId
+          ? await activeWorkflowEngine.cancel()
+          : (
+              await projectRuntimeStore.transition(
+                running.runtime.runtimeId,
+                'cancelled',
+                {
+                  lastError: '用户停止 Project Runtime',
+                  lastFailureCategory: 'cancelled'
+                }
+              )
+            ).runtime
+      if (activeWorkflowEngine?.runtimeId === runtime.runtimeId) {
+        await finalizeProjectRuntime(runtime, projectName)
+      } else {
+        publish({
+          sequence: 0,
+          type: 'project-runtime-stopped',
+          timestamp: new Date().toISOString(),
+          url:
+            running.projectSnapshot.startupPages[0] ??
+            supervisor.getSnapshot().url,
+          detail:
+            `${projectName}; status=${runtime.status}; ` +
+            `runtimeId=${runtime.runtimeId}; queued=true`,
+          projectId: runtime.projectId,
+          runtimeId: runtime.runtimeId
+        })
+        projectScheduler?.notifyRuntimeTerminal(runtime)
+      }
+      return readProjectWorkspace()
+    } catch (error) {
+      const reason = formatUnknownError(error)
+      activeStrategyDefinitions = []
+      activeAllowedStrategyIds = new Set()
+      await supervisor
+        .setStrategyConfiguration([], new Set())
+        .catch(() => undefined)
+      publishProjectRuntimeEvent(
+        'project-runtime-failed',
+        `${projectName}; 停止失败：${reason}`
+      )
+      throw new Error(`Project Runtime 停止失败：${reason}`)
+    }
+  }
 
   const finalizeBackgroundProjectRuntime = async (
     runtime: ProjectRuntimeSnapshot,
@@ -1742,8 +1656,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     const profileState = await profileStore.read()
     if (
       !profileState.profiles.some(
-        (profile) =>
-          profile.id === envelope.projectSnapshot.profileId
+        (profile) => profile.id === envelope.projectSnapshot.profileId
       )
     ) {
       throw new Error(
@@ -1765,15 +1678,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       onManualTakeoverRequested: (projectId, reason, category) =>
         requestManualTakeover?.(projectId, reason, category),
       onTerminal: (runtime) =>
-        finalizeBackgroundProjectRuntime(
-          runtime,
-          envelope.projectSnapshot.name
-        )
+        finalizeBackgroundProjectRuntime(runtime, envelope.projectSnapshot.name)
     })
-    backgroundProjectRuntimes.set(
-      envelope.runtime.runtimeId,
-      context
-    )
+    backgroundProjectRuntimes.set(envelope.runtime.runtimeId, context)
     try {
       const runtime = await context.start()
       if ((await projectStore.read()).activeProjectId === runtime.projectId) {
@@ -1791,9 +1698,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         runtimeId: runtime.runtimeId
       })
     } catch (error) {
-      backgroundProjectRuntimes.delete(
-        envelope.runtime.runtimeId
-      )
+      backgroundProjectRuntimes.delete(envelope.runtime.runtimeId)
       context.dispose()
       throw error
     }
@@ -1845,8 +1750,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     assertTrustedSender(event.sender.id)
     return enqueueSupervisorOperation(async () => {
       const projectRuntimes = projectRuntimeStore
-        ? (await projectRuntimeStore.read()).runtimes.map(
-            ({ runtime }) => structuredClone(runtime)
+        ? (await projectRuntimeStore.read()).runtimes.map(({ runtime }) =>
+            structuredClone(runtime)
           )
         : []
       const visibleSupervisor = getVisibleSupervisor()
@@ -1857,17 +1762,15 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         )
       ]
       const visibleRuntime = visibleBackgroundRuntimeId
-        ? backgroundProjectRuntimes
+        ? (backgroundProjectRuntimes
             .get(visibleBackgroundRuntimeId)
-            ?.getRuntime() ?? null
+            ?.getRuntime() ?? null)
         : currentProjectRuntime
       return collectMonitorSnapshot(
         visibleSupervisor,
         eventCount,
         visibleRuntime,
-        allSupervisors.filter(
-          (current) => current !== visibleSupervisor
-        ),
+        allSupervisors.filter((current) => current !== visibleSupervisor),
         projectRuntimes
       )
     })
@@ -1875,9 +1778,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
 
   ipcMain.handle(IPC_CHANNELS.getCapabilityPolicy, async (event) => {
     assertTrustedSender(event.sender.id)
-    return readSupervisor((current) =>
-      current.getCapabilityPolicySnapshot()
-    )
+    return readSupervisor((current) => current.getCapabilityPolicySnapshot())
   })
 
   ipcMain.handle(
@@ -1974,9 +1875,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
         try {
           await supervisor.start()
           layout()
-          return toProfileSummaries(
-            await profileStore.setActive(nextProfileId)
-          )
+          return toProfileSummaries(await profileStore.setActive(nextProfileId))
         } catch (error) {
           supervisor.dispose()
           activeProfileId = previousProfileId
@@ -2029,9 +1928,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           targetSession.clearCache(),
           targetSession.clearAuthCache()
         ])
-        return toProfileSummaries(
-          await profileStore.delete(targetProfileId)
-        )
+        return toProfileSummaries(await profileStore.delete(targetProfileId))
       })
     }
   )
@@ -2056,40 +1953,32 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       }
       return enqueueSupervisorOperation(async () => {
         await assertProjectRuntimeInactive('安装自动化验收模板')
-        const [profileState, projectState, strategyState] =
-          await Promise.all([
-            profileStore.read(),
-            projectStore.read(),
-            strategyStore.read()
-          ])
+        const [profileState, projectState, strategyState] = await Promise.all([
+          profileStore.read(),
+          projectStore.read(),
+          strategyStore.read()
+        ])
         if (
-          !profileState.profiles.some(
-            (profile) => profile.id === profileId
-          )
+          !profileState.profiles.some((profile) => profile.id === profileId)
         ) {
           throw new Error(`Profile 不存在：${profileId}`)
         }
         if (
           projectState.projects.some(
-            (project) =>
-              project.id === AUTOMATION_PLAYGROUND_PROJECT_ID
+            (project) => project.id === AUTOMATION_PLAYGROUND_PROJECT_ID
           ) ||
           strategyState.strategies.some(
             (definition) =>
-              definition.manifest.id ===
-              AUTOMATION_PLAYGROUND_STRATEGY_ID
+              definition.manifest.id === AUTOMATION_PLAYGROUND_STRATEGY_ID
           )
         ) {
           throw new Error('自动化验收模板已经安装，请直接编辑现有配置')
         }
 
-        const strategyWorkspace =
-          await applyDevelopmentStrategyConfiguration(
-            await strategyStore.save(
-              createAutomationPlaygroundStrategyDraft()
-            ),
-            await strategyPolicyStore.read()
-          )
+        const strategyWorkspace = await applyDevelopmentStrategyConfiguration(
+          await strategyStore.save(createAutomationPlaygroundStrategyDraft()),
+          await strategyPolicyStore.read()
+        )
         await projectStore.save(
           createAutomationPlaygroundProjectDraft({
             profileId,
@@ -2104,73 +1993,59 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
           AUTOMATION_PLAYGROUND_PROJECT_ID
         )
         return {
-          projectWorkspace:
-            await buildProjectWorkspaceSnapshot(selectedState),
+          projectWorkspace: await buildProjectWorkspaceSnapshot(selectedState),
           strategyWorkspace
         }
       })
     }
   )
 
-  ipcMain.handle(
-    IPC_CHANNELS.saveProject,
-    (event, value: unknown) => {
-      assertTrustedSender(event.sender.id)
-      if (!projectStore || !profileStore) {
-        throw new Error('Project 或 Profile Store 当前不可用')
-      }
-      const draft: ProjectDraft | null = parseProjectDraft(value)
-      if (!draft) {
-        throw new TypeError('Project 定义格式无效')
-      }
-      return enqueueSupervisorOperation(async () => {
-        await assertProjectRuntimeInactive('修改 Project')
-        const profileState = await profileStore.read()
-        if (
-          !profileState.profiles.some(
-            (profile) => profile.id === draft.profileId
-          )
-        ) {
-          throw new Error(`Profile 不存在：${draft.profileId}`)
-        }
-        await projectStore.save(draft)
-        return buildProjectWorkspaceSnapshot(
-          await projectStore.setActive(draft.id)
-        )
-      })
+  ipcMain.handle(IPC_CHANNELS.saveProject, (event, value: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (!projectStore || !profileStore) {
+      throw new Error('Project 或 Profile Store 当前不可用')
     }
-  )
+    const draft: ProjectDraft | null = parseProjectDraft(value)
+    if (!draft) {
+      throw new TypeError('Project 定义格式无效')
+    }
+    return enqueueSupervisorOperation(async () => {
+      await assertProjectRuntimeInactive('修改 Project')
+      const profileState = await profileStore.read()
+      if (
+        !profileState.profiles.some((profile) => profile.id === draft.profileId)
+      ) {
+        throw new Error(`Profile 不存在：${draft.profileId}`)
+      }
+      await projectStore.save(draft)
+      return buildProjectWorkspaceSnapshot(
+        await projectStore.setActive(draft.id)
+      )
+    })
+  })
 
-  ipcMain.handle(
-    IPC_CHANNELS.setActiveProject,
-    (event, projectId: unknown) => {
-      assertTrustedSender(event.sender.id)
-      if (!projectStore || typeof projectId !== 'string') {
-        throw new TypeError('Project ID 必须是字符串')
-      }
-      return enqueueSupervisorOperation(async () => {
-        const state = await projectStore.setActive(projectId)
-        showProjectSupervisor(projectId)
-        return buildProjectWorkspaceSnapshot(state)
-      })
+  ipcMain.handle(IPC_CHANNELS.setActiveProject, (event, projectId: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (!projectStore || typeof projectId !== 'string') {
+      throw new TypeError('Project ID 必须是字符串')
     }
-  )
+    return enqueueSupervisorOperation(async () => {
+      const state = await projectStore.setActive(projectId)
+      showProjectSupervisor(projectId)
+      return buildProjectWorkspaceSnapshot(state)
+    })
+  })
 
-  ipcMain.handle(
-    IPC_CHANNELS.deleteProject,
-    (event, projectId: unknown) => {
-      assertTrustedSender(event.sender.id)
-      if (!projectStore || typeof projectId !== 'string') {
-        throw new TypeError('Project ID 必须是字符串')
-      }
-      return enqueueSupervisorOperation(async () => {
-        await assertProjectRuntimeInactive('删除 Project')
-        return buildProjectWorkspaceSnapshot(
-          await projectStore.delete(projectId)
-        )
-      })
+  ipcMain.handle(IPC_CHANNELS.deleteProject, (event, projectId: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (!projectStore || typeof projectId !== 'string') {
+      throw new TypeError('Project ID 必须是字符串')
     }
-  )
+    return enqueueSupervisorOperation(async () => {
+      await assertProjectRuntimeInactive('删除 Project')
+      return buildProjectWorkspaceSnapshot(await projectStore.delete(projectId))
+    })
+  })
 
   ipcMain.handle(
     IPC_CHANNELS.startProjectRuntime,
@@ -2229,13 +2104,11 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   ipcMain.handle(
     IPC_CHANNELS.stopProjectRuntime,
     (event, projectId: unknown) => {
-    assertTrustedSender(event.sender.id)
+      assertTrustedSender(event.sender.id)
       if (typeof projectId !== 'string') {
         throw new TypeError('Project ID 必须是字符串')
       }
-      return enqueueSupervisorOperation(() =>
-        stopProjectRuntime(projectId)
-      )
+      return enqueueSupervisorOperation(() => stopProjectRuntime(projectId))
     }
   )
 
@@ -2244,38 +2117,32 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     return getStartupSettings()
   })
 
-  ipcMain.handle(
-    IPC_CHANNELS.setOpenAtLogin,
-    (event, enabled: unknown) => {
-      assertTrustedSender(event.sender.id)
-      if (typeof enabled !== 'boolean') {
-        throw new TypeError('开机启动设置必须是布尔值')
-      }
-      return setOpenAtLogin(enabled)
+  ipcMain.handle(IPC_CHANNELS.setOpenAtLogin, (event, enabled: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (typeof enabled !== 'boolean') {
+      throw new TypeError('开机启动设置必须是布尔值')
     }
-  )
+    return setOpenAtLogin(enabled)
+  })
 
   ipcMain.handle(IPC_CHANNELS.getStrategyWorkspace, (event) => {
     assertTrustedSender(event.sender.id)
     return getStrategyWorkspaceSnapshot()
   })
 
-  ipcMain.handle(
-    IPC_CHANNELS.saveStrategy,
-    (event, draft: unknown) => {
-      assertTrustedSender(event.sender.id)
-      if (!strategyStore || !strategyPolicyStore) {
-        throw new Error('Strategy Store 当前不可用')
-      }
-      return enqueueSupervisorOperation(async () => {
-        await assertProjectRuntimeInactive('修改 Strategy')
-        return applyDevelopmentStrategyConfiguration(
-          await strategyStore.save(draft),
-          await strategyPolicyStore.read()
-        )
-      })
+  ipcMain.handle(IPC_CHANNELS.saveStrategy, (event, draft: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (!strategyStore || !strategyPolicyStore) {
+      throw new Error('Strategy Store 当前不可用')
     }
-  )
+    return enqueueSupervisorOperation(async () => {
+      await assertProjectRuntimeInactive('修改 Strategy')
+      return applyDevelopmentStrategyConfiguration(
+        await strategyStore.save(draft),
+        await strategyPolicyStore.read()
+      )
+    })
+  })
 
   ipcMain.handle(
     IPC_CHANNELS.setStrategyEnabled,
@@ -2329,25 +2196,22 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
     }
   )
 
-  ipcMain.handle(
-    IPC_CHANNELS.deleteStrategy,
-    (event, strategyId: unknown) => {
-      assertTrustedSender(event.sender.id)
-      if (
-        !strategyStore ||
-        !strategyPolicyStore ||
-        typeof strategyId !== 'string'
-      ) {
-        throw new TypeError('Strategy 删除参数无效')
-      }
-      return enqueueSupervisorOperation(async () => {
-        await assertProjectRuntimeInactive('删除 Strategy')
-        const state = await strategyStore.delete(strategyId)
-        const policy = await strategyPolicyStore.remove(strategyId)
-        return applyDevelopmentStrategyConfiguration(state, policy)
-      })
+  ipcMain.handle(IPC_CHANNELS.deleteStrategy, (event, strategyId: unknown) => {
+    assertTrustedSender(event.sender.id)
+    if (
+      !strategyStore ||
+      !strategyPolicyStore ||
+      typeof strategyId !== 'string'
+    ) {
+      throw new TypeError('Strategy 删除参数无效')
     }
-  )
+    return enqueueSupervisorOperation(async () => {
+      await assertProjectRuntimeInactive('删除 Strategy')
+      const state = await strategyStore.delete(strategyId)
+      const policy = await strategyPolicyStore.remove(strategyId)
+      return applyDevelopmentStrategyConfiguration(state, policy)
+    })
+  })
 
   ipcMain.handle(IPC_CHANNELS.navigate, async (event, url: unknown) => {
     assertTrustedSender(event.sender.id)
@@ -2394,8 +2258,8 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
 
     await Promise.all([
       supervisor.prepareForShutdown(),
-      ...[...backgroundProjectRuntimes.values()].map(
-        (runtime) => runtime.prepareForShutdown()
+      ...[...backgroundProjectRuntimes.values()].map((runtime) =>
+        runtime.prepareForShutdown()
       )
     ])
   }
@@ -2422,9 +2286,7 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
       ipcMain.removeHandler(IPC_CHANNELS.activateProfile)
       ipcMain.removeHandler(IPC_CHANNELS.deleteProfile)
       ipcMain.removeHandler(IPC_CHANNELS.getProjectWorkspace)
-      ipcMain.removeHandler(
-        IPC_CHANNELS.installAutomationPlayground
-      )
+      ipcMain.removeHandler(IPC_CHANNELS.installAutomationPlayground)
       ipcMain.removeHandler(IPC_CHANNELS.saveProject)
       ipcMain.removeHandler(IPC_CHANNELS.setActiveProject)
       ipcMain.removeHandler(IPC_CHANNELS.deleteProject)
@@ -2475,7 +2337,9 @@ async function createMainWindow(options: CreateMainWindowOptions = {}): Promise<
   if (rendererUrl) {
     await shellView.webContents.loadURL(rendererUrl)
   } else {
-    await shellView.webContents.loadFile(join(currentDirectory, '../renderer/index.html'))
+    await shellView.webContents.loadFile(
+      join(currentDirectory, '../renderer/index.html')
+    )
   }
 
   layout()
@@ -2511,9 +2375,7 @@ function toProfileSummaries(state: ProfileState): ProfileSummary[] {
   }))
 }
 
-function cloneProjectDefinition(
-  project: ProjectDefinition
-): ProjectDefinition {
+function cloneProjectDefinition(project: ProjectDefinition): ProjectDefinition {
   return structuredClone(project)
 }
 
@@ -2565,13 +2427,10 @@ function parseDownloadIntentPayload(value: unknown): {
   ]
   if (
     required.some(
-      (item) =>
-        typeof item !== 'string' ||
-        item.trim().length === 0
+      (item) => typeof item !== 'string' || item.trim().length === 0
     ) ||
     (record.mime !== undefined &&
-      (typeof record.mime !== 'string' ||
-        record.mime.trim().length === 0)) ||
+      (typeof record.mime !== 'string' || record.mime.trim().length === 0)) ||
     (record.expectedBytes !== undefined &&
       (!Number.isSafeInteger(record.expectedBytes) ||
         (record.expectedBytes as number) < 0))
@@ -2588,9 +2447,7 @@ function parseDownloadIntentPayload(value: unknown): {
       attachmentId: record.attachmentId as string,
       sourceUrl: sourceUrl.toString(),
       originalFileName: record.fileName as string,
-      ...(typeof record.mime === 'string'
-        ? { mime: record.mime }
-        : {}),
+      ...(typeof record.mime === 'string' ? { mime: record.mime } : {}),
       expectedBytes:
         record.expectedBytes === undefined
           ? null
@@ -2831,12 +2688,7 @@ function createProjectConcurrencySmokeDefinition(): StrategyDefinition {
       excludes: [],
       runAt: 'document-idle',
       frames: 'top',
-      permissions: [
-        'dom.read',
-        'dom.write',
-        'project.emit-event',
-        'log'
-      ],
+      permissions: ['dom.read', 'dom.write', 'project.emit-event', 'log'],
       networkMatches: [],
       config: {},
       timeouts: {
@@ -2972,9 +2824,7 @@ function collectMonitorSnapshot(
     ),
     quarantinedStrategyIds: [
       ...new Set(
-        strategySnapshots.flatMap(
-          (snapshot) => snapshot.quarantinedStrategyIds
-        )
+        strategySnapshots.flatMap((snapshot) => snapshot.quarantinedStrategyIds)
       )
     ].sort(),
     entries: strategySnapshots.flatMap((snapshot) => snapshot.entries)
@@ -3006,9 +2856,7 @@ function collectMonitorSnapshot(
     generatedAt: new Date().toISOString(),
     browser: supervisor.getSnapshot(),
     projectRuntime,
-    projectRuntimes: projectRuntimes.map((runtime) =>
-      structuredClone(runtime)
-    ),
+    projectRuntimes: projectRuntimes.map((runtime) => structuredClone(runtime)),
     activeProjectCount: projectRuntimes.filter(
       (runtime) =>
         runtime.status !== 'queued' &&
@@ -3132,9 +2980,7 @@ async function runStrategyFaultSmoke(
     elapsedMs: Date.now() - startedAt,
     browser: runtime.supervisor.getSnapshot(),
     strategy: runtime.supervisor.getStrategyRuntimeSnapshot(),
-    observedEventTypes: [
-      ...new Set(runtime.events.map((event) => event.type))
-    ],
+    observedEventTypes: [...new Set(runtime.events.map((event) => event.type))],
     strategyEvents: runtime.events.filter((event) =>
       event.type.startsWith('strategy-')
     )
@@ -3202,8 +3048,7 @@ async function runStrategyWorkspaceSmoke(
     afterDelete.generation
   ]
   const generationAdvancedEveryTime = generations.every(
-    (generation, index) =>
-      index === 0 || generation > generations[index - 1]!
+    (generation, index) => index === 0 || generation > generations[index - 1]!
   )
   const reloadedEventCount = runtime.events.filter(
     (event) => event.type === 'strategy-reloaded'
@@ -3213,9 +3058,7 @@ async function runStrategyWorkspaceSmoke(
     savedV1.developmentAllowedStrategyIds.length === 0 &&
     afterSave.activeCount === 0 &&
     afterSave.nodeMarker === null &&
-    allowed.developmentAllowedStrategyIds.includes(
-      draftV1.manifest.id
-    ) &&
+    allowed.developmentAllowedStrategyIds.includes(draftV1.manifest.id) &&
     afterAllow.activeCount === 1 &&
     afterAllow.nodeMarker === 'workspace-v1' &&
     savedV2.strategies[0]?.manifest.version === '0.1.1' &&
@@ -3281,9 +3124,7 @@ async function runProjectDownloadSmoke(
     name: 'Smoke Project Download',
     profileId: projectProfile.id,
     startupPages: [probe.topUrl],
-    strategies: [
-      { id: 'smoke-project-download', version: '0.1.0' }
-    ],
+    strategies: [{ id: 'smoke-project-download', version: '0.1.0' }],
     runtime: {
       mode: 'manual',
       timezone: 'Asia/Shanghai',
@@ -3359,27 +3200,16 @@ async function runProjectDownloadSmoke(
   const firstStart = (await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.startProjectRuntime(${JSON.stringify(projectId)})`
   )) as ProjectWorkspaceSnapshot
-  const firstWorkspace = await waitForProjectRuns(
-    runtime,
-    projectId,
-    1
-  )
+  const firstWorkspace = await waitForProjectRuns(runtime, projectId, 1)
   const downloadManager = new ProjectDownloadManager(
     join(outputRoot, 'records', 'downloads.json')
   )
-  const firstDownloads = await waitForCompletedDownloads(
-    downloadManager,
-    1
-  )
+  const firstDownloads = await waitForCompletedDownloads(downloadManager, 1)
 
   const secondStart = (await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.startProjectRuntime(${JSON.stringify(projectId)})`
   )) as ProjectWorkspaceSnapshot
-  const secondWorkspace = await waitForProjectRuns(
-    runtime,
-    projectId,
-    2
-  )
+  const secondWorkspace = await waitForProjectRuns(runtime, projectId, 2)
   const finalDownloadState = await downloadManager.read()
   const completed = finalDownloadState.records.filter(
     (record) => record.status === 'completed'
@@ -3419,19 +3249,14 @@ async function runProjectDownloadSmoke(
         candidate.checkpointData.lastEvent !== undefined
     ) &&
     activeProfiles.some(
-      (profile) =>
-        profile.id === projectProfile.id && profile.active
+      (profile) => profile.id === projectProfile.id && profile.active
     ) &&
     finalStrategies.activeCount === 0 &&
-    filterHits.some((event) =>
-      event.detail?.includes('block-smoke-images')
-    ) &&
+    filterHits.some((event) => event.detail?.includes('block-smoke-images')) &&
     cssFilterEvents.some((event) =>
       event.detail?.includes('hide-smoke-noise')
     ) &&
-    runtime.events.some(
-      (event) => event.type === 'download-completed'
-    )
+    runtime.events.some((event) => event.type === 'download-completed')
 
   return {
     passed,
@@ -3447,9 +3272,7 @@ async function runProjectDownloadSmoke(
     filterHits,
     cssFilterEvents,
     expectedSha256,
-    observedEventTypes: [
-      ...new Set(runtime.events.map((event) => event.type))
-    ]
+    observedEventTypes: [...new Set(runtime.events.map((event) => event.type))]
   }
 }
 
@@ -3470,9 +3293,7 @@ async function runProjectDownloadRecoverySmokeChild(
     'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_SHA256'
   )
   const expectedBytes = parsePositiveInteger(
-    requireEnvironmentValue(
-      'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_BYTES'
-    ),
+    requireEnvironmentValue('AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_BYTES'),
     'AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_BYTES'
   )
   const downloadManager = new ProjectDownloadManager(
@@ -3480,10 +3301,9 @@ async function runProjectDownloadRecoverySmokeChild(
   )
 
   if (watchdogRestartCount === 0) {
-    const profiles =
-      (await runtime.shellView.webContents.executeJavaScript(
-        `window.agenticBrowser.createProfile('Smoke Download Recovery Profile')`
-      )) as ProfileSummary[]
+    const profiles = (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.createProfile('Smoke Download Recovery Profile')`
+    )) as ProfileSummary[]
     const projectProfile = profiles.find(
       (profile) => profile.name === 'Smoke Download Recovery Profile'
     )
@@ -3507,12 +3327,11 @@ async function runProjectDownloadRecoverySmokeChild(
     await runtime.shellView.webContents.executeJavaScript(
       `window.agenticBrowser.saveProject(${JSON.stringify(projectDraft)})`
     )
-    const started =
-      (await runtime.shellView.webContents.executeJavaScript(
-        `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
-          PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID
-        )})`
-      )) as ProjectWorkspaceSnapshot
+    const started = (await runtime.shellView.webContents.executeJavaScript(
+      `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+        PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID
+      )})`
+    )) as ProjectWorkspaceSnapshot
     const interrupted = await waitForPartialProjectDownload(
       downloadManager,
       expectedBytes,
@@ -3610,9 +3429,7 @@ async function runProjectDownloadRecoverySmokeChild(
   }
   await writeJsonAtomic(resultPath, result)
   console.log(
-    `AGENTIC_BROWSER_PROJECT_DOWNLOAD_RECOVERY_CHILD ${JSON.stringify(
-      result
-    )}`
+    `AGENTIC_BROWSER_PROJECT_DOWNLOAD_RECOVERY_CHILD ${JSON.stringify(result)}`
   )
   await closeSmokeRuntime(runtime)
   await mainProcessHeartbeat?.stop()
@@ -3647,9 +3464,7 @@ async function waitForPartialProjectDownload(
     }
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
-  throw new Error(
-    `等待下载进入部分写入状态超时：${JSON.stringify(latest)}`
-  )
+  throw new Error(`等待下载进入部分写入状态超时：${JSON.stringify(latest)}`)
 }
 
 async function waitForRecoveredProjectDownload(
@@ -3674,13 +3489,10 @@ async function waitForRecoveredProjectDownload(
       )?.runtime ?? null
     const hasInterrupted = downloadState.records.some(
       (record) =>
-        record.status === 'failed' &&
-        record.errorCategory === 'unknown'
+        record.status === 'failed' && record.errorCategory === 'unknown'
     )
     const hasCompleted = downloadState.records.some(
-      (record) =>
-        record.status === 'completed' &&
-        record.size === expectedBytes
+      (record) => record.status === 'completed' && record.size === expectedBytes
     )
     if (
       hasInterrupted &&
@@ -3726,15 +3538,11 @@ async function runProjectDownloadFaultSmokeChild(
     'AGENTIC_PROJECT_DOWNLOAD_FAULT_OUTPUT_ROOT'
   )
   const networkBytes = parsePositiveInteger(
-    requireEnvironmentValue(
-      'AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_BYTES'
-    ),
+    requireEnvironmentValue('AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_BYTES'),
     'AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_BYTES'
   )
   const diskBytes = parsePositiveInteger(
-    requireEnvironmentValue(
-      'AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_BYTES'
-    ),
+    requireEnvironmentValue('AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_BYTES'),
     'AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_BYTES'
   )
   const networkOutputRoot = join(outputRoot, 'network')
@@ -3779,9 +3587,7 @@ async function runProjectDownloadFaultSmokeChild(
     )
   }
 
-  runtime.supervisor.armManagedDownloadNetworkDropForDiagnostics(
-    32 * 1024
-  )
+  runtime.supervisor.armManagedDownloadNetworkDropForDiagnostics(32 * 1024)
   let networkWorkspace: ProjectWorkspaceSnapshot
   let networkDiagnostics
   let networkSummary
@@ -3797,8 +3603,7 @@ async function runProjectDownloadFaultSmokeChild(
       1,
       60_000
     )
-    networkDiagnostics =
-      runtime.supervisor.getNetworkFaultDiagnostics()
+    networkDiagnostics = runtime.supervisor.getNetworkFaultDiagnostics()
     networkSummary = runtime.supervisor.getDownloadSummary()
   } finally {
     runtime.supervisor.disableNetworkEmulationForDiagnostics()
@@ -3838,12 +3643,8 @@ async function runProjectDownloadFaultSmokeChild(
   const networkDownloads = readDirectoryNames(
     join(networkOutputRoot, 'downloads')
   )
-  const networkTemporary = readDirectoryNames(
-    join(networkOutputRoot, 'tmp')
-  )
-  const diskDownloads = readDirectoryNames(
-    join(diskOutputRoot, 'downloads')
-  )
+  const networkTemporary = readDirectoryNames(join(networkOutputRoot, 'tmp'))
+  const diskDownloads = readDirectoryNames(join(diskOutputRoot, 'downloads'))
   const diskTemporary = readDirectoryNames(join(diskOutputRoot, 'tmp'))
   const networkEventTypes = runtime.events
     .filter((event) => event.runtimeId === networkRuntime?.runtimeId)
@@ -3854,8 +3655,7 @@ async function runProjectDownloadFaultSmokeChild(
   const finalNetworkDiagnostics =
     runtime.supervisor.getNetworkFaultDiagnostics()
   const networkTemporaryConsistent =
-    (networkTemporaryBytes === null &&
-      networkTemporary.length === 0) ||
+    (networkTemporaryBytes === null && networkTemporary.length === 0) ||
     (networkTemporaryBytes !== null &&
       networkTemporaryBytes >= 32 * 1024 &&
       networkTemporaryBytes < networkBytes &&
@@ -3930,9 +3730,7 @@ async function runProjectDownloadFaultSmokeChild(
   }
   writeProjectDownloadFaultSmokeChildResult(result)
   console.log(
-    `AGENTIC_BROWSER_PROJECT_DOWNLOAD_FAULT_CHILD ${JSON.stringify(
-      result
-    )}`
+    `AGENTIC_BROWSER_PROJECT_DOWNLOAD_FAULT_CHILD ${JSON.stringify(result)}`
   )
   await closeSmokeRuntime(runtime)
   app.exit(passed ? 0 : 1)
@@ -3953,9 +3751,7 @@ async function runProjectDownloadRendererRecoverySmokeChild(
     'AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_SHA256'
   )
   const expectedBytes = parsePositiveInteger(
-    requireEnvironmentValue(
-      'AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_BYTES'
-    ),
+    requireEnvironmentValue('AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_BYTES'),
     'AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_BYTES'
   )
   const downloadManager = new ProjectDownloadManager(
@@ -3977,12 +3773,11 @@ async function runProjectDownloadRendererRecoverySmokeChild(
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.saveProject(${JSON.stringify(projectDraft)})`
   )
-  const started =
-    (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
-        PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID
-      )})`
-    )) as ProjectWorkspaceSnapshot
+  const started = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.startProjectRuntime(${JSON.stringify(
+      PROJECT_DOWNLOAD_RECOVERY_PROJECT_ID
+    )})`
+  )) as ProjectWorkspaceSnapshot
   const interrupted = await waitForPartialProjectDownload(
     downloadManager,
     expectedBytes,
@@ -3999,11 +3794,9 @@ async function runProjectDownloadRendererRecoverySmokeChild(
   }
 
   const mainPid = process.pid
-  const generationBefore =
-    runtime.supervisor.getSnapshot().generation
+  const generationBefore = runtime.supervisor.getSnapshot().generation
   await runtime.supervisor.forceCrashAndWait(20_000)
-  const generationAfter =
-    runtime.supervisor.getSnapshot().generation
+  const generationAfter = runtime.supervisor.getSnapshot().generation
   const completedDownloads = await waitForCompletedDownloads(
     downloadManager,
     1,
@@ -4017,8 +3810,7 @@ async function runProjectDownloadRendererRecoverySmokeChild(
   )
   const runtimeStateAfter = await projectRuntimeStore.read()
   const completedRuntime = runtimeStateAfter.runtimes.find(
-    ({ runtime: candidate }) =>
-      candidate.runtimeId === activeRuntime.runtimeId
+    ({ runtime: candidate }) => candidate.runtimeId === activeRuntime.runtimeId
   )?.runtime
   const completedRecords = completedDownloads.records.filter(
     (record) => record.status === 'completed'
@@ -4030,9 +3822,7 @@ async function runProjectDownloadRendererRecoverySmokeChild(
   const finalPayload = completedRecord
     ? readFileSync(completedRecord.finalPath)
     : Buffer.alloc(0)
-  const finalSha256 = createHash('sha256')
-    .update(finalPayload)
-    .digest('hex')
+  const finalSha256 = createHash('sha256').update(finalPayload).digest('hex')
   const downloads = readDirectoryNames(join(outputRoot, 'downloads'))
   const temporary = readDirectoryNames(join(outputRoot, 'tmp'))
   const runtimeEvents = runtime.events.filter(
@@ -4153,12 +3943,11 @@ async function runAutomationPlaygroundSmoke(
     throw new Error('公开站点自动化验收未能创建 Profile')
   }
 
-  const installed =
-    (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.installAutomationPlayground(${JSON.stringify(
-        projectProfile.id
-      )})`
-    )) as AutomationPlaygroundInstallResult
+  const installed = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.installAutomationPlayground(${JSON.stringify(
+      projectProfile.id
+    )})`
+  )) as AutomationPlaygroundInstallResult
   const createEnabledDraft = (entryUrl: string): ProjectDraft => ({
     ...createAutomationPlaygroundProjectDraft({
       profileId: projectProfile.id,
@@ -4210,11 +3999,9 @@ async function runAutomationPlaygroundSmoke(
     'wait-dynamic',
     45_000
   )
-  const generationBeforeCrash =
-    runtime.supervisor.getSnapshot().generation
+  const generationBeforeCrash = runtime.supervisor.getSnapshot().generation
   await runtime.supervisor.forceCrashAndWait(20_000)
-  const generationAfterCrash =
-    runtime.supervisor.getSnapshot().generation
+  const generationAfterCrash = runtime.supervisor.getSnapshot().generation
   const secondWorkspace = await waitForProjectRuns(
     runtime,
     AUTOMATION_PLAYGROUND_PROJECT_ID,
@@ -4240,12 +4027,11 @@ async function runAutomationPlaygroundSmoke(
     'paused',
     45_000
   )
-  const manualSnapshot =
-    (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.navigate(${JSON.stringify(
-        AUTOMATION_PLAYGROUND_FORM_URL
-      )})`
-    )) as BrowserSnapshot
+  const manualSnapshot = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.navigate(${JSON.stringify(
+      AUTOMATION_PLAYGROUND_FORM_URL
+    )})`
+  )) as BrowserSnapshot
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.resumeProjectRuntime(${JSON.stringify(
       AUTOMATION_PLAYGROUND_PROJECT_ID
@@ -4263,8 +4049,7 @@ async function runAutomationPlaygroundSmoke(
   const downloads = readDirectoryNames(join(outputRoot, 'downloads'))
   const temporary = readDirectoryNames(join(outputRoot, 'tmp'))
   const projectRuntimes = finalWorkspace.runtimes.filter(
-    (candidate) =>
-      candidate.projectId === AUTOMATION_PLAYGROUND_PROJECT_ID
+    (candidate) => candidate.projectId === AUTOMATION_PLAYGROUND_PROJECT_ID
   )
   const expectedSha256 = createHash('sha256')
     .update('Hello, World!\n')
@@ -4279,19 +4064,16 @@ async function runAutomationPlaygroundSmoke(
         event.type === 'project-runtime-resumed')
   )
   const rendererEvents = runtime.events.filter(
-    (event) =>
-      event.type === 'renderer-gone' || event.type === 'recreated'
+    (event) => event.type === 'renderer-gone' || event.type === 'recreated'
   )
   const passed =
     installed.projectWorkspace.projects.some(
       (project) =>
-        project.id === AUTOMATION_PLAYGROUND_PROJECT_ID &&
-        !project.enabled
+        project.id === AUTOMATION_PLAYGROUND_PROJECT_ID && !project.enabled
     ) &&
     installed.strategyWorkspace.strategies.some(
       (definition) =>
-        definition.manifest.id ===
-        AUTOMATION_PLAYGROUND_STRATEGY_ID
+        definition.manifest.id === AUTOMATION_PLAYGROUND_STRATEGY_ID
     ) &&
     firstItems.records.length === 4 &&
     firstItems.records.every((record) => record.seenCount === 1) &&
@@ -4301,13 +4083,10 @@ async function runAutomationPlaygroundSmoke(
     secondDownloads.records.length === 1 &&
     finalItems.records.length === 4 &&
     finalItems.records.every(
-      (record) =>
-        record.classification === 'matched' &&
-        record.seenCount === 3
+      (record) => record.classification === 'matched' && record.seenCount === 3
     ) &&
     finalDownloads.records.length === 1 &&
-    completedDownload?.sourceUrl ===
-      AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL &&
+    completedDownload?.sourceUrl === AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL &&
     completedDownload.size === 14 &&
     completedDownload.sha256 === expectedSha256 &&
     downloads.length === 1 &&
@@ -4331,12 +4110,10 @@ async function runAutomationPlaygroundSmoke(
       (total, candidate) => total + candidate.counters.downloaded,
       0
     ) === 1 &&
-    takeoverEvents.filter(
-      (event) => event.type === 'project-runtime-paused'
-    ).length === 1 &&
-    takeoverEvents.filter(
-      (event) => event.type === 'project-runtime-resumed'
-    ).length === 1
+    takeoverEvents.filter((event) => event.type === 'project-runtime-paused')
+      .length === 1 &&
+    takeoverEvents.filter((event) => event.type === 'project-runtime-resumed')
+      .length === 1
 
   return {
     passed,
@@ -4356,8 +4133,7 @@ async function runAutomationPlaygroundSmoke(
       ),
       installedProjectEnabled:
         installed.projectWorkspace.projects.find(
-          (project) =>
-            project.id === AUTOMATION_PLAYGROUND_PROJECT_ID
+          (project) => project.id === AUTOMATION_PLAYGROUND_PROJECT_ID
         )?.enabled ?? null
     },
     firstWorkspace,
@@ -4375,9 +4151,7 @@ async function runAutomationPlaygroundSmoke(
     takeoverEvents,
     rendererEvents,
     expectedSha256,
-    observedEventTypes: [
-      ...new Set(runtime.events.map((event) => event.type))
-    ]
+    observedEventTypes: [...new Set(runtime.events.map((event) => event.type))]
   }
 }
 
@@ -4416,9 +4190,7 @@ async function runProjectConcurrencySmoke(
       name: project.id,
       profileId: project.profileId,
       startupPages: [url.toString()],
-      strategies: [
-        { id: 'smoke-project-concurrency', version: '0.1.0' }
-      ],
+      strategies: [{ id: 'smoke-project-concurrency', version: '0.1.0' }],
       runtime: {
         mode: 'manual',
         timezone: 'Asia/Shanghai',
@@ -4511,22 +4283,10 @@ async function runProjectConcurrencySmoke(
   const stoppedRuntime = stoppedWorkspace.runtimes.find(
     (candidate) => candidate.projectId === 'concurrency-delta'
   )
-  const afterQueuedStop = await waitForProjectConcurrency(
-    runtime,
-    15_000,
-    1
-  )
+  const afterQueuedStop = await waitForProjectConcurrency(runtime, 15_000, 1)
   const [alphaCookie, betaCookie] = await Promise.all([
-    waitForProfileCookie(
-      profileA.id,
-      probe.topUrl,
-      'concurrency-alpha'
-    ),
-    waitForProfileCookie(
-      profileB.id,
-      probe.topUrl,
-      'concurrency-beta'
-    )
+    waitForProfileCookie(profileA.id, probe.topUrl, 'concurrency-alpha'),
+    waitForProfileCookie(profileB.id, probe.topUrl, 'concurrency-beta')
   ])
   const completed = await waitForProjectSet(
     runtime,
@@ -4589,9 +4349,7 @@ async function runProjectConcurrencySmoke(
         records.length === 1 &&
         records[0]?.projectId === download.projectId &&
         records[0].size === 4096 &&
-        records[0].finalPath.startsWith(
-          join(download.root, 'downloads')
-        ) &&
+        records[0].finalPath.startsWith(join(download.root, 'downloads')) &&
         download.downloads.length === 1 &&
         download.temporary.length === 0
       )
@@ -4608,9 +4366,7 @@ async function runProjectConcurrencySmoke(
       gamma: gammaCookie
     },
     downloadStates,
-    observedEventTypes: [
-      ...new Set(runtime.events.map((event) => event.type))
-    ]
+    observedEventTypes: [...new Set(runtime.events.map((event) => event.type))]
   }
 }
 
@@ -4620,10 +4376,9 @@ async function runProjectTakeoverSmoke(
   profileId: string,
   outputRoot: string
 ): Promise<Record<string, unknown>> {
-  const profiles =
-    (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.createProfile('Takeover Background')`
-    )) as ProfileSummary[]
+  const profiles = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.createProfile('Takeover Background')`
+  )) as ProfileSummary[]
   const takeoverProfile = profiles.find(
     (profile) => profile.name === 'Takeover Background'
   )
@@ -4695,9 +4450,7 @@ async function runProjectTakeoverSmoke(
     name: 'Smoke Project Takeover',
     profileId: takeoverProfile.id,
     startupPages: [initialUrl.toString()],
-    strategies: [
-      { id: 'smoke-project-takeover', version: '0.1.0' }
-    ],
+    strategies: [{ id: 'smoke-project-takeover', version: '0.1.0' }],
     runtime: {
       mode: 'manual',
       timezone: 'Asia/Shanghai',
@@ -4768,37 +4521,29 @@ async function runProjectTakeoverSmoke(
     draft.id,
     'waiting'
   )
-  const beforeMonitor =
-    (await runtime.shellView.webContents.executeJavaScript(
-      'window.agenticBrowser.getMonitorSnapshot()'
-    )) as MonitorSnapshot
+  const beforeMonitor = (await runtime.shellView.webContents.executeJavaScript(
+    'window.agenticBrowser.getMonitorSnapshot()'
+  )) as MonitorSnapshot
 
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.pauseProjectRuntime(${JSON.stringify(draft.id)})`
   )
-  const paused = await waitForProjectRuntimeStatus(
-    runtime,
-    draft.id,
-    'paused'
-  )
-  const pausedMonitor =
-    (await runtime.shellView.webContents.executeJavaScript(
-      'window.agenticBrowser.getMonitorSnapshot()'
-    )) as MonitorSnapshot
-  const manualSnapshot =
-    (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.navigate(${JSON.stringify(manualUrl.toString())})`
-    )) as BrowserSnapshot
+  const paused = await waitForProjectRuntimeStatus(runtime, draft.id, 'paused')
+  const pausedMonitor = (await runtime.shellView.webContents.executeJavaScript(
+    'window.agenticBrowser.getMonitorSnapshot()'
+  )) as MonitorSnapshot
+  const manualSnapshot = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.navigate(${JSON.stringify(manualUrl.toString())})`
+  )) as BrowserSnapshot
   await new Promise((resolve) => setTimeout(resolve, 500))
   const duringManual = await waitForProjectRuntimeStatus(
     runtime,
     draft.id,
     'paused'
   )
-  const manualMonitor =
-    (await runtime.shellView.webContents.executeJavaScript(
-      'window.agenticBrowser.getMonitorSnapshot()'
-    )) as MonitorSnapshot
+  const manualMonitor = (await runtime.shellView.webContents.executeJavaScript(
+    'window.agenticBrowser.getMonitorSnapshot()'
+  )) as MonitorSnapshot
 
   await runtime.shellView.webContents.executeJavaScript(
     `window.agenticBrowser.resumeProjectRuntime(${JSON.stringify(draft.id)})`
@@ -4807,10 +4552,9 @@ async function runProjectTakeoverSmoke(
   const finalRuntime = [...completed.runtimes]
     .reverse()
     .find((candidate) => candidate.projectId === draft.id)
-  const finalMonitor =
-    (await runtime.shellView.webContents.executeJavaScript(
-      'window.agenticBrowser.getMonitorSnapshot()'
-    )) as MonitorSnapshot
+  const finalMonitor = (await runtime.shellView.webContents.executeJavaScript(
+    'window.agenticBrowser.getMonitorSnapshot()'
+  )) as MonitorSnapshot
   const eventTypes = runtime.events
     .filter((event) => event.projectId === draft.id)
     .map((event) => event.type)
@@ -4832,10 +4576,9 @@ async function runProjectTakeoverSmoke(
     eventTypes.includes('project-runtime-paused') &&
     eventTypes.includes('project-runtime-resumed')
 
-  const stoppedBlocker =
-    (await runtime.shellView.webContents.executeJavaScript(
-      `window.agenticBrowser.stopProjectRuntime(${JSON.stringify(blockerDraft.id)})`
-    )) as ProjectWorkspaceSnapshot
+  const stoppedBlocker = (await runtime.shellView.webContents.executeJavaScript(
+    `window.agenticBrowser.stopProjectRuntime(${JSON.stringify(blockerDraft.id)})`
+  )) as ProjectWorkspaceSnapshot
 
   return {
     passed,
@@ -4873,9 +4616,7 @@ async function waitForProjectConcurrency(
     }
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
-  throw new Error(
-    `等待 Project 并发执行超时：${JSON.stringify(latest)}`
-  )
+  throw new Error(`等待 Project 并发执行超时：${JSON.stringify(latest)}`)
 }
 
 async function waitForProjectRuntimeStatus(
@@ -4887,15 +4628,13 @@ async function waitForProjectRuntimeStatus(
   const deadline = Date.now() + timeoutMs
   let latest: ProjectRuntimeSnapshot | null = null
   while (Date.now() < deadline) {
-    const workspace =
-      (await runtime.shellView.webContents.executeJavaScript(
-        'window.agenticBrowser.getProjectWorkspace()'
-      )) as ProjectWorkspaceSnapshot
+    const workspace = (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getProjectWorkspace()'
+    )) as ProjectWorkspaceSnapshot
     latest =
       [...workspace.runtimes]
         .reverse()
-        .find((candidate) => candidate.projectId === projectId) ??
-      null
+        .find((candidate) => candidate.projectId === projectId) ?? null
     if (latest?.status === expectedStatus) {
       return latest
     }
@@ -4916,15 +4655,13 @@ async function waitForProjectRuntimeNode(
   const deadline = Date.now() + timeoutMs
   let latest: ProjectRuntimeSnapshot | null = null
   while (Date.now() < deadline) {
-    const workspace =
-      (await runtime.shellView.webContents.executeJavaScript(
-        'window.agenticBrowser.getProjectWorkspace()'
-      )) as ProjectWorkspaceSnapshot
+    const workspace = (await runtime.shellView.webContents.executeJavaScript(
+      'window.agenticBrowser.getProjectWorkspace()'
+    )) as ProjectWorkspaceSnapshot
     latest =
       [...workspace.runtimes]
         .reverse()
-        .find((candidate) => candidate.projectId === projectId) ??
-      null
+        .find((candidate) => candidate.projectId === projectId) ?? null
     if (
       latest?.currentNodeId === expectedNodeId &&
       latest.status === 'waiting' &&
@@ -4956,17 +4693,13 @@ async function waitForProjectSet(
     )
     if (
       selected.length === projectIds.length &&
-      selected.every((candidate) =>
-        isTerminalProjectRuntime(candidate)
-      )
+      selected.every((candidate) => isTerminalProjectRuntime(candidate))
     ) {
       return latest
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  throw new Error(
-    `等待并发 Project 完成超时：${JSON.stringify(latest)}`
-  )
+  throw new Error(`等待并发 Project 完成超时：${JSON.stringify(latest)}`)
 }
 
 async function waitForProfileCookie(
@@ -4991,7 +4724,7 @@ async function waitForProfileCookie(
   }
   throw new Error(
     `等待 Profile Cookie 超时：${profileId}; ` +
-    `expected=${expectedValue}; actual=${latest}`
+      `expected=${expectedValue}; actual=${latest}`
   )
 }
 
@@ -5012,17 +4745,13 @@ async function waitForProjectRuns(
     )
     if (
       projectRuntimes.length >= minimumRuns &&
-      projectRuntimes.every((candidate) =>
-        isTerminalProjectRuntime(candidate)
-      )
+      projectRuntimes.every((candidate) => isTerminalProjectRuntime(candidate))
     ) {
       return latest
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  throw new Error(
-    `等待 Project Runtime 完成超时：${JSON.stringify(latest)}`
-  )
+  throw new Error(`等待 Project Runtime 完成超时：${JSON.stringify(latest)}`)
 }
 
 async function waitForCompletedDownloads(
@@ -5036,16 +4765,14 @@ async function waitForCompletedDownloads(
     const state = await manager.read()
     latest = state
     if (
-      state.records.filter((record) => record.status === 'completed')
-        .length >= minimumCompleted
+      state.records.filter((record) => record.status === 'completed').length >=
+      minimumCompleted
     ) {
       return state
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  throw new Error(
-    `等待 Project 下载完成超时：${JSON.stringify(latest)}`
-  )
+  throw new Error(`等待 Project 下载完成超时：${JSON.stringify(latest)}`)
 }
 
 function readDirectoryNames(path: string): string[] {
@@ -5086,11 +4813,14 @@ async function runWatchdogSmokeChild(
   }
 
   const checkpoint = await runtime.supervisor.flushCheckpoint(
-    watchdogRestartCount === 0 ? 'watchdog-smoke-ready' : 'watchdog-smoke-restored'
+    watchdogRestartCount === 0
+      ? 'watchdog-smoke-ready'
+      : 'watchdog-smoke-restored'
   )
   const snapshot = runtime.supervisor.getSnapshot()
-  const profileCookiePresent =
-    await runtime.supervisor.hasProfileCookie('agentic_watchdog_session')
+  const profileCookiePresent = await runtime.supervisor.hasProfileCookie(
+    'agentic_watchdog_session'
+  )
   const startupSettings = getStartupSettings()
   const expectedStartupSupport =
     app.isPackaged &&
@@ -5143,9 +4873,10 @@ async function runRecoverySmoke(
     profileCookieName,
     'default-profile'
   )
-  const createdProfiles = (await runtime.shellView.webContents.executeJavaScript(
-    "window.agenticBrowser.createProfile('Recovery Smoke Profile')"
-  )) as ProfileSummary[]
+  const createdProfiles =
+    (await runtime.shellView.webContents.executeJavaScript(
+      "window.agenticBrowser.createProfile('Recovery Smoke Profile')"
+    )) as ProfileSummary[]
   const smokeProfile = createdProfiles.find(
     (profile) => profile.name === 'Recovery Smoke Profile'
   )
@@ -5440,551 +5171,573 @@ async function closeSmokeRuntime(runtime: MainWindowRuntime): Promise<void> {
 
 if (runApplication) {
   mainProcessHeartbeat?.start()
-  void app.whenReady().then(async () => {
-  app.setAppUserModelId('com.firoyang.agenticbrowser')
-  const checkpointStore = createCheckpointStore()
-  const eventLog =
-    smokeTest ||
-    recoverySmokeTest ||
-    strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest ||
-    automationPlaygroundSmokeTest
-      ? undefined
-      : new StructuredEventLog(
-          join(app.getPath('userData'), 'logs', 'browser-events.jsonl')
+  void app
+    .whenReady()
+    .then(async () => {
+      app.setAppUserModelId('com.firoyang.agenticbrowser')
+      const checkpointStore = createCheckpointStore()
+      const eventLog =
+        smokeTest ||
+        recoverySmokeTest ||
+        strategyFaultSmokeTest ||
+        strategyWorkspaceSmokeTest ||
+        projectDownloadSmokeTest ||
+        projectConcurrencySmokeTest ||
+        projectTakeoverSmokeTest ||
+        automationPlaygroundSmokeTest
+          ? undefined
+          : new StructuredEventLog(
+              join(app.getPath('userData'), 'logs', 'browser-events.jsonl')
+            )
+      const restoredCheckpoint = checkpointStore
+        ? await checkpointStore.read()
+        : null
+      automatedDownloadDirectory =
+        smokeTest ||
+        recoverySmokeTest ||
+        strategyFaultSmokeTest ||
+        strategyWorkspaceSmokeTest ||
+        projectDownloadSmokeTest ||
+        projectConcurrencySmokeTest ||
+        projectTakeoverSmokeTest ||
+        automationPlaygroundSmokeTest
+          ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
+          : null
+      const profileStore = new ProfileStore(
+        join(
+          automatedDownloadDirectory ?? app.getPath('userData'),
+          'config',
+          'profiles.json'
         )
-  const restoredCheckpoint = checkpointStore
-    ? await checkpointStore.read()
-    : null
-  automatedDownloadDirectory =
-    smokeTest ||
-    recoverySmokeTest ||
-    strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest ||
-    automationPlaygroundSmokeTest
-      ? join(app.getPath('temp'), `agentic-browser-smoke-${process.pid}`)
-      : null
-  const profileStore = new ProfileStore(
-    join(
-      automatedDownloadDirectory ?? app.getPath('userData'),
-      'config',
-      'profiles.json'
-    )
-  )
-  const projectStore = new ProjectStore(
-    join(
-      automatedDownloadDirectory ?? app.getPath('userData'),
-      'config',
-      'projects.json'
-    )
-  )
-  const projectRuntimeStore = new ProjectRuntimeStore(
-    join(
-      automatedDownloadDirectory ?? app.getPath('userData'),
-      'runtime',
-      'project-runtimes.json'
-    )
-  )
-  await projectRuntimeStore.recoverInterrupted()
-  const profileState = await profileStore.read()
-  const profileId = profileState.activeProfileId
-  const compatibleCheckpoint =
-    restoredCheckpoint?.profileId === profileId ? restoredCheckpoint : null
-  const capabilityStore = new CapabilityStore(
-    join(
-      automatedDownloadDirectory ?? app.getPath('userData'),
-      'config',
-      'capabilities.json'
-    )
-  )
-  const capabilityPolicy =
-    smokeTest ||
-    recoverySmokeTest ||
-    strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest ||
-    automationPlaygroundSmokeTest
-      ? createCapabilityPolicy()
-      : await capabilityStore.read()
-  const strategyStore = new StrategyStore(
-    join(
-      automatedDownloadDirectory ?? app.getPath('userData'),
-      'config',
-      'strategies.json'
-    )
-  )
-  const strategyPolicyStore = new StrategyPolicyStore(
-    join(
-      automatedDownloadDirectory ?? app.getPath('userData'),
-      'config',
-      'strategy-policy.json'
-    )
-  )
-  const strategyState = await strategyStore.read()
-  const strategyPolicy = await strategyPolicyStore.read()
-  phaseZeroProbe =
-    smokeTest ||
-    recoverySmokeTest ||
-    strategyFaultSmokeTest ||
-    strategyWorkspaceSmokeTest ||
-    projectDownloadSmokeTest ||
-    projectConcurrencySmokeTest ||
-    projectTakeoverSmokeTest
-      ? await startPhaseZeroProbeServer()
-      : null
-  const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
-  if (watchdogSmokeChild && !watchdogSmokeUrl && !compatibleCheckpoint) {
-    throw new Error('Watchdog smoke 缺少初始 URL')
-  }
-  const projectDownloadFaultSmokeUrl =
-    process.env.AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_URL
-  const projectDownloadRendererSmokeUrl =
-    process.env.AGENTIC_PROJECT_DOWNLOAD_RENDERER_URL
+      )
+      const projectStore = new ProjectStore(
+        join(
+          automatedDownloadDirectory ?? app.getPath('userData'),
+          'config',
+          'projects.json'
+        )
+      )
+      const projectRuntimeStore = new ProjectRuntimeStore(
+        join(
+          automatedDownloadDirectory ?? app.getPath('userData'),
+          'runtime',
+          'project-runtimes.json'
+        )
+      )
+      await projectRuntimeStore.recoverInterrupted()
+      const profileState = await profileStore.read()
+      const profileId = profileState.activeProfileId
+      const compatibleCheckpoint =
+        restoredCheckpoint?.profileId === profileId ? restoredCheckpoint : null
+      const capabilityStore = new CapabilityStore(
+        join(
+          automatedDownloadDirectory ?? app.getPath('userData'),
+          'config',
+          'capabilities.json'
+        )
+      )
+      const capabilityPolicy =
+        smokeTest ||
+        recoverySmokeTest ||
+        strategyFaultSmokeTest ||
+        strategyWorkspaceSmokeTest ||
+        projectDownloadSmokeTest ||
+        projectConcurrencySmokeTest ||
+        projectTakeoverSmokeTest ||
+        automationPlaygroundSmokeTest
+          ? createCapabilityPolicy()
+          : await capabilityStore.read()
+      const strategyStore = new StrategyStore(
+        join(
+          automatedDownloadDirectory ?? app.getPath('userData'),
+          'config',
+          'strategies.json'
+        )
+      )
+      const strategyPolicyStore = new StrategyPolicyStore(
+        join(
+          automatedDownloadDirectory ?? app.getPath('userData'),
+          'config',
+          'strategy-policy.json'
+        )
+      )
+      const strategyState = await strategyStore.read()
+      const strategyPolicy = await strategyPolicyStore.read()
+      phaseZeroProbe =
+        smokeTest ||
+        recoverySmokeTest ||
+        strategyFaultSmokeTest ||
+        strategyWorkspaceSmokeTest ||
+        projectDownloadSmokeTest ||
+        projectConcurrencySmokeTest ||
+        projectTakeoverSmokeTest
+          ? await startPhaseZeroProbeServer()
+          : null
+      const watchdogSmokeUrl = process.env.AGENTIC_WATCHDOG_SMOKE_URL
+      if (watchdogSmokeChild && !watchdogSmokeUrl && !compatibleCheckpoint) {
+        throw new Error('Watchdog smoke 缺少初始 URL')
+      }
+      const projectDownloadFaultSmokeUrl =
+        process.env.AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_URL
+      const projectDownloadRendererSmokeUrl =
+        process.env.AGENTIC_PROJECT_DOWNLOAD_RENDERER_URL
 
-  const initialUrl =
-    phaseZeroProbe?.topUrl ??
-    projectDownloadFaultSmokeUrl ??
-    projectDownloadRendererSmokeUrl ??
-    compatibleCheckpoint?.url ??
-    watchdogSmokeUrl
-  const strategyDefinitions = smokeTest
-    ? createStrategySmokeDefinitions()
-    : strategyFaultSmokeTest
-      ? [createStrategyFaultSmokeDefinition()]
-      : projectDownloadSmokeTest
-        ? [createProjectDownloadSmokeDefinition()]
-        : projectConcurrencySmokeTest
-          ? [createProjectConcurrencySmokeDefinition()]
-          : projectTakeoverSmokeTest
-            ? [createProjectTakeoverSmokeDefinition()]
-            : strategyState.strategies
-  const allowedStrategyIds =
-    smokeTest || strategyFaultSmokeTest
-      ? new Set(strategyDefinitions.map((item) => item.manifest.id))
-      : new Set(strategyPolicy.developmentAllowedStrategyIds)
-  const runtime = await createMainWindow({
-    show:
-      !watchdogSmokeChild &&
-      !projectDownloadRecoverySmokeChild &&
-      !projectDownloadFaultSmokeChild &&
-      !projectDownloadRendererRecoverySmokeChild &&
-      !recoverySmokeTest &&
-      !strategyFaultSmokeTest &&
-      !strategyWorkspaceSmokeTest &&
-      !projectDownloadSmokeTest &&
-      !projectConcurrencySmokeTest &&
-      !projectTakeoverSmokeTest &&
-      !automationPlaygroundSmokeTest,
-    phaseZeroProbe: smokeTest,
-    healthMonitoring: !smokeTest && !strategyFaultSmokeTest,
-    ...(initialUrl ? { initialUrl } : {}),
-    profileId,
-    ...(checkpointStore ? { checkpointStore } : {}),
-    ...(eventLog ? { eventLog } : {}),
-    capabilityStore,
-    capabilityPolicy,
-    downloadRoot: join(
-      automatedDownloadDirectory ?? app.getPath('userData'),
-      'downloads'
-    ),
-    profileStore,
-    projectStore,
-    projectRuntimeStore,
-    strategyStore,
-    strategyPolicyStore,
-    strategyDefinitions,
-    allowedStrategyIds
-  })
+      const initialUrl =
+        phaseZeroProbe?.topUrl ??
+        projectDownloadFaultSmokeUrl ??
+        projectDownloadRendererSmokeUrl ??
+        compatibleCheckpoint?.url ??
+        watchdogSmokeUrl
+      const strategyDefinitions = smokeTest
+        ? createStrategySmokeDefinitions()
+        : strategyFaultSmokeTest
+          ? [createStrategyFaultSmokeDefinition()]
+          : projectDownloadSmokeTest
+            ? [createProjectDownloadSmokeDefinition()]
+            : projectConcurrencySmokeTest
+              ? [createProjectConcurrencySmokeDefinition()]
+              : projectTakeoverSmokeTest
+                ? [createProjectTakeoverSmokeDefinition()]
+                : strategyState.strategies
+      const allowedStrategyIds =
+        smokeTest || strategyFaultSmokeTest
+          ? new Set(strategyDefinitions.map((item) => item.manifest.id))
+          : new Set(strategyPolicy.developmentAllowedStrategyIds)
+      const runtime = await createMainWindow({
+        show:
+          !watchdogSmokeChild &&
+          !projectDownloadRecoverySmokeChild &&
+          !projectDownloadFaultSmokeChild &&
+          !projectDownloadRendererRecoverySmokeChild &&
+          !recoverySmokeTest &&
+          !strategyFaultSmokeTest &&
+          !strategyWorkspaceSmokeTest &&
+          !projectDownloadSmokeTest &&
+          !projectConcurrencySmokeTest &&
+          !projectTakeoverSmokeTest &&
+          !automationPlaygroundSmokeTest,
+        phaseZeroProbe: smokeTest,
+        healthMonitoring: !smokeTest && !strategyFaultSmokeTest,
+        ...(initialUrl ? { initialUrl } : {}),
+        profileId,
+        ...(checkpointStore ? { checkpointStore } : {}),
+        ...(eventLog ? { eventLog } : {}),
+        capabilityStore,
+        capabilityPolicy,
+        downloadRoot: join(
+          automatedDownloadDirectory ?? app.getPath('userData'),
+          'downloads'
+        ),
+        profileStore,
+        projectStore,
+        projectRuntimeStore,
+        strategyStore,
+        strategyPolicyStore,
+        strategyDefinitions,
+        allowedStrategyIds
+      })
 
-  if (smokeTest) {
-    runtime.window.setAlwaysOnTop(true)
-    runtime.window.show()
-    runtime.window.focus()
-    if (!phaseZeroProbe) {
-      throw new Error('Phase 0 probe server 未启动')
-    }
+      if (smokeTest) {
+        runtime.window.setAlwaysOnTop(true)
+        runtime.window.show()
+        runtime.window.focus()
+        if (!phaseZeroProbe) {
+          throw new Error('Phase 0 probe server 未启动')
+        }
 
-    await waitForStrategyRuntime(runtime.supervisor, 4)
-    const generationBeforeHotReload =
-      runtime.supervisor.getSnapshot().generation
-    const hotReloadDefinitions = createStrategySmokeDefinitions().map(
-      (definition) =>
-        definition.manifest.id === 'smoke-document-start'
-          ? {
-              ...definition,
-              manifest: {
-                ...definition.manifest,
-                version: '0.1.1'
-              },
-              updatedAt: '2026-10-15T00:01:00.000Z'
-            }
-          : definition
-    )
-    await runtime.supervisor.setStrategyConfiguration(
-      hotReloadDefinitions,
-      new Set(hotReloadDefinitions.map((item) => item.manifest.id))
-    )
-    await waitForStrategyRuntime(runtime.supervisor, 4)
-    const generationAfterHotReload =
-      runtime.supervisor.getSnapshot().generation
-    const beforeCrash = await runtime.supervisor.collectDiagnostics(runtime.shellView.webContents.id)
-    const framesBeforeCrash = await runtime.supervisor.collectFrameDiagnostics()
-    const strategiesBeforeCrash =
-      runtime.supervisor.getStrategyRuntimeSnapshot()
-    const profileCookieBeforeCrash =
-      await runtime.supervisor.hasProfileCookie('agentic_phase0_session')
-    const capture = await runtime.supervisor.benchmarkCapture()
-    const interactionDuringCapture =
-      await runtime.supervisor.benchmarkInteractionDuringCapture()
-    const multiViewCapture = await runtime.supervisor.benchmarkMultiViewCapture()
-    const heartbeatStall = await runtime.supervisor.probeHeartbeatStall()
-    await runtime.supervisor.forceCrashAndWait()
-    await waitForStrategyRuntime(runtime.supervisor, 4)
-    const afterCrash = await runtime.supervisor.collectDiagnostics(runtime.shellView.webContents.id)
-    const framesAfterCrash = await runtime.supervisor.collectFrameDiagnostics()
-    const strategiesAfterCrash =
-      runtime.supervisor.getStrategyRuntimeSnapshot()
-    const profileCookieAfterCrash =
-      await runtime.supervisor.hasProfileCookie('agentic_phase0_session')
-    let failedNavigationRejected = false
-    try {
-      await runtime.supervisor.navigate(new URL('/disconnect', phaseZeroProbe.topUrl).toString())
-    } catch {
-      failedNavigationRejected = true
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    const mainProcessId = framesBeforeCrash.find((frame) => frame.isMainFrame)?.processId
-    const expectedLabels = new Set(['top', 'same-origin', 'cross-origin'])
-    const injectedBeforeCrash = framesBeforeCrash.filter(
-      (frame) =>
-        frame.observation?.probeVisibleAtInline === true &&
-        frame.observation.preloadReadyState === 'loading' &&
-        frame.observation.strategyMarkerAtInline === 'loading' &&
-        frame.observation.strategyNodeAtInline === 'isolated' &&
-        frame.observation.strategyPrivateVisibleAtInline === false &&
-        frame.currentStrategy.privateVisible === false &&
-        expectedLabels.has(frame.observation.label)
-    )
-    const injectedAfterCrash = framesAfterCrash.filter(
-      (frame) =>
-        frame.observation?.probeVisibleAtInline === true &&
-        frame.observation.preloadReadyState === 'loading' &&
-        frame.observation.strategyMarkerAtInline === 'loading' &&
-        frame.observation.strategyNodeAtInline === 'isolated' &&
-        frame.observation.strategyPrivateVisibleAtInline === false &&
-        frame.currentStrategy.privateVisible === false &&
-        expectedLabels.has(frame.observation.label)
-    )
-    const topStrategyBeforeCrash = framesBeforeCrash.find(
-      (frame) => frame.isMainFrame
-    )?.currentStrategy
-    const topStrategyAfterCrash = framesAfterCrash.find(
-      (frame) => frame.isMainFrame
-    )?.currentStrategy
-    const oopifObserved = framesBeforeCrash.some(
-      (frame) => !frame.isMainFrame && frame.processId !== mainProcessId
-    )
-    const observedEventTypes = new Set(runtime.events.map((event) => event.type))
-    const expectedEventTypes: BrowserEvent['type'][] = [
-      'created',
-      'navigation-started',
-      'navigation-finished',
-      'load-started',
-      'load-finished',
-      'load-failed',
-      'renderer-gone',
-      'recreated',
-      'strategy-started',
-      'strategy-ready',
-      'strategy-log',
-      'strategy-event',
-      'strategy-reloaded'
-    ]
-    const passed =
-      beforeCrash.distinctWebContents &&
-      beforeCrash.preferences.sandbox &&
-      beforeCrash.preferences.contextIsolation &&
-      !beforeCrash.preferences.nodeIntegration &&
-      beforeCrash.preferences.nodeIntegrationInSubFrames &&
-      !beforeCrash.preferences.backgroundThrottling &&
-      !beforeCrash.pageWorld.hasNodeProcess &&
-      !beforeCrash.pageWorld.hasRequire &&
-      !beforeCrash.pageWorld.hasBrowserShellBridge &&
-      beforeCrash.strategyPreloadRegistered &&
-      injectedBeforeCrash.length === expectedLabels.size &&
-      injectedAfterCrash.length === expectedLabels.size &&
-      strategiesBeforeCrash.activeCount === expectedLabels.size + 1 &&
-      strategiesAfterCrash.activeCount === expectedLabels.size + 1 &&
-      strategiesBeforeCrash.entries.every(
-        (entry) => entry.status === 'running'
-      ) &&
-      strategiesBeforeCrash.entries
-        .filter((entry) => entry.strategyId === 'smoke-document-start')
-        .every((entry) => entry.version === '0.1.1') &&
-      strategiesAfterCrash.entries.every(
-        (entry) => entry.status === 'running'
-      ) &&
-      generationAfterHotReload > generationBeforeHotReload &&
-      topStrategyBeforeCrash?.nodeMarker === 'network-ok' &&
-      topStrategyBeforeCrash.mainWorldMarker === 'allowed' &&
-      topStrategyAfterCrash?.nodeMarker === 'network-ok' &&
-      topStrategyAfterCrash.mainWorldMarker === 'allowed' &&
-      oopifObserved &&
-      profileCookieBeforeCrash &&
-      profileCookieAfterCrash &&
-      capture.emptyFrames === 0 &&
-      capture.achievedFps >= 9.5 &&
-      capture.ring.frameCount === 10 &&
-      capture.ring.byteLength <= 1024 * 1024 &&
-      capture.ring.evictedFrames === 10 &&
-      interactionDuringCapture.captureFps >= 9.5 &&
-      interactionDuringCapture.duringCapture.p95Ms < 100 &&
-      interactionDuringCapture.p95DeltaMs < 100 &&
-      multiViewCapture.distinctWebContents &&
-      multiViewCapture.auxiliaryResponsive &&
-      multiViewCapture.auxiliaryTickAdvanced &&
-      multiViewCapture.emptyFrames === 0 &&
-      multiViewCapture.achievedFps >= 9 &&
-      heartbeatStall.stallDetected &&
-      heartbeatStall.recovered &&
-      heartbeatStall.frozenEvidence.frozen &&
-      heartbeatStall.frozenEvidence.frameCount === 3 &&
-      heartbeatStall.frozenEvidence.byteLength > 0 &&
-      failedNavigationRejected &&
-      expectedEventTypes.every((eventType) => observedEventTypes.has(eventType)) &&
-      afterCrash.generation > beforeCrash.generation
+        await waitForStrategyRuntime(runtime.supervisor, 4)
+        const generationBeforeHotReload =
+          runtime.supervisor.getSnapshot().generation
+        const hotReloadDefinitions = createStrategySmokeDefinitions().map(
+          (definition) =>
+            definition.manifest.id === 'smoke-document-start'
+              ? {
+                  ...definition,
+                  manifest: {
+                    ...definition.manifest,
+                    version: '0.1.1'
+                  },
+                  updatedAt: '2026-10-15T00:01:00.000Z'
+                }
+              : definition
+        )
+        await runtime.supervisor.setStrategyConfiguration(
+          hotReloadDefinitions,
+          new Set(hotReloadDefinitions.map((item) => item.manifest.id))
+        )
+        await waitForStrategyRuntime(runtime.supervisor, 4)
+        const generationAfterHotReload =
+          runtime.supervisor.getSnapshot().generation
+        const beforeCrash = await runtime.supervisor.collectDiagnostics(
+          runtime.shellView.webContents.id
+        )
+        const framesBeforeCrash =
+          await runtime.supervisor.collectFrameDiagnostics()
+        const strategiesBeforeCrash =
+          runtime.supervisor.getStrategyRuntimeSnapshot()
+        const profileCookieBeforeCrash =
+          await runtime.supervisor.hasProfileCookie('agentic_phase0_session')
+        const capture = await runtime.supervisor.benchmarkCapture()
+        const interactionDuringCapture =
+          await runtime.supervisor.benchmarkInteractionDuringCapture()
+        const multiViewCapture =
+          await runtime.supervisor.benchmarkMultiViewCapture()
+        const heartbeatStall = await runtime.supervisor.probeHeartbeatStall()
+        await runtime.supervisor.forceCrashAndWait()
+        await waitForStrategyRuntime(runtime.supervisor, 4)
+        const afterCrash = await runtime.supervisor.collectDiagnostics(
+          runtime.shellView.webContents.id
+        )
+        const framesAfterCrash =
+          await runtime.supervisor.collectFrameDiagnostics()
+        const strategiesAfterCrash =
+          runtime.supervisor.getStrategyRuntimeSnapshot()
+        const profileCookieAfterCrash =
+          await runtime.supervisor.hasProfileCookie('agentic_phase0_session')
+        let failedNavigationRejected = false
+        try {
+          await runtime.supervisor.navigate(
+            new URL('/disconnect', phaseZeroProbe.topUrl).toString()
+          )
+        } catch {
+          failedNavigationRejected = true
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        const mainProcessId = framesBeforeCrash.find(
+          (frame) => frame.isMainFrame
+        )?.processId
+        const expectedLabels = new Set(['top', 'same-origin', 'cross-origin'])
+        const injectedBeforeCrash = framesBeforeCrash.filter(
+          (frame) =>
+            frame.observation?.probeVisibleAtInline === true &&
+            frame.observation.preloadReadyState === 'loading' &&
+            frame.observation.strategyMarkerAtInline === 'loading' &&
+            frame.observation.strategyNodeAtInline === 'isolated' &&
+            frame.observation.strategyPrivateVisibleAtInline === false &&
+            frame.currentStrategy.privateVisible === false &&
+            expectedLabels.has(frame.observation.label)
+        )
+        const injectedAfterCrash = framesAfterCrash.filter(
+          (frame) =>
+            frame.observation?.probeVisibleAtInline === true &&
+            frame.observation.preloadReadyState === 'loading' &&
+            frame.observation.strategyMarkerAtInline === 'loading' &&
+            frame.observation.strategyNodeAtInline === 'isolated' &&
+            frame.observation.strategyPrivateVisibleAtInline === false &&
+            frame.currentStrategy.privateVisible === false &&
+            expectedLabels.has(frame.observation.label)
+        )
+        const topStrategyBeforeCrash = framesBeforeCrash.find(
+          (frame) => frame.isMainFrame
+        )?.currentStrategy
+        const topStrategyAfterCrash = framesAfterCrash.find(
+          (frame) => frame.isMainFrame
+        )?.currentStrategy
+        const oopifObserved = framesBeforeCrash.some(
+          (frame) => !frame.isMainFrame && frame.processId !== mainProcessId
+        )
+        const observedEventTypes = new Set(
+          runtime.events.map((event) => event.type)
+        )
+        const expectedEventTypes: BrowserEvent['type'][] = [
+          'created',
+          'navigation-started',
+          'navigation-finished',
+          'load-started',
+          'load-finished',
+          'load-failed',
+          'renderer-gone',
+          'recreated',
+          'strategy-started',
+          'strategy-ready',
+          'strategy-log',
+          'strategy-event',
+          'strategy-reloaded'
+        ]
+        const passed =
+          beforeCrash.distinctWebContents &&
+          beforeCrash.preferences.sandbox &&
+          beforeCrash.preferences.contextIsolation &&
+          !beforeCrash.preferences.nodeIntegration &&
+          beforeCrash.preferences.nodeIntegrationInSubFrames &&
+          !beforeCrash.preferences.backgroundThrottling &&
+          !beforeCrash.pageWorld.hasNodeProcess &&
+          !beforeCrash.pageWorld.hasRequire &&
+          !beforeCrash.pageWorld.hasBrowserShellBridge &&
+          beforeCrash.strategyPreloadRegistered &&
+          injectedBeforeCrash.length === expectedLabels.size &&
+          injectedAfterCrash.length === expectedLabels.size &&
+          strategiesBeforeCrash.activeCount === expectedLabels.size + 1 &&
+          strategiesAfterCrash.activeCount === expectedLabels.size + 1 &&
+          strategiesBeforeCrash.entries.every(
+            (entry) => entry.status === 'running'
+          ) &&
+          strategiesBeforeCrash.entries
+            .filter((entry) => entry.strategyId === 'smoke-document-start')
+            .every((entry) => entry.version === '0.1.1') &&
+          strategiesAfterCrash.entries.every(
+            (entry) => entry.status === 'running'
+          ) &&
+          generationAfterHotReload > generationBeforeHotReload &&
+          topStrategyBeforeCrash?.nodeMarker === 'network-ok' &&
+          topStrategyBeforeCrash.mainWorldMarker === 'allowed' &&
+          topStrategyAfterCrash?.nodeMarker === 'network-ok' &&
+          topStrategyAfterCrash.mainWorldMarker === 'allowed' &&
+          oopifObserved &&
+          profileCookieBeforeCrash &&
+          profileCookieAfterCrash &&
+          capture.emptyFrames === 0 &&
+          capture.achievedFps >= 9.5 &&
+          capture.ring.frameCount === 10 &&
+          capture.ring.byteLength <= 1024 * 1024 &&
+          capture.ring.evictedFrames === 10 &&
+          interactionDuringCapture.captureFps >= 9.5 &&
+          interactionDuringCapture.duringCapture.p95Ms < 100 &&
+          interactionDuringCapture.p95DeltaMs < 100 &&
+          multiViewCapture.distinctWebContents &&
+          multiViewCapture.auxiliaryResponsive &&
+          multiViewCapture.auxiliaryTickAdvanced &&
+          multiViewCapture.emptyFrames === 0 &&
+          multiViewCapture.achievedFps >= 9 &&
+          heartbeatStall.stallDetected &&
+          heartbeatStall.recovered &&
+          heartbeatStall.frozenEvidence.frozen &&
+          heartbeatStall.frozenEvidence.frameCount === 3 &&
+          heartbeatStall.frozenEvidence.byteLength > 0 &&
+          failedNavigationRejected &&
+          expectedEventTypes.every((eventType) =>
+            observedEventTypes.has(eventType)
+          ) &&
+          afterCrash.generation > beforeCrash.generation
 
-    const result = {
-      passed,
-      beforeCrash,
-      afterCrash,
-      framesBeforeCrash,
-      framesAfterCrash,
-      strategiesBeforeCrash,
-      strategiesAfterCrash,
-      generationBeforeHotReload,
-      generationAfterHotReload,
-      oopifObserved,
-      profileCookieBeforeCrash,
-      profileCookieAfterCrash,
-      failedNavigationRejected,
-      observedEventTypes: [...observedEventTypes],
-      heartbeatStall,
-      capture,
-      interactionDuringCapture,
-      multiViewCapture
-    }
-    writeSmokeResult(result)
-    console.log(`AGENTIC_BROWSER_SMOKE ${JSON.stringify(result)}`)
+        const result = {
+          passed,
+          beforeCrash,
+          afterCrash,
+          framesBeforeCrash,
+          framesAfterCrash,
+          strategiesBeforeCrash,
+          strategiesAfterCrash,
+          generationBeforeHotReload,
+          generationAfterHotReload,
+          oopifObserved,
+          profileCookieBeforeCrash,
+          profileCookieAfterCrash,
+          failedNavigationRejected,
+          observedEventTypes: [...observedEventTypes],
+          heartbeatStall,
+          capture,
+          interactionDuringCapture,
+          multiViewCapture
+        }
+        writeSmokeResult(result)
+        console.log(`AGENTIC_BROWSER_SMOKE ${JSON.stringify(result)}`)
 
-    runtime.window.close()
-    await phaseZeroProbe?.close()
-    phaseZeroProbe = null
-    cleanupAutomatedDownloads()
-    app.exit(passed ? 0 : 1)
-    return
-  }
+        runtime.window.close()
+        await phaseZeroProbe?.close()
+        phaseZeroProbe = null
+        cleanupAutomatedDownloads()
+        app.exit(passed ? 0 : 1)
+        return
+      }
 
-  if (projectConcurrencySmokeTest) {
-    if (!phaseZeroProbe || !automatedDownloadDirectory) {
-      throw new Error('Project concurrency smoke 环境未初始化')
-    }
-    const result = await runProjectConcurrencySmoke(
-      runtime,
-      phaseZeroProbe,
-      join(automatedDownloadDirectory, 'concurrency-output')
-    )
-    writeProjectConcurrencySmokeResult(result)
-    console.log(
-      `AGENTIC_BROWSER_PROJECT_CONCURRENCY_SMOKE ${JSON.stringify(result)}`
-    )
-    await closeSmokeRuntime(runtime)
-    await phaseZeroProbe.close()
-    phaseZeroProbe = null
-    cleanupAutomatedDownloads()
-    app.exit(result.passed === true ? 0 : 1)
-    return
-  }
+      if (projectConcurrencySmokeTest) {
+        if (!phaseZeroProbe || !automatedDownloadDirectory) {
+          throw new Error('Project concurrency smoke 环境未初始化')
+        }
+        const result = await runProjectConcurrencySmoke(
+          runtime,
+          phaseZeroProbe,
+          join(automatedDownloadDirectory, 'concurrency-output')
+        )
+        writeProjectConcurrencySmokeResult(result)
+        console.log(
+          `AGENTIC_BROWSER_PROJECT_CONCURRENCY_SMOKE ${JSON.stringify(result)}`
+        )
+        await closeSmokeRuntime(runtime)
+        await phaseZeroProbe.close()
+        phaseZeroProbe = null
+        cleanupAutomatedDownloads()
+        app.exit(result.passed === true ? 0 : 1)
+        return
+      }
 
-  if (projectTakeoverSmokeTest) {
-    if (!phaseZeroProbe || !automatedDownloadDirectory) {
-      throw new Error('Project takeover smoke 环境未初始化')
-    }
-    const result = await runProjectTakeoverSmoke(
-      runtime,
-      phaseZeroProbe,
-      profileId,
-      join(automatedDownloadDirectory, 'takeover-output')
-    )
-    writeProjectTakeoverSmokeResult(result)
-    console.log(
-      `AGENTIC_BROWSER_PROJECT_TAKEOVER_SMOKE ${JSON.stringify(result)}`
-    )
-    await closeSmokeRuntime(runtime)
-    await phaseZeroProbe.close()
-    phaseZeroProbe = null
-    cleanupAutomatedDownloads()
-    app.exit(result.passed === true ? 0 : 1)
-    return
-  }
+      if (projectTakeoverSmokeTest) {
+        if (!phaseZeroProbe || !automatedDownloadDirectory) {
+          throw new Error('Project takeover smoke 环境未初始化')
+        }
+        const result = await runProjectTakeoverSmoke(
+          runtime,
+          phaseZeroProbe,
+          profileId,
+          join(automatedDownloadDirectory, 'takeover-output')
+        )
+        writeProjectTakeoverSmokeResult(result)
+        console.log(
+          `AGENTIC_BROWSER_PROJECT_TAKEOVER_SMOKE ${JSON.stringify(result)}`
+        )
+        await closeSmokeRuntime(runtime)
+        await phaseZeroProbe.close()
+        phaseZeroProbe = null
+        cleanupAutomatedDownloads()
+        app.exit(result.passed === true ? 0 : 1)
+        return
+      }
 
-  if (automationPlaygroundSmokeTest) {
-    if (!automatedDownloadDirectory) {
-      throw new Error('公开站点自动化验收 smoke 环境未初始化')
-    }
-    const result = await runAutomationPlaygroundSmoke(
-      runtime,
-      join(automatedDownloadDirectory, 'automation-playground-output')
-    )
-    writeAutomationPlaygroundSmokeResult(result)
-    console.log(
-      `AGENTIC_BROWSER_AUTOMATION_PLAYGROUND_SMOKE ${JSON.stringify(
-        result
-      )}`
-    )
-    await closeSmokeRuntime(runtime)
-    cleanupAutomatedDownloads()
-    app.exit(result.passed === true ? 0 : 1)
-    return
-  }
+      if (automationPlaygroundSmokeTest) {
+        if (!automatedDownloadDirectory) {
+          throw new Error('公开站点自动化验收 smoke 环境未初始化')
+        }
+        const result = await runAutomationPlaygroundSmoke(
+          runtime,
+          join(automatedDownloadDirectory, 'automation-playground-output')
+        )
+        writeAutomationPlaygroundSmokeResult(result)
+        console.log(
+          `AGENTIC_BROWSER_AUTOMATION_PLAYGROUND_SMOKE ${JSON.stringify(
+            result
+          )}`
+        )
+        await closeSmokeRuntime(runtime)
+        cleanupAutomatedDownloads()
+        app.exit(result.passed === true ? 0 : 1)
+        return
+      }
 
-  if (recoverySmokeTest) {
-    if (!phaseZeroProbe) {
-      throw new Error('Recovery smoke probe server 未启动')
-    }
-    const result = await runRecoverySmoke(runtime, phaseZeroProbe)
-    writeRecoverySmokeResult(result)
-    console.log(`AGENTIC_BROWSER_RECOVERY_SMOKE ${JSON.stringify(result)}`)
-    runtime.window.close()
-    await phaseZeroProbe.close()
-    phaseZeroProbe = null
-    cleanupAutomatedDownloads()
-    app.exit(result.passed === true ? 0 : 1)
-    return
-  }
+      if (recoverySmokeTest) {
+        if (!phaseZeroProbe) {
+          throw new Error('Recovery smoke probe server 未启动')
+        }
+        const result = await runRecoverySmoke(runtime, phaseZeroProbe)
+        writeRecoverySmokeResult(result)
+        console.log(`AGENTIC_BROWSER_RECOVERY_SMOKE ${JSON.stringify(result)}`)
+        runtime.window.close()
+        await phaseZeroProbe.close()
+        phaseZeroProbe = null
+        cleanupAutomatedDownloads()
+        app.exit(result.passed === true ? 0 : 1)
+        return
+      }
 
-  if (strategyFaultSmokeTest) {
-    if (!phaseZeroProbe) {
-      throw new Error('Strategy fault smoke probe server 未启动')
-    }
-    const result = await runStrategyFaultSmoke(runtime)
-    writeStrategyFaultSmokeResult(result)
-    console.log(
-      `AGENTIC_BROWSER_STRATEGY_FAULT_SMOKE ${JSON.stringify(result)}`
-    )
-    await closeSmokeRuntime(runtime)
-    await phaseZeroProbe.close()
-    phaseZeroProbe = null
-    cleanupAutomatedDownloads()
-    app.exit(result.passed === true ? 0 : 1)
-    return
-  }
+      if (strategyFaultSmokeTest) {
+        if (!phaseZeroProbe) {
+          throw new Error('Strategy fault smoke probe server 未启动')
+        }
+        const result = await runStrategyFaultSmoke(runtime)
+        writeStrategyFaultSmokeResult(result)
+        console.log(
+          `AGENTIC_BROWSER_STRATEGY_FAULT_SMOKE ${JSON.stringify(result)}`
+        )
+        await closeSmokeRuntime(runtime)
+        await phaseZeroProbe.close()
+        phaseZeroProbe = null
+        cleanupAutomatedDownloads()
+        app.exit(result.passed === true ? 0 : 1)
+        return
+      }
 
-  if (strategyWorkspaceSmokeTest) {
-    if (!phaseZeroProbe) {
-      throw new Error('Strategy workspace smoke probe server 未启动')
-    }
-    const result = await runStrategyWorkspaceSmoke(runtime)
-    writeStrategyWorkspaceSmokeResult(result)
-    console.log(
-      `AGENTIC_BROWSER_STRATEGY_WORKSPACE_SMOKE ${JSON.stringify(result)}`
-    )
-    await closeSmokeRuntime(runtime)
-    await phaseZeroProbe.close()
-    phaseZeroProbe = null
-    cleanupAutomatedDownloads()
-    app.exit(result.passed === true ? 0 : 1)
-    return
-  }
+      if (strategyWorkspaceSmokeTest) {
+        if (!phaseZeroProbe) {
+          throw new Error('Strategy workspace smoke probe server 未启动')
+        }
+        const result = await runStrategyWorkspaceSmoke(runtime)
+        writeStrategyWorkspaceSmokeResult(result)
+        console.log(
+          `AGENTIC_BROWSER_STRATEGY_WORKSPACE_SMOKE ${JSON.stringify(result)}`
+        )
+        await closeSmokeRuntime(runtime)
+        await phaseZeroProbe.close()
+        phaseZeroProbe = null
+        cleanupAutomatedDownloads()
+        app.exit(result.passed === true ? 0 : 1)
+        return
+      }
 
-  if (projectDownloadSmokeTest) {
-    if (!phaseZeroProbe || !automatedDownloadDirectory) {
-      throw new Error('Project download smoke 环境未初始化')
-    }
-    const result = await runProjectDownloadSmoke(
-      runtime,
-      phaseZeroProbe,
-      profileId,
-      join(automatedDownloadDirectory, 'project-output')
-    )
-    writeProjectDownloadSmokeResult(result)
-    console.log(
-      `AGENTIC_BROWSER_PROJECT_DOWNLOAD_SMOKE ${JSON.stringify(result)}`
-    )
-    await closeSmokeRuntime(runtime)
-    await phaseZeroProbe.close()
-    phaseZeroProbe = null
-    cleanupAutomatedDownloads()
-    app.exit(result.passed === true ? 0 : 1)
-    return
-  }
+      if (projectDownloadSmokeTest) {
+        if (!phaseZeroProbe || !automatedDownloadDirectory) {
+          throw new Error('Project download smoke 环境未初始化')
+        }
+        const result = await runProjectDownloadSmoke(
+          runtime,
+          phaseZeroProbe,
+          profileId,
+          join(automatedDownloadDirectory, 'project-output')
+        )
+        writeProjectDownloadSmokeResult(result)
+        console.log(
+          `AGENTIC_BROWSER_PROJECT_DOWNLOAD_SMOKE ${JSON.stringify(result)}`
+        )
+        await closeSmokeRuntime(runtime)
+        await phaseZeroProbe.close()
+        phaseZeroProbe = null
+        cleanupAutomatedDownloads()
+        app.exit(result.passed === true ? 0 : 1)
+        return
+      }
 
-  if (watchdogSmokeChild) {
-    await runWatchdogSmokeChild(runtime, restoredCheckpoint, watchdogSmokeUrl)
-    return
-  }
+      if (watchdogSmokeChild) {
+        await runWatchdogSmokeChild(
+          runtime,
+          restoredCheckpoint,
+          watchdogSmokeUrl
+        )
+        return
+      }
 
-  if (projectDownloadRecoverySmokeChild) {
-    await runProjectDownloadRecoverySmokeChild(
-      runtime,
-      projectRuntimeStore
-    )
-    return
-  }
+      if (projectDownloadRecoverySmokeChild) {
+        await runProjectDownloadRecoverySmokeChild(runtime, projectRuntimeStore)
+        return
+      }
 
-  if (projectDownloadFaultSmokeChild) {
-    await runProjectDownloadFaultSmokeChild(
-      runtime,
-      projectRuntimeStore,
-      profileId
-    )
-    return
-  }
+      if (projectDownloadFaultSmokeChild) {
+        await runProjectDownloadFaultSmokeChild(
+          runtime,
+          projectRuntimeStore,
+          profileId
+        )
+        return
+      }
 
-  if (projectDownloadRendererRecoverySmokeChild) {
-    await runProjectDownloadRendererRecoverySmokeChild(
-      runtime,
-      projectRuntimeStore,
-      profileId
-    )
-    return
-  }
+      if (projectDownloadRendererRecoverySmokeChild) {
+        await runProjectDownloadRendererRecoverySmokeChild(
+          runtime,
+          projectRuntimeStore,
+          profileId
+        )
+        return
+      }
 
-  app.on('activate', () => {
-    if (!mainWindow) {
-      void createMainWindow()
-    }
-  })
-  }).catch((error: unknown) => {
-    const result = {
-      passed: false,
-      error: error instanceof Error ? error.stack ?? error.message : String(error)
-    }
-    writeSmokeResult(result)
-    writeRecoverySmokeResult(result)
-    writeStrategyFaultSmokeResult(result)
-    writeStrategyWorkspaceSmokeResult(result)
-    writeProjectDownloadSmokeResult(result)
-    writeProjectConcurrencySmokeResult(result)
-    writeProjectTakeoverSmokeResult(result)
-    writeAutomationPlaygroundSmokeResult(result)
-    writeProjectDownloadFaultSmokeChildResult(result)
-    writeProjectDownloadRendererSmokeChildResult(result)
-    void phaseZeroProbe?.close()
-    phaseZeroProbe = null
-    cleanupAutomatedDownloads()
-    void mainProcessHeartbeat?.stop()
-    console.error(error)
-    app.exit(1)
-  })
+      app.on('activate', () => {
+        if (!mainWindow) {
+          void createMainWindow()
+        }
+      })
+    })
+    .catch((error: unknown) => {
+      const result = {
+        passed: false,
+        error:
+          error instanceof Error
+            ? (error.stack ?? error.message)
+            : String(error)
+      }
+      writeSmokeResult(result)
+      writeRecoverySmokeResult(result)
+      writeStrategyFaultSmokeResult(result)
+      writeStrategyWorkspaceSmokeResult(result)
+      writeProjectDownloadSmokeResult(result)
+      writeProjectConcurrencySmokeResult(result)
+      writeProjectTakeoverSmokeResult(result)
+      writeAutomationPlaygroundSmokeResult(result)
+      writeProjectDownloadFaultSmokeChildResult(result)
+      writeProjectDownloadRendererSmokeChildResult(result)
+      void phaseZeroProbe?.close()
+      phaseZeroProbe = null
+      cleanupAutomatedDownloads()
+      void mainProcessHeartbeat?.stop()
+      console.error(error)
+      app.exit(1)
+    })
 }
 
 app.on('before-quit', () => {

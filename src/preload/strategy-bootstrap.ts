@@ -1,8 +1,4 @@
-import {
-  contextBridge,
-  ipcRenderer,
-  webFrame
-} from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 
 import type {
   StrategyBootstrapEntry,
@@ -61,10 +57,7 @@ function installStrategies(): void {
 }
 
 function installStrategy(entry: StrategyBootstrapEntry): void {
-  const signal = (
-    type: StrategyRuntimeSignalType,
-    detail?: string
-  ): void => {
+  const signal = (type: StrategyRuntimeSignalType, detail?: string): void => {
     ipcRenderer.send(STRATEGY_RUNTIME_CHANNELS.signal, {
       token: entry.token,
       type,

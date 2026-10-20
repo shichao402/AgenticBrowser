@@ -86,29 +86,24 @@ async function main() {
     const networkPageUrl = `${origin}/network-page`
     const diskPageUrl = `${origin}/disk-page`
     const childResultPath = join(temporaryRoot, 'child-result.json')
-    child = spawn(
-      electronPath,
-      ['.', '--project-download-fault-smoke-child'],
-      {
-        cwd: repositoryRoot,
-        env: {
-          ...process.env,
-          AGENTIC_USER_DATA_PATH: join(temporaryRoot, 'user-data'),
-          AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_URL: networkPageUrl,
-          AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_URL: diskPageUrl,
-          AGENTIC_PROJECT_DOWNLOAD_FAULT_OUTPUT_ROOT: join(
-            temporaryRoot,
-            'project-output'
-          ),
-          AGENTIC_PROJECT_DOWNLOAD_FAULT_RESULT_PATH: childResultPath,
-          AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_BYTES:
-            String(networkBytes),
-          AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_BYTES: String(diskBytes)
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: false
-      }
-    )
+    child = spawn(electronPath, ['.', '--project-download-fault-smoke-child'], {
+      cwd: repositoryRoot,
+      env: {
+        ...process.env,
+        AGENTIC_USER_DATA_PATH: join(temporaryRoot, 'user-data'),
+        AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_URL: networkPageUrl,
+        AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_URL: diskPageUrl,
+        AGENTIC_PROJECT_DOWNLOAD_FAULT_OUTPUT_ROOT: join(
+          temporaryRoot,
+          'project-output'
+        ),
+        AGENTIC_PROJECT_DOWNLOAD_FAULT_RESULT_PATH: childResultPath,
+        AGENTIC_PROJECT_DOWNLOAD_FAULT_NETWORK_BYTES: String(networkBytes),
+        AGENTIC_PROJECT_DOWNLOAD_FAULT_DISK_BYTES: String(diskBytes)
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: false
+    })
     child.stdout.on('data', (chunk) => {
       const text = String(chunk)
       childOutput += text
@@ -143,9 +138,7 @@ async function main() {
       'utf8'
     )
     console.log(
-      `AGENTIC_BROWSER_PROJECT_DOWNLOAD_FAULT_SMOKE ${JSON.stringify(
-        result
-      )}`
+      `AGENTIC_BROWSER_PROJECT_DOWNLOAD_FAULT_SMOKE ${JSON.stringify(result)}`
     )
     if (!passed) {
       throw new Error('Project 下载断网/磁盘不足 smoke 验收条件未全部满足')
@@ -158,7 +151,7 @@ async function main() {
           passed: false,
           error:
             error instanceof Error
-              ? error.stack ?? error.message
+              ? (error.stack ?? error.message)
               : String(error),
           networkRequests,
           diskRequests,

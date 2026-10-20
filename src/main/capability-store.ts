@@ -15,9 +15,9 @@ export const DEFAULT_CAPABILITIES: CapabilitySettings = {
   fullscreen: false
 }
 
-const CAPABILITY_KEYS = Object.keys(
-  DEFAULT_CAPABILITIES
-) as Array<keyof CapabilitySettings>
+const CAPABILITY_KEYS = Object.keys(DEFAULT_CAPABILITIES) as Array<
+  keyof CapabilitySettings
+>
 
 export class CapabilityStore {
   constructor(readonly filePath: string) {}
@@ -53,9 +53,7 @@ export function createCapabilityPolicy(
   }
 }
 
-export function parseCapabilityPolicy(
-  value: unknown
-): CapabilityPolicy | null {
+export function parseCapabilityPolicy(value: unknown): CapabilityPolicy | null {
   if (
     !isRecord(value) ||
     !hasExactKeys(value, ['schemaVersion', 'defaults', 'origins']) ||
@@ -117,7 +115,9 @@ export function parseCapabilitySettings(
   const keys = Object.keys(value)
   if (
     keys.length !== CAPABILITY_KEYS.length ||
-    !keys.every((key) => CAPABILITY_KEYS.includes(key as keyof CapabilitySettings)) ||
+    !keys.every((key) =>
+      CAPABILITY_KEYS.includes(key as keyof CapabilitySettings)
+    ) ||
     !CAPABILITY_KEYS.every((key) => typeof value[key] === 'boolean')
   ) {
     return null

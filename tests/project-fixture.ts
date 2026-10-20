@@ -7,9 +7,7 @@ import type {
 } from '../src/shared/contracts'
 
 export function createProjectDefinition(
-  strategies: ProjectStrategyPin[] = [
-    { id: 'scanner', version: '1.2.3' }
-  ]
+  strategies: ProjectStrategyPin[] = [{ id: 'scanner', version: '1.2.3' }]
 ): ProjectDefinition {
   return {
     id: 'test-project',

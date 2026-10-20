@@ -88,8 +88,7 @@ async function main() {
 
   try {
     const port = await listen(server)
-    const pageUrl =
-      `http://127.0.0.1:${port}/project-download-recovery`
+    const pageUrl = `http://127.0.0.1:${port}/project-download-recovery`
     const userDataPath = join(temporaryRoot, 'user-data')
     const outputRoot = join(temporaryRoot, 'project-output')
     const childResultPath = join(temporaryRoot, 'child-result.json')
@@ -112,8 +111,7 @@ async function main() {
             AGENTIC_PROJECT_DOWNLOAD_RECOVERY_RESULT_PATH: childResultPath,
             AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_BYTES:
               String(expectedBytes),
-            AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_SHA256:
-              expectedSha256
+            AGENTIC_PROJECT_DOWNLOAD_RECOVERY_EXPECTED_SHA256: expectedSha256
           },
           heartbeatPath,
           statePath,
@@ -196,17 +194,14 @@ async function main() {
     const finalPayload = completedRecord
       ? await readFile(completedRecord.finalPath)
       : Buffer.alloc(0)
-    const finalSha256 = createHash('sha256')
-      .update(finalPayload)
-      .digest('hex')
+    const finalSha256 = createHash('sha256').update(finalPayload).digest('hex')
     const interruptedStat = failedRecord
       ? await stat(failedRecord.temporaryPath)
       : null
     const downloads = await readDirectoryNames(join(outputRoot, 'downloads'))
     const temporary = await readDirectoryNames(join(outputRoot, 'tmp'))
     const recoveredRuntime = runtimeState.runtimes.find(
-      ({ runtime }) =>
-        runtime.projectId === 'smoke-project-download-recovery'
+      ({ runtime }) => runtime.projectId === 'smoke-project-download-recovery'
     )?.runtime
     const lockReleased = await waitForMissing(lockPath, 5_000)
     const restart = finalState.restartHistory?.[0]
@@ -282,7 +277,7 @@ async function main() {
           passed: false,
           error:
             error instanceof Error
-              ? error.stack ?? error.message
+              ? (error.stack ?? error.message)
               : String(error),
           watchdogOutput
         },

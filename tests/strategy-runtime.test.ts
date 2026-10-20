@@ -51,10 +51,7 @@ describe('StrategyRuntime', () => {
 
   it('keeps each strategy in a stable distinct isolated world', () => {
     const runtime = createRuntime({
-      definitions: [
-        createDefinition('z-last'),
-        createDefinition('a-first')
-      ],
+      definitions: [createDefinition('z-last'), createDefinition('a-first')],
       allowedStrategyIds: new Set(['z-last', 'a-first'])
     })
 
@@ -227,7 +224,10 @@ describe('StrategyRuntime', () => {
 
   it('restricts privileged network requests to manifest URL patterns', async () => {
     const requestNetwork = vi.fn(
-      async (_definition: StrategyDefinition, request: StrategyNetworkRequest) => ({
+      async (
+        _definition: StrategyDefinition,
+        request: StrategyNetworkRequest
+      ) => ({
         url: request.url,
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -297,13 +297,8 @@ describe('StrategyRuntime', () => {
       activeCount: 0,
       entries: [{ status: 'failed', failure: '启动超过 100 ms' }]
     })
-    expect(faults).toEqual([
-      { id: 'blocking', reason: '启动超过 100 ms' }
-    ])
-    expect(events).toEqual([
-      'strategy-started',
-      'strategy-heartbeat-missed'
-    ])
+    expect(faults).toEqual([{ id: 'blocking', reason: '启动超过 100 ms' }])
+    expect(events).toEqual(['strategy-started', 'strategy-heartbeat-missed'])
   })
 
   it('does not apply the startup timeout while waiting for run-at', () => {
@@ -353,18 +348,16 @@ describe('StrategyRuntime', () => {
 
     await expect(
       runtime.invoke(MAIN_FRAME, {
-        token: entries.find(
-          (entry) => entry.strategyId === 'isolated-only'
-        )!.token,
+        token: entries.find((entry) => entry.strategyId === 'isolated-only')!
+          .token,
         method: 'main-world-eval',
         payload: { sourceLength: 10 }
       })
     ).rejects.toThrow('未声明 main-world')
     await expect(
       runtime.invoke(MAIN_FRAME, {
-        token: entries.find(
-          (entry) => entry.strategyId === 'main-world'
-        )!.token,
+        token: entries.find((entry) => entry.strategyId === 'main-world')!
+          .token,
         method: 'main-world-eval',
         payload: { sourceLength: 10 }
       })

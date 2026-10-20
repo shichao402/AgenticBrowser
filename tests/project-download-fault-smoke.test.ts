@@ -31,13 +31,9 @@ describe('project download fault smoke templates', () => {
       expectedBytes: 1024 * 1024
     })
 
-    expect(parseStrategyManifest(strategy.manifest)).toEqual(
-      strategy.manifest
-    )
+    expect(parseStrategyManifest(strategy.manifest)).toEqual(strategy.manifest)
     expect(parseProjectDraft(project)).toEqual(project)
-    expect(strategy.manifest.id).toBe(
-      PROJECT_DOWNLOAD_NETWORK_STRATEGY_ID
-    )
+    expect(strategy.manifest.id).toBe(PROJECT_DOWNLOAD_NETWORK_STRATEGY_ID)
     expect(strategy.source).toContain('/slow-network.mp3')
     expect(project).toMatchObject({
       id: PROJECT_DOWNLOAD_NETWORK_PROJECT_ID,
@@ -67,9 +63,7 @@ describe('project download fault smoke templates', () => {
       expectedBytes
     })
 
-    expect(parseStrategyManifest(strategy.manifest)).toEqual(
-      strategy.manifest
-    )
+    expect(parseStrategyManifest(strategy.manifest)).toEqual(strategy.manifest)
     expect(parseProjectDraft(project)).toEqual(project)
     expect(strategy.manifest.id).toBe(PROJECT_DOWNLOAD_DISK_STRATEGY_ID)
     expect(strategy.source).toContain('/disk-sample.mp3')

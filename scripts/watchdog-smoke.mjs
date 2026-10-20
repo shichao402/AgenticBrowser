@@ -12,7 +12,9 @@ const smokeResultPath = join(repositoryRoot, 'watchdog-smoke-result.json')
 const packagedMode = process.argv.includes('--packaged')
 
 async function main() {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), 'agentic-browser-watchdog-'))
+  const temporaryRoot = await mkdtemp(
+    join(tmpdir(), 'agentic-browser-watchdog-')
+  )
   const server = createServer((_request, response) => {
     response.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -212,7 +214,11 @@ async function main() {
       duplicateSuppressed,
       watchdogExit: exit
     }
-    await writeFile(smokeResultPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8')
+    await writeFile(
+      smokeResultPath,
+      `${JSON.stringify(result, null, 2)}\n`,
+      'utf8'
+    )
     console.log(`AGENTIC_BROWSER_WATCHDOG_SMOKE ${JSON.stringify(result)}`)
 
     if (!passed) {
@@ -224,7 +230,10 @@ async function main() {
       `${JSON.stringify(
         {
           passed: false,
-          error: error instanceof Error ? error.stack ?? error.message : String(error),
+          error:
+            error instanceof Error
+              ? (error.stack ?? error.message)
+              : String(error),
           watchdogOutput
         },
         null,

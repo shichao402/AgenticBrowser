@@ -95,16 +95,11 @@ export class StrategyRuntime {
   constructor(private readonly options: StrategyRuntimeOptions) {
     this.definitions = [...options.definitions].sort(compareDefinitions)
     this.allowedStrategyIds = new Set(options.allowedStrategyIds)
-    this.quarantinedStrategyIds = new Set(
-      options.quarantinedStrategyIds ?? []
-    )
+    this.quarantinedStrategyIds = new Set(options.quarantinedStrategyIds ?? [])
     this.now = options.now ?? Date.now
     this.createToken = options.createToken ?? randomUUID
     this.definitions.forEach((definition, index) => {
-      this.worldIds.set(
-        definition.manifest.id,
-        FIRST_STRATEGY_WORLD_ID + index
-      )
+      this.worldIds.set(definition.manifest.id, FIRST_STRATEGY_WORLD_ID + index)
     })
   }
 
@@ -204,10 +199,7 @@ export class StrategyRuntime {
       throw new Error('Strategy 宿主调用格式无效')
     }
     const lease = this.requireLease(call.token, frame)
-    if (
-      !lease ||
-      (lease.status !== 'starting' && lease.status !== 'running')
-    ) {
+    if (!lease || (lease.status !== 'starting' && lease.status !== 'running')) {
       throw new Error('Strategy 执行令牌已失效')
     }
 
@@ -234,11 +226,7 @@ export class StrategyRuntime {
         lease.status === 'issued' &&
         now - lease.issuedAt > INSTALL_TIMEOUT_MS
       ) {
-        this.failLease(
-          lease,
-          'Strategy bootstrap 安装超时',
-          'strategy-failed'
-        )
+        this.failLease(lease, 'Strategy bootstrap 安装超时', 'strategy-failed')
         continue
       }
 
@@ -297,8 +285,7 @@ export class StrategyRuntime {
 
     return {
       activeCount: entries.filter(
-        (entry) =>
-          entry.status === 'starting' || entry.status === 'running'
+        (entry) => entry.status === 'starting' || entry.status === 'running'
       ).length,
       quarantinedStrategyIds: [...this.quarantinedStrategyIds].sort(),
       entries
@@ -399,10 +386,7 @@ export class StrategyRuntime {
     }
   }
 
-  private handleLog(
-    lease: StrategyLease,
-    payload: JsonValue
-  ): JsonValue {
+  private handleLog(lease: StrategyLease, payload: JsonValue): JsonValue {
     if (!isRecord(payload)) {
       throw new Error('Strategy 日志参数无效')
     }
@@ -566,12 +550,9 @@ function parseHostCall(value: unknown): StrategyHostCall | null {
     value.token.length < 16 ||
     value.token.length > 200 ||
     typeof value.method !== 'string' ||
-    ![
-      'log',
-      'emit-event',
-      'network-request',
-      'main-world-eval'
-    ].includes(value.method) ||
+    !['log', 'emit-event', 'network-request', 'main-world-eval'].includes(
+      value.method
+    ) ||
     !isJsonValue(value.payload) ||
     jsonByteLength(value.payload) > MAX_HOST_PAYLOAD_BYTES
   ) {
@@ -584,9 +565,7 @@ function parseHostCall(value: unknown): StrategyHostCall | null {
   }
 }
 
-function parseNetworkRequest(
-  value: JsonValue
-): StrategyNetworkRequest | null {
+function parseNetworkRequest(value: JsonValue): StrategyNetworkRequest | null {
   if (!isRecord(value) || typeof value.url !== 'string') {
     return null
   }
@@ -632,9 +611,7 @@ function isStrategyLogLevel(value: string): value is StrategyLogLevel {
   return ['debug', 'info', 'warn', 'error'].includes(value)
 }
 
-function isStringRecord(
-  value: JsonValue
-): value is { [key: string]: string } {
+function isStringRecord(value: JsonValue): value is { [key: string]: string } {
   return (
     isRecord(value) &&
     Object.keys(value).length <= 64 &&
@@ -671,9 +648,7 @@ function isJsonValue(value: unknown, depth = 0): value is JsonValue {
   if (!isRecord(value) || Object.keys(value).length > 1_000) {
     return false
   }
-  return Object.values(value).every((entry) =>
-    isJsonValue(entry, depth + 1)
-  )
+  return Object.values(value).every((entry) => isJsonValue(entry, depth + 1))
 }
 
 function cloneJsonRecord(
@@ -691,9 +666,7 @@ function safeJson(value: JsonValue): string {
 }
 
 function truncate(value: string, maximum: number): string {
-  return value.length <= maximum
-    ? value
-    : `${value.slice(0, maximum - 1)}…`
+  return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`
 }
 
 function compareDefinitions(

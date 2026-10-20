@@ -15,55 +15,54 @@ export function resolveProjectStrategies(
   registry: StrategyDefinition[]
 ): ResolvedProjectStrategies {
   const byId = new Map(
-    registry.map((definition) => [
-      definition.manifest.id,
-      definition
-    ])
+    registry.map((definition) => [definition.manifest.id, definition])
   )
   const definitions: StrategyDefinition[] = []
   const allowedStrategyIds = new Set<string>()
   const resolutions = [...project.strategies]
     .sort((left, right) => left.id.localeCompare(right.id))
-    .map<ProjectStrategyResolution>(({ id: strategyId, version: pinnedVersion }) => {
-      const definition = byId.get(strategyId)
-      if (!definition) {
-        return {
-          strategyId,
-          pinnedVersion,
-          registryVersion: null,
-          status: 'missing',
-          runnable: false
+    .map<ProjectStrategyResolution>(
+      ({ id: strategyId, version: pinnedVersion }) => {
+        const definition = byId.get(strategyId)
+        if (!definition) {
+          return {
+            strategyId,
+            pinnedVersion,
+            registryVersion: null,
+            status: 'missing',
+            runnable: false
+          }
         }
-      }
-      if (definition.manifest.version !== pinnedVersion) {
-        return {
-          strategyId,
-          pinnedVersion,
-          registryVersion: definition.manifest.version,
-          status: 'version-mismatch',
-          runnable: false
+        if (definition.manifest.version !== pinnedVersion) {
+          return {
+            strategyId,
+            pinnedVersion,
+            registryVersion: definition.manifest.version,
+            status: 'version-mismatch',
+            runnable: false
+          }
         }
-      }
-      if (!definition.enabled) {
-        return {
-          strategyId,
-          pinnedVersion,
-          registryVersion: definition.manifest.version,
-          status: 'disabled',
-          runnable: false
+        if (!definition.enabled) {
+          return {
+            strategyId,
+            pinnedVersion,
+            registryVersion: definition.manifest.version,
+            status: 'disabled',
+            runnable: false
+          }
         }
-      }
 
-      definitions.push(cloneDefinition(definition))
-      allowedStrategyIds.add(strategyId)
-      return {
-        strategyId,
-        pinnedVersion,
-        registryVersion: definition.manifest.version,
-        status: 'ready',
-        runnable: true
+        definitions.push(cloneDefinition(definition))
+        allowedStrategyIds.add(strategyId)
+        return {
+          strategyId,
+          pinnedVersion,
+          registryVersion: definition.manifest.version,
+          status: 'ready',
+          runnable: true
+        }
       }
-    })
+    )
 
   return {
     definitions,
@@ -98,9 +97,7 @@ export function requireRunnableProjectStrategies(
   throw new Error(`Project Strategy 固定版本不可运行：${detail}`)
 }
 
-function cloneDefinition(
-  definition: StrategyDefinition
-): StrategyDefinition {
+function cloneDefinition(definition: StrategyDefinition): StrategyDefinition {
   return {
     ...definition,
     manifest: {

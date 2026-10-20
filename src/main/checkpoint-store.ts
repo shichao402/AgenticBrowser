@@ -59,7 +59,9 @@ export class BrowserCheckpointStore {
       updatedAt: new Date().toISOString()
     }
 
-    const write = this.writeQueue.then(() => writeJsonAtomic(this.filePath, checkpoint))
+    const write = this.writeQueue.then(() =>
+      writeJsonAtomic(this.filePath, checkpoint)
+    )
     this.writeQueue = write.catch(() => undefined)
     await write
     return checkpoint
@@ -77,7 +79,9 @@ export class BrowserCheckpointStore {
   }
 }
 
-export function parseBrowserCheckpoint(value: unknown): BrowserCheckpoint | null {
+export function parseBrowserCheckpoint(
+  value: unknown
+): BrowserCheckpoint | null {
   if (!isRecord(value)) {
     return null
   }

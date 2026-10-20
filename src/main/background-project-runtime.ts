@@ -87,19 +87,11 @@ export class BackgroundProjectRuntime {
     requireRunnableProjectStrategies(resolved)
     this.runtime = structuredClone(envelope.runtime)
     this.downloadManager = new ProjectDownloadManager(
-      join(
-        envelope.projectSnapshot.output.root,
-        'records',
-        'downloads.json'
-      ),
+      join(envelope.projectSnapshot.output.root, 'records', 'downloads.json'),
       { runtimeStore: options.runtimeStore }
     )
     this.itemStore = new ProjectItemStore(
-      join(
-        envelope.projectSnapshot.output.root,
-        'records',
-        'items.json'
-      )
+      join(envelope.projectSnapshot.output.root, 'records', 'items.json')
     )
     this.engine = new ProjectWorkflowEngine(
       envelope.runtime.runtimeId,
@@ -145,8 +137,7 @@ export class BackgroundProjectRuntime {
         strategyDefinitions: resolved.definitions,
         allowedStrategyIds: resolved.allowedStrategyIds,
         quarantinedStrategyIds: new Set<string>(),
-        onStrategyDomainEvent: (event) =>
-          this.handleStrategyDomainEvent(event)
+        onStrategyDomainEvent: (event) => this.handleStrategyDomainEvent(event)
       }
     )
     this.supervisor.setBounds(options.bounds)
@@ -294,9 +285,7 @@ export class BackgroundProjectRuntime {
       complete: (downloadId) => {
         const pending = this.downloadCompletionQueue.then(async () => {
           const record = await this.downloadManager.complete(downloadId)
-          const outstanding = (
-            await this.downloadManager.read()
-          ).records.some(
+          const outstanding = (await this.downloadManager.read()).records.some(
             (candidate) =>
               candidate.runtimeId === record.runtimeId &&
               (candidate.status === 'reserved' ||
@@ -358,9 +347,7 @@ export class BackgroundProjectRuntime {
 
   private async consumeDownloadIntent(request: BrowserDownloadRequest) {
     const requestUrls = new Set(
-      [request.sourceUrl, ...request.urlChain].map(
-        normalizeComparableUrl
-      )
+      [request.sourceUrl, ...request.urlChain].map(normalizeComparableUrl)
     )
     const index = this.pendingDownloads.findIndex(({ record }) => {
       return (
@@ -371,9 +358,7 @@ export class BackgroundProjectRuntime {
       )
     })
     if (index < 0) {
-      throw new Error(
-        `下载没有已授权的 Strategy 意图：${request.sourceUrl}`
-      )
+      throw new Error(`下载没有已授权的 Strategy 意图：${request.sourceUrl}`)
     }
     const [reservation] = this.pendingDownloads.splice(index, 1)
     if (!reservation) {
@@ -397,8 +382,7 @@ export class BackgroundProjectRuntime {
       if (!this.options.onManualTakeoverRequested) {
         throw new Error('当前 Project Runtime 不支持人工接管请求')
       }
-      const authentication =
-        event.name === 'project.authentication-required'
+      const authentication = event.name === 'project.authentication-required'
       this.options.onManualTakeoverRequested(
         this.runtime.projectId,
         parseTakeoverReason(
@@ -555,8 +539,7 @@ export class BackgroundProjectRuntime {
         kind: 'in-progress',
         downloadId: reservation.record.downloadId,
         canStart: this.pendingDownloads.some(
-          ({ record }) =>
-            record.downloadId === reservation.record.downloadId
+          ({ record }) => record.downloadId === reservation.record.downloadId
         )
       }
     }
@@ -628,9 +611,9 @@ export class BackgroundProjectRuntime {
       if (this.disposed) {
         return
       }
-      void Promise.resolve(
-        this.options.onTerminal?.(this.getRuntime())
-      ).catch(() => undefined)
+      void Promise.resolve(this.options.onTerminal?.(this.getRuntime())).catch(
+        () => undefined
+      )
     }
     if (afterStart) {
       this.terminalTimer = setTimeout(() => {
@@ -680,12 +663,10 @@ function parseDownloadIntentPayload(value: unknown): {
   ]
   if (
     required.some(
-      (item) =>
-        typeof item !== 'string' || item.trim().length === 0
+      (item) => typeof item !== 'string' || item.trim().length === 0
     ) ||
     (record.mime !== undefined &&
-      (typeof record.mime !== 'string' ||
-        record.mime.trim().length === 0)) ||
+      (typeof record.mime !== 'string' || record.mime.trim().length === 0)) ||
     (record.expectedBytes !== undefined &&
       (!Number.isSafeInteger(record.expectedBytes) ||
         (record.expectedBytes as number) < 0))
@@ -694,10 +675,7 @@ function parseDownloadIntentPayload(value: unknown): {
   }
   try {
     const sourceUrl = new URL(record.sourceUrl as string)
-    if (
-      sourceUrl.protocol !== 'http:' &&
-      sourceUrl.protocol !== 'https:'
-    ) {
+    if (sourceUrl.protocol !== 'http:' && sourceUrl.protocol !== 'https:') {
       return null
     }
     return {
@@ -705,9 +683,7 @@ function parseDownloadIntentPayload(value: unknown): {
       attachmentId: record.attachmentId as string,
       sourceUrl: sourceUrl.toString(),
       originalFileName: record.fileName as string,
-      ...(typeof record.mime === 'string'
-        ? { mime: record.mime }
-        : {}),
+      ...(typeof record.mime === 'string' ? { mime: record.mime } : {}),
       expectedBytes:
         record.expectedBytes === undefined
           ? null

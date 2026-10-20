@@ -49,37 +49,22 @@ const api: BrowserShellApi = {
   installAutomationPlayground: (
     profileId: string
   ): Promise<AutomationPlaygroundInstallResult> =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.installAutomationPlayground,
-      profileId
-    ),
-  saveProject: (
-    draft: ProjectDraft
-  ): Promise<ProjectWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.installAutomationPlayground, profileId),
+  saveProject: (draft: ProjectDraft): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveProject, draft),
-  setActiveProject: (
-    projectId: string
-  ): Promise<ProjectWorkspaceSnapshot> =>
+  setActiveProject: (projectId: string): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.setActiveProject, projectId),
-  deleteProject: (
-    projectId: string
-  ): Promise<ProjectWorkspaceSnapshot> =>
+  deleteProject: (projectId: string): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteProject, projectId),
-  startProjectRuntime: (
-    projectId: string
-  ): Promise<ProjectWorkspaceSnapshot> =>
+  startProjectRuntime: (projectId: string): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.startProjectRuntime, projectId),
-  pauseProjectRuntime: (
-    projectId: string
-  ): Promise<ProjectWorkspaceSnapshot> =>
+  pauseProjectRuntime: (projectId: string): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.pauseProjectRuntime, projectId),
   resumeProjectRuntime: (
     projectId: string
   ): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.resumeProjectRuntime, projectId),
-  stopProjectRuntime: (
-    projectId: string
-  ): Promise<ProjectWorkspaceSnapshot> =>
+  stopProjectRuntime: (projectId: string): Promise<ProjectWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.stopProjectRuntime, projectId),
   getStartupSettings: (): Promise<StartupSettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.getStartupSettings),
@@ -87,36 +72,28 @@ const api: BrowserShellApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setOpenAtLogin, enabled),
   getStrategyWorkspace: (): Promise<StrategyWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.getStrategyWorkspace),
-  saveStrategy: (
-    draft: StrategyDraft
-  ): Promise<StrategyWorkspaceSnapshot> =>
+  saveStrategy: (draft: StrategyDraft): Promise<StrategyWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveStrategy, draft),
   setStrategyEnabled: (
     strategyId: string,
     enabled: boolean
   ): Promise<StrategyWorkspaceSnapshot> =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.setStrategyEnabled,
-      strategyId,
-      enabled
-    ),
+    ipcRenderer.invoke(IPC_CHANNELS.setStrategyEnabled, strategyId, enabled),
   setStrategyAllowed: (
     strategyId: string,
     allowed: boolean
   ): Promise<StrategyWorkspaceSnapshot> =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.setStrategyAllowed,
-      strategyId,
-      allowed
-    ),
-  deleteStrategy: (
-    strategyId: string
-  ): Promise<StrategyWorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setStrategyAllowed, strategyId, allowed),
+  deleteStrategy: (strategyId: string): Promise<StrategyWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteStrategy, strategyId),
   navigate: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.navigate, url),
-  reload: (options: ReloadOptions) => ipcRenderer.invoke(IPC_CHANNELS.reload, options),
+  reload: (options: ReloadOptions) =>
+    ipcRenderer.invoke(IPC_CHANNELS.reload, options),
   onBrowserEvent: (listener: (event: BrowserEvent) => void) => {
-    const wrapped = (_event: Electron.IpcRendererEvent, browserEvent: BrowserEvent): void => {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      browserEvent: BrowserEvent
+    ): void => {
       listener(browserEvent)
     }
 

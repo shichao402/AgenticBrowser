@@ -1,7 +1,4 @@
-import type {
-  StrategyDefinition,
-  StrategyManifest
-} from '../shared/contracts'
+import type { StrategyDefinition, StrategyManifest } from '../shared/contracts'
 
 interface ParsedMatchPattern {
   schemes: ReadonlySet<'http:' | 'https:'>
@@ -26,11 +23,7 @@ export function resolveMatchingStrategies(
       (definition) =>
         definition.enabled &&
         context.allowedStrategyIds.has(definition.manifest.id) &&
-        strategyMatches(
-          definition.manifest,
-          context.url,
-          context.isMainFrame
-        )
+        strategyMatches(definition.manifest, context.url, context.isMainFrame)
     )
     .sort((left, right) =>
       left.manifest.id < right.manifest.id
@@ -97,8 +90,7 @@ function urlMatchesPattern(url: URL, pattern: string): boolean {
   }
 
   if (parsed.port !== null && parsed.port !== '*') {
-    const effectivePort =
-      url.port || (url.protocol === 'https:' ? '443' : '80')
+    const effectivePort = url.port || (url.protocol === 'https:' ? '443' : '80')
     if (effectivePort !== parsed.port) {
       return false
     }
@@ -152,9 +144,7 @@ function parseMatchPattern(pattern: string): ParsedMatchPattern | null {
   const schemes =
     scheme === '*'
       ? new Set<'http:' | 'https:'>(['http:', 'https:'])
-      : new Set<'http:' | 'https:'>([
-          scheme === 'https' ? 'https:' : 'http:'
-        ])
+      : new Set<'http:' | 'https:'>([scheme === 'https' ? 'https:' : 'http:'])
 
   return {
     schemes,

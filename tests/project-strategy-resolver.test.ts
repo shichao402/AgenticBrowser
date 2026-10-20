@@ -4,9 +4,7 @@ import {
   requireRunnableProjectStrategies,
   resolveProjectStrategies
 } from '../src/main/project-strategy-resolver'
-import type {
-  StrategyDefinition
-} from '../src/shared/contracts'
+import type { StrategyDefinition } from '../src/shared/contracts'
 import { createProjectDefinition } from './project-fixture'
 
 describe('project strategy resolver', () => {
@@ -69,9 +67,7 @@ describe('project strategy resolver', () => {
   })
 })
 
-function createProject(
-  strategies: Record<string, string>
-) {
+function createProject(strategies: Record<string, string>) {
   return createProjectDefinition(
     Object.entries(strategies).map(([id, version]) => ({
       id,

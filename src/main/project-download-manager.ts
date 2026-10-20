@@ -1,8 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import {
-  constants,
-  createReadStream
-} from 'node:fs'
+import { constants, createReadStream } from 'node:fs'
 import {
   access,
   copyFile,
@@ -13,18 +10,21 @@ import {
   stat,
   statfs
 } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path'
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative
+} from 'node:path'
 
 import type {
   ProjectDefinition,
   ProjectDownloadRecord,
   WorkflowFailureCategory
 } from '../shared/contracts'
-import {
-  isNodeError,
-  readJsonFile,
-  writeJsonAtomic
-} from './atomic-file'
+import { isNodeError, readJsonFile, writeJsonAtomic } from './atomic-file'
 import { sanitizeDownloadFileName } from './download-path'
 import type { ProjectRuntimeStore } from './project-runtime-store'
 
@@ -86,8 +86,7 @@ export class ProjectDownloadManager {
     this.now = options.now ?? Date.now
     this.createId = options.createId ?? randomUUID
     this.minimumFreeBytes = options.minimumFreeBytes ?? 50 * 1024 * 1024
-    this.getAvailableBytes =
-      options.getAvailableBytes ?? defaultAvailableBytes
+    this.getAvailableBytes = options.getAvailableBytes ?? defaultAvailableBytes
   }
 
   async read(): Promise<ProjectDownloadState> {
@@ -127,148 +126,140 @@ export class ProjectDownloadManager {
     ])
     const expectedBytes = intent.expectedBytes ?? 0
 
-    const reservation = await this.update<ProjectDownloadReservation>(async (
-      state
-    ) => {
-      const idempotencyKey = createDownloadIdempotencyKey(
-        project.id,
-        intent
-      )
-      const duplicate = state.records.find(
-        (record) =>
-          record.projectId === project.id &&
-          record.idempotencyKey === idempotencyKey &&
-          record.status === 'completed'
-      )
-      if (duplicate) {
-        await this.backfillIdempotency(duplicate)
-        return {
-          state,
-          result: {
-            kind: 'duplicate',
-            record: structuredClone(duplicate)
-          }
-        }
-      }
-      const inProgress = state.records.find(
-        (record) =>
-          record.projectId === project.id &&
-          record.idempotencyKey === idempotencyKey &&
-          (record.status === 'reserved' ||
-            record.status === 'downloading')
-      )
-      if (inProgress) {
-        return {
-          state,
-          result: {
-            kind: 'in-progress',
-            record: structuredClone(inProgress)
-          }
-        }
-      }
-      const rejected = state.records.find(
-        (record) =>
-          record.projectId === project.id &&
-          record.runtimeId === intent.runtimeId &&
-          record.workflowNodeId === intent.workflowNodeId &&
-          record.idempotencyKey === idempotencyKey &&
-          record.status === 'failed' &&
-          record.errorCategory === 'disk'
-      )
-      if (rejected) {
-        return {
-          state,
-          result: {
-            kind: 'rejected',
-            record: structuredClone(rejected),
-            newlyCreated: false
-          }
-        }
-      }
-
-      const consumed = state.records
-        .filter(
+    const reservation = await this.update<ProjectDownloadReservation>(
+      async (state) => {
+        const idempotencyKey = createDownloadIdempotencyKey(project.id, intent)
+        const duplicate = state.records.find(
           (record) =>
             record.projectId === project.id &&
+            record.idempotencyKey === idempotencyKey &&
             record.status === 'completed'
         )
-        .reduce((total, record) => total + record.size, 0)
-      const safeFileName = await chooseSafeFileName(
-        downloadsRoot,
-        renderFileName(project.output.fileNameTemplate, intent),
-        state.records
-      )
-      const downloadId = createDownloadId(this.createId)
-      const now = new Date(this.now()).toISOString()
-      const retryCount = state.records.filter(
-        (candidate) =>
-          candidate.projectId === project.id &&
-          candidate.idempotencyKey === idempotencyKey
-      ).length
-      const baseRecord = {
-        downloadId,
-        idempotencyKey,
-        projectId: project.id,
-        runtimeId: intent.runtimeId,
-        workflowNodeId: intent.workflowNodeId,
-        sourcePage: normalizeHttpUrl(intent.sourcePage),
-        sourceUrl: normalizeHttpUrl(intent.sourceUrl),
-        businessItemId: intent.businessItemId,
-        attachmentId: intent.attachmentId,
-        originalFileName: intent.originalFileName,
-        safeFileName,
-        temporaryPath: ensureInside(
-          temporaryRoot,
-          join(temporaryRoot, `${downloadId}.part`)
-        ),
-        finalPath: ensureInside(
+        if (duplicate) {
+          await this.backfillIdempotency(duplicate)
+          return {
+            state,
+            result: {
+              kind: 'duplicate',
+              record: structuredClone(duplicate)
+            }
+          }
+        }
+        const inProgress = state.records.find(
+          (record) =>
+            record.projectId === project.id &&
+            record.idempotencyKey === idempotencyKey &&
+            (record.status === 'reserved' || record.status === 'downloading')
+        )
+        if (inProgress) {
+          return {
+            state,
+            result: {
+              kind: 'in-progress',
+              record: structuredClone(inProgress)
+            }
+          }
+        }
+        const rejected = state.records.find(
+          (record) =>
+            record.projectId === project.id &&
+            record.runtimeId === intent.runtimeId &&
+            record.workflowNodeId === intent.workflowNodeId &&
+            record.idempotencyKey === idempotencyKey &&
+            record.status === 'failed' &&
+            record.errorCategory === 'disk'
+        )
+        if (rejected) {
+          return {
+            state,
+            result: {
+              kind: 'rejected',
+              record: structuredClone(rejected),
+              newlyCreated: false
+            }
+          }
+        }
+
+        const consumed = state.records
+          .filter(
+            (record) =>
+              record.projectId === project.id && record.status === 'completed'
+          )
+          .reduce((total, record) => total + record.size, 0)
+        const safeFileName = await chooseSafeFileName(
           downloadsRoot,
-          join(downloadsRoot, safeFileName)
-        ),
-        mime: intent.mime ?? null,
-        size: 0,
-        sha256: null,
-        startedAt: now,
-        updatedAt: now,
-        completedAt: null
+          renderFileName(project.output.fileNameTemplate, intent),
+          state.records
+        )
+        const downloadId = createDownloadId(this.createId)
+        const now = new Date(this.now()).toISOString()
+        const retryCount = state.records.filter(
+          (candidate) =>
+            candidate.projectId === project.id &&
+            candidate.idempotencyKey === idempotencyKey
+        ).length
+        const baseRecord = {
+          downloadId,
+          idempotencyKey,
+          projectId: project.id,
+          runtimeId: intent.runtimeId,
+          workflowNodeId: intent.workflowNodeId,
+          sourcePage: normalizeHttpUrl(intent.sourcePage),
+          sourceUrl: normalizeHttpUrl(intent.sourceUrl),
+          businessItemId: intent.businessItemId,
+          attachmentId: intent.attachmentId,
+          originalFileName: intent.originalFileName,
+          safeFileName,
+          temporaryPath: ensureInside(
+            temporaryRoot,
+            join(temporaryRoot, `${downloadId}.part`)
+          ),
+          finalPath: ensureInside(
+            downloadsRoot,
+            join(downloadsRoot, safeFileName)
+          ),
+          mime: intent.mime ?? null,
+          size: 0,
+          sha256: null,
+          startedAt: now,
+          updatedAt: now,
+          completedAt: null
+        }
+        const available = await this.getAvailableBytes(root)
+        const diskError =
+          available - expectedBytes < this.minimumFreeBytes
+            ? `磁盘可用空间不足：${available} bytes`
+            : consumed + expectedBytes > project.output.maxBytes
+              ? `项目下载配额不足：${consumed + expectedBytes}/${project.output.maxBytes}`
+              : null
+        const record: ProjectDownloadRecord = diskError
+          ? {
+              ...baseRecord,
+              status: 'failed',
+              retryCount: retryCount + 1,
+              errorCategory: 'disk',
+              error: diskError
+            }
+          : {
+              ...baseRecord,
+              status: 'reserved',
+              retryCount,
+              errorCategory: null,
+              error: null
+            }
+        const result: ProjectDownloadReservation = diskError
+          ? { kind: 'rejected', record, newlyCreated: true }
+          : { kind: 'reserved', record }
+        return {
+          state: {
+            schemaVersion: 1,
+            records: pruneRecords([...state.records, record])
+          },
+          result
+        }
       }
-      const available = await this.getAvailableBytes(root)
-      const diskError =
-        available - expectedBytes < this.minimumFreeBytes
-          ? `磁盘可用空间不足：${available} bytes`
-          : consumed + expectedBytes > project.output.maxBytes
-            ? `项目下载配额不足：${consumed + expectedBytes}/${project.output.maxBytes}`
-            : null
-      const record: ProjectDownloadRecord = diskError
-        ? {
-            ...baseRecord,
-            status: 'failed',
-            retryCount: retryCount + 1,
-            errorCategory: 'disk',
-            error: diskError
-          }
-        : {
-            ...baseRecord,
-            status: 'reserved',
-            retryCount,
-            errorCategory: null,
-            error: null
-          }
-      const result: ProjectDownloadReservation = diskError
-        ? { kind: 'rejected', record, newlyCreated: true }
-        : { kind: 'reserved', record }
-      return {
-        state: {
-          schemaVersion: 1,
-          records: pruneRecords([...state.records, record])
-        },
-        result
-      }
-    })
-    if (
-      reservation.kind === 'rejected' &&
-      reservation.newlyCreated
-    ) {
+    )
+    if (reservation.kind === 'rejected' && reservation.newlyCreated) {
       await this.incrementRuntimeFailureCounter(reservation.record)
     }
     return reservation
@@ -293,7 +284,7 @@ export class ProjectDownloadManager {
         throw new Error(`下载 ${downloadId} 不能从 ${record.status} 完成`)
       }
 
-      const sourcePath = await fileExists(record.temporaryPath)
+      const sourcePath = (await fileExists(record.temporaryPath))
         ? record.temporaryPath
         : (await fileExists(record.finalPath))
           ? record.finalPath
@@ -304,11 +295,7 @@ export class ProjectDownloadManager {
       const { size, sha256 } = await hashFile(sourcePath)
       let finalPath = record.finalPath
       if (sourcePath !== finalPath) {
-        finalPath = await commitWithoutOverwrite(
-          sourcePath,
-          finalPath,
-          sha256
-        )
+        finalPath = await commitWithoutOverwrite(sourcePath, finalPath, sha256)
       }
       const finalName = basename(finalPath)
       const completedAt = new Date(this.now()).toISOString()
@@ -371,10 +358,7 @@ export class ProjectDownloadManager {
     const state = await this.read()
     const recovered: ProjectDownloadRecord[] = []
     for (const record of state.records) {
-      if (
-        record.status !== 'reserved' &&
-        record.status !== 'downloading'
-      ) {
+      if (record.status !== 'reserved' && record.status !== 'downloading') {
         continue
       }
       if (await fileExists(record.finalPath)) {
@@ -413,14 +397,11 @@ export class ProjectDownloadManager {
       const updated: ProjectDownloadRecord = {
         ...record,
         status,
-        errorCategory:
-          status === 'cancelled' ? 'cancelled' : null,
+        errorCategory: status === 'cancelled' ? 'cancelled' : null,
         error: status === 'cancelled' ? '用户取消下载' : null,
         updatedAt: new Date(this.now()).toISOString(),
         completedAt:
-          status === 'cancelled'
-            ? new Date(this.now()).toISOString()
-            : null
+          status === 'cancelled' ? new Date(this.now()).toISOString() : null
       }
       await this.writeUpdatedRecord(state, updated)
       return updated
@@ -568,8 +549,7 @@ export function createDownloadIdempotencyKey(
   >
 ): string {
   const attachment =
-    intent.attachmentId.trim() ||
-    normalizeHttpUrl(intent.sourceUrl)
+    intent.attachmentId.trim() || normalizeHttpUrl(intent.sourceUrl)
   const canonical = `${projectId}:${intent.businessItemId.trim()}:${attachment}`
   return canonical.length <= 500
     ? canonical
@@ -642,16 +622,11 @@ function parseDownloadRecord(value: unknown): ProjectDownloadRecord | null {
       (typeof value.sha256 !== 'string' ||
         !/^[a-f0-9]{64}$/.test(value.sha256))) ||
     typeof value.status !== 'string' ||
-    ![
-      'reserved',
-      'downloading',
-      'completed',
-      'failed',
-      'cancelled'
-    ].includes(value.status) ||
+    !['reserved', 'downloading', 'completed', 'failed', 'cancelled'].includes(
+      value.status
+    ) ||
     !isIntegerBetween(value.retryCount, 0, 1_000) ||
-    (value.errorCategory !== null &&
-      !isFailureCategory(value.errorCategory)) ||
+    (value.errorCategory !== null && !isFailureCategory(value.errorCategory)) ||
     (value.error !== null &&
       (typeof value.error !== 'string' || value.error.length > 4_000)) ||
     !isIsoDate(value.startedAt) ||
@@ -660,8 +635,7 @@ function parseDownloadRecord(value: unknown): ProjectDownloadRecord | null {
   ) {
     return null
   }
-  const terminal =
-    value.status === 'completed' || value.status === 'cancelled'
+  const terminal = value.status === 'completed' || value.status === 'cancelled'
   if (
     terminal !== (value.completedAt !== null) ||
     (value.status === 'completed' &&
@@ -723,10 +697,10 @@ function renderFileName(
     attachmentId: intent.attachmentId,
     fileName: intent.originalFileName
   }
-  const rendered = template.replace(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (
-    _match,
-    key: string
-  ) => tokens[key] ?? '')
+  const rendered = template.replace(
+    /\{([a-zA-Z][a-zA-Z0-9]*)\}/g,
+    (_match, key: string) => tokens[key] ?? ''
+  )
   return sanitizeDownloadFileName(rendered)
 }
 
@@ -863,10 +837,7 @@ function isHttpUrl(value: string): boolean {
 
 function createDownloadId(createId: () => string): string {
   const value = createId()
-  if (
-    typeof value !== 'string' ||
-    !/^[a-zA-Z0-9_-]{8,200}$/.test(value)
-  ) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{8,200}$/.test(value)) {
     throw new Error('无法创建 Download ID')
   }
   return `download-${value}`
@@ -892,8 +863,7 @@ function pruneRecords(
     return records
   }
   const active = records.filter(
-    (record) =>
-      record.status === 'reserved' || record.status === 'downloading'
+    (record) => record.status === 'reserved' || record.status === 'downloading'
   )
   const terminal = records
     .filter(
@@ -953,7 +923,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function truncate(value: string, maximum: number): string {
-  return value.length <= maximum
-    ? value
-    : `${value.slice(0, maximum - 1)}…`
+  return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`
 }

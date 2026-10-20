@@ -1,10 +1,4 @@
-import {
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  writeFile
-} from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -41,9 +35,10 @@ describe('StrategyStore', () => {
     await store.save(createDraft('z-strategy'))
     const state = await store.save(createDraft('a-strategy'))
 
-    expect(
-      state.strategies.map((strategy) => strategy.manifest.id)
-    ).toEqual(['a-strategy', 'z-strategy'])
+    expect(state.strategies.map((strategy) => strategy.manifest.id)).toEqual([
+      'a-strategy',
+      'z-strategy'
+    ])
     expect(state.strategies[0]?.updatedAt).toBeTruthy()
     await expect(store.read()).resolves.toEqual(state)
   })
@@ -70,9 +65,7 @@ describe('StrategyStore', () => {
 
     const disabled = await store.setEnabled('feed-scanner', false)
     expect(disabled.strategies[0]?.enabled).toBe(false)
-    await expect(store.delete('missing')).rejects.toThrow(
-      'Strategy 不存在'
-    )
+    await expect(store.delete('missing')).rejects.toThrow('Strategy 不存在')
     await expect(store.delete('feed-scanner')).resolves.toEqual(
       emptyStrategyState()
     )
@@ -110,9 +103,7 @@ describe('StrategyStore', () => {
 
     const malformedFiles = await readdir(temporaryRoot)
     expect(
-      malformedFiles.some((name) =>
-        name.startsWith('strategies.json.invalid-')
-      )
+      malformedFiles.some((name) => name.startsWith('strategies.json.invalid-'))
     ).toBe(true)
 
     await writeFile(

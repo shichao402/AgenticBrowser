@@ -14,7 +14,9 @@ function readJson(name) {
 function declaredVersion() {
   const version = readJson('VERSION.json').version
   if (typeof version !== 'string' || !semverPattern.test(version)) {
-    throw new Error(`VERSION.json 的 version 必须是语义化版本，当前是 ${String(version)}`)
+    throw new Error(
+      `VERSION.json 的 version 必须是语义化版本，当前是 ${String(version)}`
+    )
   }
   return version
 }
@@ -24,10 +26,14 @@ function mismatches(version) {
   const lockfile = readJson('package-lock.json')
   const found = []
   if (packageJson.version !== version) {
-    found.push(`package.json version 是 ${packageJson.version}，VERSION.json 是 ${version}`)
+    found.push(
+      `package.json version 是 ${packageJson.version}，VERSION.json 是 ${version}`
+    )
   }
   if (lockfile.version !== version) {
-    found.push(`package-lock.json version 是 ${lockfile.version}，VERSION.json 是 ${version}`)
+    found.push(
+      `package-lock.json version 是 ${lockfile.version}，VERSION.json 是 ${version}`
+    )
   }
   const lockedPackageVersion = lockfile.packages?.['']?.version
   if (lockedPackageVersion !== version) {
@@ -42,7 +48,9 @@ function check() {
   const version = declaredVersion()
   const found = mismatches(version)
   if (found.length > 0) {
-    throw new Error(`${found.join('\n')}\n先修改 VERSION.json，再运行 npm run version:sync`)
+    throw new Error(
+      `${found.join('\n')}\n先修改 VERSION.json，再运行 npm run version:sync`
+    )
   }
   return version
 }

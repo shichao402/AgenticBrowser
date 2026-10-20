@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
 
 import type {
   BrowserEvent,
@@ -85,13 +85,13 @@ export function App(): React.JSX.Element {
     useState<StrategyWorkspaceSnapshot | null>(null)
   const [projectWorkspace, setProjectWorkspace] =
     useState<ProjectWorkspaceSnapshot | null>(null)
-  const [editingProjectId, setEditingProjectId] =
-    useState<string | null>(null)
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
   const [projectDraftText, setProjectDraftText] = useState(
     JSON.stringify(createDefaultProjectDraft('profile-default'), null, 2)
   )
-  const [activeSection, setActiveSection] =
-    useState<'projects' | 'strategies' | 'filters'>('projects')
+  const [activeSection, setActiveSection] = useState<
+    'projects' | 'strategies' | 'filters'
+  >('projects')
   const [editingStrategyId, setEditingStrategyId] = useState<string | null>(
     null
   )
@@ -133,28 +133,25 @@ export function App(): React.JSX.Element {
   }, [])
 
   const refreshStrategies = useCallback(async (): Promise<void> => {
-    setStrategyWorkspace(
-      await window.agenticBrowser.getStrategyWorkspace()
-    )
+    setStrategyWorkspace(await window.agenticBrowser.getStrategyWorkspace())
   }, [])
 
   const refreshProjects = useCallback(async (): Promise<void> => {
     const next = await window.agenticBrowser.getProjectWorkspace()
     setProjectWorkspace(next)
     const selected =
-      next.projects.find(
-        (project) => project.id === next.activeProjectId
-      ) ?? null
+      next.projects.find((project) => project.id === next.activeProjectId) ??
+      null
     if (selected) {
       setEditingProjectId(selected.id)
-      setProjectDraftText(
-        JSON.stringify(toProjectDraft(selected), null, 2)
-      )
+      setProjectDraftText(JSON.stringify(toProjectDraft(selected), null, 2))
     }
   }, [])
 
   useEffect(() => {
     void Promise.all([
+      // refresh* 均为 async，setState 发生在 await 之后，不构成 effect 内同步写状态。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       refreshSnapshot(),
       refreshMonitor(),
       refreshCapabilityPolicy(),
@@ -184,11 +181,9 @@ export function App(): React.JSX.Element {
       if (event.type.startsWith('project-runtime-')) {
         refreshes.push(refreshProjects(), refreshProfiles())
       }
-      void Promise.all(refreshes).catch(
-        (cause: unknown) => {
-          setError(cause instanceof Error ? cause.message : String(cause))
-        }
-      )
+      void Promise.all(refreshes).catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
     })
   }, [
     refreshCapabilityPolicy,
@@ -326,9 +321,7 @@ export function App(): React.JSX.Element {
       return
     }
     try {
-      setProfiles(
-        await window.agenticBrowser.createProfile(newProfileName)
-      )
+      setProfiles(await window.agenticBrowser.createProfile(newProfileName))
       setNewProfileName('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -377,15 +370,11 @@ export function App(): React.JSX.Element {
     setProjectWorkspace(next)
     const selected =
       next.projects.find(
-        (project) =>
-          project.id ===
-          (preferredProjectId ?? next.activeProjectId)
+        (project) => project.id === (preferredProjectId ?? next.activeProjectId)
       ) ?? null
     if (selected) {
       setEditingProjectId(selected.id)
-      setProjectDraftText(
-        JSON.stringify(toProjectDraft(selected), null, 2)
-      )
+      setProjectDraftText(JSON.stringify(toProjectDraft(selected), null, 2))
     } else {
       setEditingProjectId(null)
     }
@@ -393,12 +382,8 @@ export function App(): React.JSX.Element {
 
   const selectProject = async (projectId: string): Promise<void> => {
     try {
-      const workspace =
-        await window.agenticBrowser.setActiveProject(projectId)
-      applyProjectWorkspace(
-        workspace,
-        projectId
-      )
+      const workspace = await window.agenticBrowser.setActiveProject(projectId)
+      applyProjectWorkspace(workspace, projectId)
       await Promise.all([
         refreshSnapshot(),
         refreshTabs(),
@@ -412,8 +397,7 @@ export function App(): React.JSX.Element {
 
   const newProject = (): void => {
     const profileId =
-      profiles.find((profile) => profile.active)?.id ??
-      'profile-default'
+      profiles.find((profile) => profile.active)?.id ?? 'profile-default'
     setEditingProjectId(null)
     setProjectDraftText(
       JSON.stringify(createDefaultProjectDraft(profileId), null, 2)
@@ -437,9 +421,7 @@ export function App(): React.JSX.Element {
     setError(null)
     try {
       const result =
-        await window.agenticBrowser.installAutomationPlayground(
-          profileId
-        )
+        await window.agenticBrowser.installAutomationPlayground(profileId)
       setStrategyWorkspace(result.strategyWorkspace)
       applyProjectWorkspace(result.projectWorkspace)
     } catch (cause) {
@@ -451,10 +433,7 @@ export function App(): React.JSX.Element {
     setError(null)
     try {
       const draft = JSON.parse(projectDraftText) as ProjectDraft
-      if (
-        editingProjectId !== null &&
-        draft.id !== editingProjectId
-      ) {
+      if (editingProjectId !== null && draft.id !== editingProjectId) {
         throw new Error('编辑现有 Project 时不能修改 ID；请使用“新建”')
       }
       applyProjectWorkspace(
@@ -554,9 +533,7 @@ export function App(): React.JSX.Element {
 
   const editStrategy = (definition: StrategyDefinition): void => {
     setEditingStrategyId(definition.manifest.id)
-    setStrategyManifestText(
-      JSON.stringify(definition.manifest, null, 2)
-    )
+    setStrategyManifestText(JSON.stringify(definition.manifest, null, 2))
     setStrategySource(definition.source)
     setActiveSection('strategies')
   }
@@ -572,16 +549,11 @@ export function App(): React.JSX.Element {
   const saveStrategy = async (): Promise<void> => {
     setError(null)
     try {
-      const manifest = JSON.parse(
-        strategyManifestText
-      ) as StrategyManifest
+      const manifest = JSON.parse(strategyManifestText) as StrategyManifest
       const existing = strategyWorkspace?.strategies.find(
         (definition) => definition.manifest.id === editingStrategyId
       )
-      if (
-        editingStrategyId !== null &&
-        manifest.id !== editingStrategyId
-      ) {
+      if (editingStrategyId !== null && manifest.id !== editingStrategyId) {
         throw new Error('编辑现有 Strategy 时不能修改 ID；请使用“新建”')
       }
       const workspace = await window.agenticBrowser.saveStrategy({
@@ -602,10 +574,7 @@ export function App(): React.JSX.Element {
   ): Promise<void> => {
     try {
       setStrategyWorkspace(
-        await window.agenticBrowser.setStrategyEnabled(
-          strategyId,
-          enabled
-        )
+        await window.agenticBrowser.setStrategyEnabled(strategyId, enabled)
       )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -637,8 +606,7 @@ export function App(): React.JSX.Element {
       .reverse()
       .find(
         (runtime) =>
-          runtime.projectId ===
-          (activeProject?.id ?? runtime.projectId)
+          runtime.projectId === (activeProject?.id ?? runtime.projectId)
       ) ?? null
   const activeProjectRuntime =
     [...(projectWorkspace?.runtimes ?? [])]
@@ -716,14 +684,9 @@ export function App(): React.JSX.Element {
             <div className="project-list">
               {projectWorkspace?.projects.length ? (
                 projectWorkspace.projects.map((project) => {
-                  const runtime = [
-                    ...(projectWorkspace.runtimes ?? [])
-                  ]
+                  const runtime = [...(projectWorkspace.runtimes ?? [])]
                     .reverse()
-                    .find(
-                      (candidate) =>
-                        candidate.projectId === project.id
-                    )
+                    .find((candidate) => candidate.projectId === project.id)
                   return (
                     <article
                       className={`project-list-item ${
@@ -740,8 +703,7 @@ export function App(): React.JSX.Element {
                       >
                         <strong>{project.name}</strong>
                         <small>
-                          r{project.revision} ·{' '}
-                          {runtime?.status ?? '未运行'}
+                          r{project.revision} · {runtime?.status ?? '未运行'}
                         </small>
                       </button>
                       <button
@@ -766,9 +728,7 @@ export function App(): React.JSX.Element {
                   aria-label="Project JSON"
                   spellCheck={false}
                   value={projectDraftText}
-                  onChange={(event) =>
-                    setProjectDraftText(event.target.value)
-                  }
+                  onChange={(event) => setProjectDraftText(event.target.value)}
                 />
               </label>
               <div className="project-actions">
@@ -782,8 +742,7 @@ export function App(): React.JSX.Element {
                 <button
                   type="button"
                   disabled={
-                    !activeProject ||
-                    selectedActiveProjectRuntime !== null
+                    !activeProject || selectedActiveProjectRuntime !== null
                   }
                   onClick={() =>
                     activeProject
@@ -811,9 +770,7 @@ export function App(): React.JSX.Element {
                 </button>
                 <button
                   type="button"
-                  disabled={
-                    selectedActiveProjectRuntime?.status !== 'paused'
-                  }
+                  disabled={selectedActiveProjectRuntime?.status !== 'paused'}
                   onClick={() =>
                     activeProject
                       ? void resumeProject(activeProject.id)
@@ -836,15 +793,13 @@ export function App(): React.JSX.Element {
               </div>
               {projectWorkspace?.strategyResolutions.length ? (
                 <ul className="project-resolution-list">
-                  {projectWorkspace.strategyResolutions.map(
-                    (resolution) => (
-                      <li key={resolution.strategyId}>
-                        {resolution.strategyId}@{resolution.pinnedVersion}
-                        {' · '}
-                        {resolution.status}
-                      </li>
-                    )
-                  )}
+                  {projectWorkspace.strategyResolutions.map((resolution) => (
+                    <li key={resolution.strategyId}>
+                      {resolution.strategyId}@{resolution.pinnedVersion}
+                      {' · '}
+                      {resolution.status}
+                    </li>
+                  ))}
                 </ul>
               ) : null}
             </div>
@@ -875,8 +830,7 @@ export function App(): React.JSX.Element {
                   )
                   const runtimeEntries =
                     monitor?.strategies.entries.filter(
-                      (entry) =>
-                        entry.strategyId === definition.manifest.id
+                      (entry) => entry.strategyId === definition.manifest.id
                     ) ?? []
                   return (
                     <article
@@ -901,9 +855,7 @@ export function App(): React.JSX.Element {
                                 .join(', ')}
                         </small>
                         {projectPin ? (
-                          <small>
-                            当前 Project 固定 {projectPin.version}
-                          </small>
+                          <small>当前 Project 固定 {projectPin.version}</small>
                         ) : null}
                       </button>
                       <label>
@@ -955,9 +907,7 @@ export function App(): React.JSX.Element {
                   aria-label="Strategy 源码"
                   spellCheck={false}
                   value={strategySource}
-                  onChange={(event) =>
-                    setStrategySource(event.target.value)
-                  }
+                  onChange={(event) => setStrategySource(event.target.value)}
                 />
               </label>
               <button
@@ -1135,9 +1085,7 @@ export function App(): React.JSX.Element {
         <section className="capability-panel">
           <div className="panel-heading">
             <h2>能力中心</h2>
-            <span>
-              {capabilityPolicy?.currentOrigin ?? '非 HTTP(S) 页面'}
-            </span>
+            <span>{capabilityPolicy?.currentOrigin ?? '非 HTTP(S) 页面'}</span>
           </div>
           <p className="capability-help">
             默认策略可被当前精确 Origin 覆盖；子域不会继承。
@@ -1145,8 +1093,7 @@ export function App(): React.JSX.Element {
           <div className="capability-list">
             {CAPABILITY_ITEMS.map((item) => {
               const decision = getOriginDecision(capabilityPolicy, item.key)
-              const effective =
-                capabilityPolicy?.effective[item.key] ?? false
+              const effective = capabilityPolicy?.effective[item.key] ?? false
               return (
                 <div className="capability-rule" key={item.key}>
                   <span>
@@ -1160,12 +1107,9 @@ export function App(): React.JSX.Element {
                         capabilityPolicy?.policy.defaults[item.key] ?? false
                       }
                       disabled={
-                        !capabilityPolicy ||
-                        activeProjectRuntime !== null
+                        !capabilityPolicy || activeProjectRuntime !== null
                       }
-                      onChange={() =>
-                        void toggleDefaultCapability(item.key)
-                      }
+                      onChange={() => void toggleDefaultCapability(item.key)}
                     />
                     默认
                   </label>
@@ -1207,7 +1151,9 @@ export function App(): React.JSX.Element {
                 <li key={event.sequence}>
                   <div>
                     <strong>{EVENT_LABELS[event.type]}</strong>
-                    <time>{new Date(event.timestamp).toLocaleTimeString()}</time>
+                    <time>
+                      {new Date(event.timestamp).toLocaleTimeString()}
+                    </time>
                   </div>
                   {event.detail ? <p>{event.detail}</p> : null}
                 </li>
@@ -1337,8 +1283,7 @@ function toProjectDraft(project: ProjectDefinition): ProjectDraft {
 
 function createDefaultProjectDraft(profileId: string): ProjectDraft {
   const outputRoot =
-    typeof navigator !== 'undefined' &&
-    navigator.userAgent.includes('Windows')
+    typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows')
       ? 'C:\\AgenticBrowser\\projects\\new-project'
       : '/Users/Shared/AgenticBrowser/projects/new-project'
   return {

@@ -1,10 +1,4 @@
-import {
-  access,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile
-} from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -77,10 +71,7 @@ describe('ProjectDownloadManager', () => {
     )
     await expect(access(completed.temporaryPath)).rejects.toThrow()
     await expect(
-      runtimeStore.findIdempotency(
-        project.id,
-        completed.idempotencyKey
-      )
+      runtimeStore.findIdempotency(project.id, completed.idempotencyKey)
     ).resolves.toMatchObject({
       result: {
         finalPath: completed.finalPath,

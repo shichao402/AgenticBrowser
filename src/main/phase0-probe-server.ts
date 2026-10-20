@@ -173,7 +173,9 @@ export async function startPhaseZeroProbeServer(): Promise<PhaseZeroProbeServer>
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store'
     })
-    response.end(isSameOriginFrame ? frameDocument('same-origin') : topDocument(crossUrl))
+    response.end(
+      isSameOriginFrame ? frameDocument('same-origin') : topDocument(crossUrl)
+    )
   })
   const topPort = await listen(topServer, '127.0.0.1')
 

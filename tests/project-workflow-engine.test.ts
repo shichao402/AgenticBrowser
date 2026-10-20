@@ -39,9 +39,10 @@ describe('ProjectWorkflowEngine', () => {
   })
 
   it('completes a workflow whose entry node is complete', async () => {
-    const project = await createProject([
-      node({ id: 'finished', kind: 'complete', checkpoint: true })
-    ], temporaryRoot)
+    const project = await createProject(
+      [node({ id: 'finished', kind: 'complete', checkpoint: true })],
+      temporaryRoot
+    )
     const envelope = await runtimeStore.create(project, 'manual')
     const engine = new ProjectWorkflowEngine(
       envelope.runtime.runtimeId,
@@ -58,23 +59,26 @@ describe('ProjectWorkflowEngine', () => {
   })
 
   it('navigates, checkpoints, waits for a domain event, and completes', async () => {
-    const project = await createProject([
-      node({
-        id: 'open-feed',
-        kind: 'navigate',
-        url: 'https://example.com/feed',
-        next: 'scan-complete',
-        checkpoint: true
-      }),
-      node({
-        id: 'scan-complete',
-        kind: 'wait-for-event',
-        eventName: 'feed.scan-complete',
-        next: 'finished',
-        checkpoint: true
-      }),
-      node({ id: 'finished', kind: 'complete', checkpoint: true })
-    ], temporaryRoot)
+    const project = await createProject(
+      [
+        node({
+          id: 'open-feed',
+          kind: 'navigate',
+          url: 'https://example.com/feed',
+          next: 'scan-complete',
+          checkpoint: true
+        }),
+        node({
+          id: 'scan-complete',
+          kind: 'wait-for-event',
+          eventName: 'feed.scan-complete',
+          next: 'finished',
+          checkpoint: true
+        }),
+        node({ id: 'finished', kind: 'complete', checkpoint: true })
+      ],
+      temporaryRoot
+    )
     const envelope = await runtimeStore.create(project, 'manual')
     const navigate = vi.fn(async () => undefined)
     const changes: string[] = []
@@ -117,15 +121,18 @@ describe('ProjectWorkflowEngine', () => {
   })
 
   it('uses main-process time for delay nodes', async () => {
-    const project = await createProject([
-      node({
-        id: 'pause',
-        kind: 'delay',
-        delayMs: 5_000,
-        next: 'finished'
-      }),
-      node({ id: 'finished', kind: 'complete' })
-    ], temporaryRoot)
+    const project = await createProject(
+      [
+        node({
+          id: 'pause',
+          kind: 'delay',
+          delayMs: 5_000,
+          next: 'finished'
+        }),
+        node({ id: 'finished', kind: 'complete' })
+      ],
+      temporaryRoot
+    )
     const envelope = await runtimeStore.create(project, 'manual')
     const engine = new ProjectWorkflowEngine(
       envelope.runtime.runtimeId,
@@ -145,15 +152,18 @@ describe('ProjectWorkflowEngine', () => {
   })
 
   it('freezes workflow deadlines during manual takeover', async () => {
-    const project = await createProject([
-      node({
-        id: 'pause',
-        kind: 'delay',
-        delayMs: 5_000,
-        next: 'finished'
-      }),
-      node({ id: 'finished', kind: 'complete' })
-    ], temporaryRoot)
+    const project = await createProject(
+      [
+        node({
+          id: 'pause',
+          kind: 'delay',
+          delayMs: 5_000,
+          next: 'finished'
+        }),
+        node({ id: 'finished', kind: 'complete' })
+      ],
+      temporaryRoot
+    )
     const envelope = await runtimeStore.create(project, 'manual')
     const engine = new ProjectWorkflowEngine(
       envelope.runtime.runtimeId,
@@ -165,10 +175,7 @@ describe('ProjectWorkflowEngine', () => {
     await engine.start()
     now += 2_000
     expect(
-      await engine.pause(
-        '测试站点登录失效',
-        'authentication'
-      )
+      await engine.pause('测试站点登录失效', 'authentication')
     ).toMatchObject({
       status: 'paused',
       nextWakeAt: null,
@@ -190,15 +197,18 @@ describe('ProjectWorkflowEngine', () => {
   })
 
   it('does not consume domain events while paused', async () => {
-    const project = await createProject([
-      node({
-        id: 'approval',
-        kind: 'wait-for-event',
-        eventName: 'human.approved',
-        next: 'finished'
-      }),
-      node({ id: 'finished', kind: 'complete' })
-    ], temporaryRoot)
+    const project = await createProject(
+      [
+        node({
+          id: 'approval',
+          kind: 'wait-for-event',
+          eventName: 'human.approved',
+          next: 'finished'
+        }),
+        node({ id: 'finished', kind: 'complete' })
+      ],
+      temporaryRoot
+    )
     const envelope = await runtimeStore.create(project, 'manual')
     const engine = new ProjectWorkflowEngine(
       envelope.runtime.runtimeId,
@@ -227,16 +237,19 @@ describe('ProjectWorkflowEngine', () => {
   })
 
   it('retries classified failures with exponential backoff then opens the workflow circuit', async () => {
-    const project = await createProject([
-      node({
-        id: 'open-feed',
-        kind: 'navigate',
-        url: 'https://example.com/feed',
-        next: 'finished',
-        maxAttempts: 2
-      }),
-      node({ id: 'finished', kind: 'complete' })
-    ], temporaryRoot)
+    const project = await createProject(
+      [
+        node({
+          id: 'open-feed',
+          kind: 'navigate',
+          url: 'https://example.com/feed',
+          next: 'finished',
+          maxAttempts: 2
+        }),
+        node({ id: 'finished', kind: 'complete' })
+      ],
+      temporaryRoot
+    )
     const envelope = await runtimeStore.create(project, 'manual')
     const navigate = vi.fn(async () => {
       throw new Error('network disconnected')
@@ -267,16 +280,19 @@ describe('ProjectWorkflowEngine', () => {
   })
 
   it('skips an already committed idempotency key after restart', async () => {
-    const project = await createProject([
-      node({
-        id: 'download',
-        kind: 'navigate',
-        url: 'https://example.com/download',
-        next: 'finished',
-        idempotencyKey: 'post-1:attachment-1'
-      }),
-      node({ id: 'finished', kind: 'complete' })
-    ], temporaryRoot)
+    const project = await createProject(
+      [
+        node({
+          id: 'download',
+          kind: 'navigate',
+          url: 'https://example.com/download',
+          next: 'finished',
+          idempotencyKey: 'post-1:attachment-1'
+        }),
+        node({ id: 'finished', kind: 'complete' })
+      ],
+      temporaryRoot
+    )
     const envelope = await runtimeStore.create(project, 'manual')
     await runtimeStore.completeIdempotency({
       key: 'post-1:attachment-1',
@@ -298,22 +314,25 @@ describe('ProjectWorkflowEngine', () => {
   })
 
   it('takes an explicit failure transition before exhausting retries', async () => {
-    const project = await createProject([
-      node({
-        id: 'open-feed',
-        kind: 'navigate',
-        url: 'https://example.com/feed',
-        next: 'finished',
-        onFailure: { authentication: 'login-required' }
-      }),
-      node({
-        id: 'login-required',
-        kind: 'wait-for-event',
-        eventName: 'auth.login-restored',
-        next: 'finished'
-      }),
-      node({ id: 'finished', kind: 'complete' })
-    ], temporaryRoot)
+    const project = await createProject(
+      [
+        node({
+          id: 'open-feed',
+          kind: 'navigate',
+          url: 'https://example.com/feed',
+          next: 'finished',
+          onFailure: { authentication: 'login-required' }
+        }),
+        node({
+          id: 'login-required',
+          kind: 'wait-for-event',
+          eventName: 'auth.login-restored',
+          next: 'finished'
+        }),
+        node({ id: 'finished', kind: 'complete' })
+      ],
+      temporaryRoot
+    )
     const envelope = await runtimeStore.create(project, 'manual')
     const engine = new ProjectWorkflowEngine(
       envelope.runtime.runtimeId,
@@ -356,9 +375,7 @@ async function createProject(
   nodes: WorkflowNode[],
   root: string
 ): Promise<ProjectDefinition> {
-  const store = new ProjectStore(
-    join(root, `project-${Math.random()}.json`)
-  )
+  const store = new ProjectStore(join(root, `project-${Math.random()}.json`))
   const draft: ProjectDraft = {
     id: 'workflow-project',
     name: 'Workflow Project',

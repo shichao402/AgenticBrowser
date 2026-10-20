@@ -10,11 +10,7 @@ import type {
   StrategyPermission,
   StrategyRunAt
 } from '../shared/contracts'
-import {
-  isNodeError,
-  readJsonFile,
-  writeJsonAtomic
-} from './atomic-file'
+import { isNodeError, readJsonFile, writeJsonAtomic } from './atomic-file'
 import { isValidStrategyMatchPattern } from './strategy-match'
 
 export interface StrategyState {
@@ -132,9 +128,7 @@ export class StrategyStore {
       }
       return {
         schemaVersion: 1,
-        strategies: state.strategies.filter(
-          (item) => item.manifest.id !== id
-        )
+        strategies: state.strategies.filter((item) => item.manifest.id !== id)
       }
     })
   }
@@ -194,9 +188,7 @@ export function parseStrategyState(value: unknown): StrategyState | null {
   return { schemaVersion: 1, strategies }
 }
 
-export function parseStrategyManifest(
-  value: unknown
-): StrategyManifest | null {
+export function parseStrategyManifest(value: unknown): StrategyManifest | null {
   if (!isRecord(value) || !hasExactKeys(value, MANIFEST_KEYS)) {
     return null
   }
@@ -269,17 +261,10 @@ function parseStrategyDraft(value: unknown): StrategyDraft | null {
   }
 }
 
-function parseStrategyDefinition(
-  value: unknown
-): StrategyDefinition | null {
+function parseStrategyDefinition(value: unknown): StrategyDefinition | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, [
-      'manifest',
-      'source',
-      'enabled',
-      'updatedAt'
-    ])
+    !hasExactKeys(value, ['manifest', 'source', 'enabled', 'updatedAt'])
   ) {
     return null
   }
@@ -311,8 +296,7 @@ function isPatternArray(
     value.length >= minimum &&
     value.length <= maximum &&
     value.every(
-      (item) =>
-        typeof item === 'string' && isValidStrategyMatchPattern(item)
+      (item) => typeof item === 'string' && isValidStrategyMatchPattern(item)
     ) &&
     new Set(value).size === value.length
   )
@@ -354,9 +338,7 @@ function isJsonValue(value: unknown, depth = 0): value is JsonValue {
   if (!isRecord(value) || Object.keys(value).length > 1_000) {
     return false
   }
-  return Object.values(value).every((item) =>
-    isJsonValue(item, depth + 1)
-  )
+  return Object.values(value).every((item) => isJsonValue(item, depth + 1))
 }
 
 function cloneJsonRecord(
@@ -395,14 +377,10 @@ function isIntegerBetween(
   )
 }
 
-function hasExactKeys(
-  value: Record<string, unknown>,
-  keys: string[]
-): boolean {
+function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
   const actual = Object.keys(value)
   return (
-    actual.length === keys.length &&
-    actual.every((key) => keys.includes(key))
+    actual.length === keys.length && actual.every((key) => keys.includes(key))
   )
 }
 

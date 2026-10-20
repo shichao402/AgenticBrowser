@@ -72,8 +72,7 @@ async function main() {
 
   try {
     const port = await listen(server)
-    const pageUrl =
-      `http://127.0.0.1:${port}/project-download-renderer-recovery`
+    const pageUrl = `http://127.0.0.1:${port}/project-download-renderer-recovery`
     const childResultPath = join(temporaryRoot, 'child-result.json')
     child = spawn(
       electronPath,
@@ -91,8 +90,7 @@ async function main() {
           AGENTIC_PROJECT_DOWNLOAD_RENDERER_RESULT_PATH: childResultPath,
           AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_BYTES:
             String(expectedBytes),
-          AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_SHA256:
-            expectedSha256
+          AGENTIC_PROJECT_DOWNLOAD_RENDERER_EXPECTED_SHA256: expectedSha256
         },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: false
@@ -145,7 +143,7 @@ async function main() {
           passed: false,
           error:
             error instanceof Error
-              ? error.stack ?? error.message
+              ? (error.stack ?? error.message)
               : String(error),
           downloadRequests,
           childOutput

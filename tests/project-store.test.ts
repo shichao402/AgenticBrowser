@@ -45,9 +45,7 @@ describe('ProjectStore', () => {
       name: '更新后的项目',
       revision: 2
     })
-    expect(updated.projects[0]?.createdAt).toBe(
-      first.projects[0]?.createdAt
-    )
+    expect(updated.projects[0]?.createdAt).toBe(first.projects[0]?.createdAt)
   })
 
   it('serializes concurrent saves and maintains an active project', async () => {
@@ -127,9 +125,9 @@ describe('ProjectStore', () => {
       projects: []
     })
     const files = await readdir(temporaryRoot)
-    expect(files.some((file) => file.startsWith('projects.json.invalid-'))).toBe(
-      true
-    )
+    expect(
+      files.some((file) => file.startsWith('projects.json.invalid-'))
+    ).toBe(true)
   })
 
   it('rejects unknown fields in persisted state', () => {

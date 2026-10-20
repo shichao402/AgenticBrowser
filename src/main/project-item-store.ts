@@ -2,11 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { rename } from 'node:fs/promises'
 
 import type { JsonValue } from '../shared/contracts'
-import {
-  isNodeError,
-  readJsonFile,
-  writeJsonAtomic
-} from './atomic-file'
+import { isNodeError, readJsonFile, writeJsonAtomic } from './atomic-file'
 
 export type ProjectItemClassification = 'matched' | 'skipped'
 
@@ -120,10 +116,7 @@ export class ProjectItemStore {
         }
         await writeJsonAtomic(this.filePath, {
           schemaVersion: 1,
-          records: pruneRecords(
-            [...state.records, record],
-            this.maximumRecords
-          )
+          records: pruneRecords([...state.records, record], this.maximumRecords)
         } satisfies ProjectItemState)
         return {
           kind: 'created',
@@ -141,8 +134,7 @@ export class ProjectItemStore {
         firstSeenAt: existing.firstSeenAt,
         lastSeenAt: observedAt,
         lastRuntimeId: runtimeId,
-        seenCount:
-          existing.seenCount + (firstSeenInRuntime ? 1 : 0)
+        seenCount: existing.seenCount + (firstSeenInRuntime ? 1 : 0)
       }
       const records = [...state.records]
       records[index] = record
@@ -168,8 +160,7 @@ export class ProjectItemStore {
   }
 
   private async quarantineInvalidFile(): Promise<void> {
-    const quarantinePath =
-      `${this.filePath}.invalid-${Date.now()}-${randomUUID()}`
+    const quarantinePath = `${this.filePath}.invalid-${Date.now()}-${randomUUID()}`
     await rename(this.filePath, quarantinePath).catch((error: unknown) => {
       if (!isNodeError(error, 'ENOENT')) {
         throw error
@@ -182,9 +173,7 @@ export function emptyProjectItemState(): ProjectItemState {
   return { schemaVersion: 1, records: [] }
 }
 
-export function parseProjectItemState(
-  value: unknown
-): ProjectItemState | null {
+export function parseProjectItemState(value: unknown): ProjectItemState | null {
   if (
     !isRecord(value) ||
     !hasExactKeys(value, ['schemaVersion', 'records']) ||
@@ -237,10 +226,8 @@ export function parseProjectItemObservation(
   ) {
     return null
   }
-  const sourceUrl =
-    value.sourceUrl === undefined ? sourcePage : value.sourceUrl
-  const publishedAt =
-    value.publishedAt === undefined ? null : value.publishedAt
+  const sourceUrl = value.sourceUrl === undefined ? sourcePage : value.sourceUrl
+  const publishedAt = value.publishedAt === undefined ? null : value.publishedAt
   const metadata = value.metadata === undefined ? {} : value.metadata
   if (
     typeof value.businessItemId !== 'string' ||
@@ -317,10 +304,7 @@ function parseProjectItemRecord(value: unknown): ProjectItemRecord | null {
     value.sourceUrl as string,
     value.runtimeId as string
   )
-  if (
-    !observation ||
-    observation.runtimeId !== value.lastRuntimeId
-  ) {
+  if (!observation || observation.runtimeId !== value.lastRuntimeId) {
     return null
   }
   return {
@@ -341,9 +325,7 @@ function pruneRecords(
     return records
   }
   return [...records]
-    .sort((left, right) =>
-      left.lastSeenAt.localeCompare(right.lastSeenAt)
-    )
+    .sort((left, right) => left.lastSeenAt.localeCompare(right.lastSeenAt))
     .slice(-maximum)
 }
 
@@ -383,9 +365,7 @@ function isJsonValue(value: unknown, depth = 0): value is JsonValue {
   return (
     isRecord(value) &&
     Object.keys(value).length <= 1_000 &&
-    Object.values(value).every((entry) =>
-      isJsonValue(entry, depth + 1)
-    )
+    Object.values(value).every((entry) => isJsonValue(entry, depth + 1))
   )
 }
 

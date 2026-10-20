@@ -13,17 +13,13 @@ import {
 
 describe('Strategy URL matcher', () => {
   it('validates structured HTTP(S) patterns and rejects unsafe forms', () => {
-    expect(isValidStrategyMatchPattern('https://example.com/feed/*')).toBe(
-      true
-    )
-    expect(isValidStrategyMatchPattern('*://*.example.com:*/feed/*')).toBe(
-      true
-    )
+    expect(isValidStrategyMatchPattern('https://example.com/feed/*')).toBe(true)
+    expect(isValidStrategyMatchPattern('*://*.example.com:*/feed/*')).toBe(true)
     expect(isValidStrategyMatchPattern('<all_urls>')).toBe(true)
     expect(isValidStrategyMatchPattern('file:///*')).toBe(false)
-    expect(
-      isValidStrategyMatchPattern('https://user:pass@example.com/*')
-    ).toBe(false)
+    expect(isValidStrategyMatchPattern('https://user:pass@example.com/*')).toBe(
+      false
+    )
     expect(isValidStrategyMatchPattern('https://example.com:70000/*')).toBe(
       false
     )
@@ -50,10 +46,7 @@ describe('Strategy URL matcher', () => {
       urlMatchesStrategyPattern('http://example.com:8080/feed/1', pattern)
     ).toBe(true)
     expect(
-      urlMatchesStrategyPattern(
-        'https://a.b.example.com/feed/1',
-        pattern
-      )
+      urlMatchesStrategyPattern('https://a.b.example.com/feed/1', pattern)
     ).toBe(true)
     expect(
       urlMatchesStrategyPattern('https://notexample.com/feed/1', pattern)
@@ -118,10 +111,7 @@ function createManifest(
   }
 }
 
-function createDefinition(
-  id: string,
-  enabled: boolean
-): StrategyDefinition {
+function createDefinition(id: string, enabled: boolean): StrategyDefinition {
   return {
     manifest: createManifest({ id }),
     source: '',

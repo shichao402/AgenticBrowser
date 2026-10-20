@@ -7,22 +7,15 @@ import { createCapabilityPolicy } from './capability-store'
 
 export const AUTOMATION_PLAYGROUND_ROOT =
   'https://www.selenium.dev/selenium/web'
-export const AUTOMATION_PLAYGROUND_FORM_URL =
-  `${AUTOMATION_PLAYGROUND_ROOT}/web-form.html`
-export const AUTOMATION_PLAYGROUND_DYNAMIC_URL =
-  `${AUTOMATION_PLAYGROUND_ROOT}/dynamic.html`
-export const AUTOMATION_PLAYGROUND_DOWNLOAD_URL =
-  `${AUTOMATION_PLAYGROUND_ROOT}/downloads/download.html`
-export const AUTOMATION_PLAYGROUND_MISSING_URL =
-  `${AUTOMATION_PLAYGROUND_ROOT}/agentic-browser-missing-page.html`
-export const AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL =
-  `${AUTOMATION_PLAYGROUND_ROOT}/downloads/file_1.txt`
+export const AUTOMATION_PLAYGROUND_FORM_URL = `${AUTOMATION_PLAYGROUND_ROOT}/web-form.html`
+export const AUTOMATION_PLAYGROUND_DYNAMIC_URL = `${AUTOMATION_PLAYGROUND_ROOT}/dynamic.html`
+export const AUTOMATION_PLAYGROUND_DOWNLOAD_URL = `${AUTOMATION_PLAYGROUND_ROOT}/downloads/download.html`
+export const AUTOMATION_PLAYGROUND_MISSING_URL = `${AUTOMATION_PLAYGROUND_ROOT}/agentic-browser-missing-page.html`
+export const AUTOMATION_PLAYGROUND_DOWNLOAD_FILE_URL = `${AUTOMATION_PLAYGROUND_ROOT}/downloads/file_1.txt`
 export const AUTOMATION_PLAYGROUND_SECOND_SITE_URL =
   'https://testpages.eviltester.com/challenges/synchronization/dynamic-buttons-01/'
-export const AUTOMATION_PLAYGROUND_PROJECT_ID =
-  'selenium-automation-playground'
-export const AUTOMATION_PLAYGROUND_STRATEGY_ID =
-  'selenium-automation-smoke'
+export const AUTOMATION_PLAYGROUND_PROJECT_ID = 'selenium-automation-playground'
+export const AUTOMATION_PLAYGROUND_STRATEGY_ID = 'selenium-automation-smoke'
 export const AUTOMATION_PLAYGROUND_STRATEGY_VERSION = '0.1.0'
 
 export interface AutomationPlaygroundProjectOptions {

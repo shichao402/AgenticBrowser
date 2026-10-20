@@ -8,10 +8,8 @@ export const PROJECT_DOWNLOAD_NETWORK_PROJECT_ID =
   'smoke-project-download-network'
 export const PROJECT_DOWNLOAD_NETWORK_STRATEGY_ID =
   'smoke-project-download-network'
-export const PROJECT_DOWNLOAD_DISK_PROJECT_ID =
-  'smoke-project-download-disk'
-export const PROJECT_DOWNLOAD_DISK_STRATEGY_ID =
-  'smoke-project-download-disk'
+export const PROJECT_DOWNLOAD_DISK_PROJECT_ID = 'smoke-project-download-disk'
+export const PROJECT_DOWNLOAD_DISK_STRATEGY_ID = 'smoke-project-download-disk'
 
 export interface ProjectDownloadFaultSmokeOptions {
   profileId: string

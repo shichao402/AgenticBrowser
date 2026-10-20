@@ -30,9 +30,7 @@ describe('packaged Watchdog launcher', () => {
       lockPath: join(paths.userDataPath, 'runtime', 'watchdog.lock')
     })
     expect(config.maxRestarts).toBeGreaterThan(0)
-    expect(config.heartbeatTimeoutMs).toBeGreaterThan(
-      config.heartbeatPollMs
-    )
+    expect(config.heartbeatTimeoutMs).toBeGreaterThan(config.heartbeatPollMs)
   })
 
   it('does not forward arbitrary or autostart arguments into the managed child', () => {
