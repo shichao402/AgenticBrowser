@@ -1,0 +1,67 @@
+name: Publish Dec skill
+
+# 把 docs/skills 下的 skill 自动发布到 Dec registry，消费侧再用 dec 订阅安装。
+#
+# 为什么不需要手工 bump 版本：
+# scripts/skill-ref.mjs 用「影响发布产物的提交数」派生 ref，形如 v0.1.0+3。
+# 内容不变则 ref 不变，publish 走幂等分支；内容一变必然产生新提交，ref 单调递增。
+# 提交数与 App 的 VERSION.json 无关，所以应用发版不会带出重复内容的 skill 版本。
+#
+# 唯一的注意点：main 上不要 force-push 回溯提交。提交数减少会让 ref 退回到
+# 已发布的旧值，registry 里的 latest 仍指向更高的版本，修正就发不出去。
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/skills/**"
+      - ".dec/config.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dec-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish skill
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # skill-ref.mjs 依赖完整的提交历史来统计 skill 目录的提交数。
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # 发布前先确认生成物与类型真源一致。registry 里的文档是别人直接安装消费的，
+      # 让漂移的文档流出去，比让这次发布失败代价大得多。
+      - name: Verify docs match type source
+        run: |
+          npm ci
+          npm run verify:api-docs
+
+      - name: Resolve ref from skill history
+        id: ref
+        run: |
+          ref="$(node scripts/skill-ref.mjs print)"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Resolved ref=$ref"
+
+      - name: Publish provides
+        uses: shichao402/Dec/.github/actions/publish-provides@32c2705f859266e7ddacf5ea435d3e26e691ccf0
+        with:
+          project-root: ${{ github.workspace }}
+          ref: ${{ steps.ref.outputs.ref }}
+          registry-ssh-key: ${{ secrets.DEC_REGISTRY_SSH_KEY }}

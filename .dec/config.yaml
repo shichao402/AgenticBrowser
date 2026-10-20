@@ -1,0 +1,21 @@
+# Dec 项目配置
+#
+# 本仓是 skill 的提供方（provider），不是消费方，因此只有 provides 没有 requires。
+# 改动 provides 源目录后由 .github/workflows/dec-publish.yml 自动发布到 Dec registry，
+# 消费侧再用 dec 的订阅机制安装。
+kind: project
+version: v2
+layout_version: 1
+project_name: agentic-browser
+
+# 作者根指向 docs，于是 skill 的作者源就是 docs/skills/<name>。
+# 这样 skill 与它引用的文档留在同处，不必为了发布搬家。
+provides_root: docs
+
+provides:
+    agentic-browser-api:
+        source: docs/skills/agentic-browser-api
+        visibility: public
+        plane: local
+        type: skill
+        name: agentic-browser-api

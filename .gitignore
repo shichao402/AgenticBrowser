@@ -34,6 +34,11 @@ tmp/
 *.local.json
 *.private.*
 
+# Dec 本地状态（缓存与同步产物不入库，配置本身要入库）
+.dec/cache/
+.dec/sync/
+.dec/.version
+
 # Editors and operating systems
 .idea/
 .vscode/

@@ -31,6 +31,7 @@ MVP 不包含 Widevine DRM、Chrome Sync、Google 浏览器私有 API或完整 C
 ## 文档
 
 - [文档索引](docs/README.md)
+- [API 说明书](docs/skills/agentic-browser-api/SKILL.md)
 - [总体架构](docs/architecture/overview.md)
 - [产品领域模型](docs/architecture/product-model.md)
 - [浏览器内核研究](docs/research/browser-runtime-and-compatibility.md)
