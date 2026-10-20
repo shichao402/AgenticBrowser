@@ -54,6 +54,7 @@ import { HealthMonitor } from './health-monitor'
 import { normalizeNavigationUrl } from './navigation'
 import { sanitizeDownloadFileName } from './download-path'
 import { ContentFilter } from './content-filter'
+import { summarizeLatencies, type LatencyStats } from './latency-stats'
 import { RecoveryPolicy, type RecoveryAction } from './recovery-policy'
 import { urlMatchesStrategyPattern } from './strategy-match'
 import {
@@ -155,12 +156,8 @@ export interface MultiViewCaptureBenchmark {
   rssDeltaBytes: number
 }
 
-export interface LatencyStats {
-  sampleCount: number
-  averageMs: number
-  p95Ms: number
-  maximumMs: number
-}
+export type { LatencyStats }
+export { summarizeLatencies }
 
 export interface HeartbeatStallProbe {
   blockMs: number
@@ -1873,32 +1870,6 @@ export class BrowserSupervisor {
 
     this.lastEvent = event
     this.publish(event)
-  }
-}
-
-function summarizeLatencies(durations: number[]): LatencyStats {
-  if (durations.length === 0) {
-    return {
-      sampleCount: 0,
-      averageMs: 0,
-      p95Ms: 0,
-      maximumMs: 0
-    }
-  }
-
-  const sorted = [...durations].sort((left, right) => left - right)
-  const p95Index = Math.min(
-    sorted.length - 1,
-    Math.ceil(sorted.length * 0.95) - 1
-  )
-
-  return {
-    sampleCount: durations.length,
-    averageMs:
-      durations.reduce((total, duration) => total + duration, 0) /
-      durations.length,
-    p95Ms: sorted[p95Index] ?? 0,
-    maximumMs: sorted.at(-1) ?? 0
   }
 }
 

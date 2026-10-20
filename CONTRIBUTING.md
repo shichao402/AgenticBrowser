@@ -38,8 +38,15 @@ AgenticBrowser 采用文档随实现同步演进的方式开发。
 ## 验证门禁
 
 - Pull Request 与 `main` push 的 CI 在 `windows-latest` 和 `macos-latest` 上分别执行 `npm ci` 和 `npm run check`。
-- `npm run check` 覆盖版本一致性、Prettier 格式检查、ESLint、类型检查、Vitest、生产构建和生产依赖审计，不包含 Electron smoke。
+- `npm run check` 覆盖版本一致性、Prettier 格式检查、ESLint、类型检查、Vitest 覆盖率、生产构建和生产依赖审计，不包含 Electron smoke。
 - 改动浏览器生命周期、Strategy、Project、下载、Watchdog 或打包入口时，必须额外运行 README 中对应的 smoke，并在验证文档记录结果。
+
+## 覆盖率约定
+
+- 覆盖率阈值定义在 `vitest.config.ts`，随 `npm run check` 强制执行。阈值只允许向上调整。
+- 需要更低阈值才能通过，说明本次改动应当补测，而不是调低标准。
+- 提升覆盖率最有效的方式是把纯逻辑从 Electron 强耦合模块里剥离出来，而不是给难以触发的分支写形式化断言。
+- 新增的纯函数模块默认按全覆盖要求编写测试，并至少验证一次「改坏实现能否让测试变红」。
 
 ## 代码风格
 

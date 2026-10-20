@@ -19,11 +19,11 @@ export default defineConfig({
         'src/preload/**'
       ],
       // 阈值取当前实测值的下沿，用于防止覆盖率回退。实测约
-      // 54.09 / 62.96 / 60.75 / 54.19。
+      // 54.3 / 63.11 / 61.1 / 54.37。
       thresholds: {
         statements: 53,
         branches: 62,
-        functions: 60,
+        functions: 61,
         lines: 53
       }
     }
