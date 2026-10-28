@@ -147,3 +147,20 @@ export function isTerminalProjectRuntime(
       runtime.status === 'cancelled')
   )
 }
+
+/**
+ * 某个页面视图此刻是否应当可见。
+ *
+ * 原生 `WebContentsView` 的层位高于壳层的渲染层，渲染层的 z-index 无法盖住它。
+ * 因此全屏覆盖层（设置页）打开时，必须由主进程把页面视图整体隐藏，
+ * 否则内嵌网页会整片压在设置页之上。
+ *
+ * @param overlayVisible 覆盖层是否打开
+ * @param selected 该视图是否是当前选中的那一个
+ */
+export function isPageViewVisible(
+  overlayVisible: boolean,
+  selected: boolean
+): boolean {
+  return !overlayVisible && selected
+}

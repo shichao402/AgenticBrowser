@@ -9,6 +9,7 @@ import {
   cloneProjectDefinition,
   cloneStrategyDefinitions,
   formatUnknownError,
+  isPageViewVisible,
   isTerminalProjectRuntime,
   normalizeComparableUrl,
   parseDownloadIntentPayload,
@@ -187,6 +188,19 @@ describe('isTerminalProjectRuntime', () => {
   it('treats a missing runtime as non-terminal', () => {
     expect(isTerminalProjectRuntime(null)).toBe(false)
     expect(isTerminalProjectRuntime(undefined)).toBe(false)
+  })
+})
+
+describe('isPageViewVisible', () => {
+  it('hides every page view while an overlay is open', () => {
+    // 覆盖层（设置页）打开时，选中的视图也必须让位，否则内嵌网页会盖住设置页。
+    expect(isPageViewVisible(true, true)).toBe(false)
+    expect(isPageViewVisible(true, false)).toBe(false)
+  })
+
+  it('shows only the selected view once the overlay closes', () => {
+    expect(isPageViewVisible(false, true)).toBe(true)
+    expect(isPageViewVisible(false, false)).toBe(false)
   })
 })
 

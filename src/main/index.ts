@@ -29,6 +29,7 @@ import {
   cloneProjectDefinition,
   cloneStrategyDefinitions,
   formatUnknownError,
+  isPageViewVisible,
   isTerminalProjectRuntime,
   normalizeComparableUrl,
   parseDownloadIntentPayload,
@@ -487,13 +488,16 @@ async function createMainWindow(
     return supervisor
   }
   /** 覆盖层打开时，任何视图都不得显示。 */
-  const isPageViewVisible = (selected: boolean): boolean =>
-    !pageOverlayVisible && selected
   const applyPageViewVisibility = (): void => {
-    supervisor.setVisible(isPageViewVisible(!visibleBackgroundRuntimeId))
+    supervisor.setVisible(
+      isPageViewVisible(pageOverlayVisible, !visibleBackgroundRuntimeId)
+    )
     for (const [runtimeId, runtime] of backgroundProjectRuntimes) {
       runtime.setVisible(
-        isPageViewVisible(runtimeId === visibleBackgroundRuntimeId)
+        isPageViewVisible(
+          pageOverlayVisible,
+          runtimeId === visibleBackgroundRuntimeId
+        )
       )
     }
   }
