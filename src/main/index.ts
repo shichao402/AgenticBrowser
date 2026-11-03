@@ -929,7 +929,7 @@ async function createMainWindow(
         'project-runtime-failed',
         `${runtimeProject.name}; ${detail}`
       )
-      throw new Error(`Project Runtime 启动失败：${detail}`)
+      throw new Error(`Project Runtime 启动失败：${detail}`, { cause: error })
     }
   }
   const restoreDevelopmentProjectContext = async (): Promise<void> => {
@@ -1511,7 +1511,7 @@ async function createMainWindow(
         'project-runtime-failed',
         `${projectName}; 停止失败：${reason}`
       )
-      throw new Error(`Project Runtime 停止失败：${reason}`)
+      throw new Error(`Project Runtime 停止失败：${reason}`, { cause: error })
     }
   }
 
