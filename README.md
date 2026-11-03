@@ -65,7 +65,7 @@ npm run format:check  # 只检查不写入
 npm run check
 ```
 
-`npm run check` 依次执行版本一致性检查、Prettier 格式检查、ESLint、类型检查、Vitest、生产构建和生产依赖审计。CI 在 `windows-latest` 与 `macos-latest` 两个平台各跑一次同一门禁。
+`npm run check` 依次执行 lockfile 下载地址检查、版本一致性检查、Prettier 格式检查、ESLint、类型检查、Vitest、生产构建和生产依赖审计。本机走内网镜像装依赖后若 lockfile 检查失败，执行 `npm run lockfile:fix` 改回公网地址。CI 在 `windows-latest` 与 `macos-latest` 两个平台各跑一次同一门禁。
 
 验证 renderer 故障与应用外 Watchdog 恢复：
 

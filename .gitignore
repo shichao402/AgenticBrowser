@@ -50,3 +50,6 @@ Desktop.ini
 test-results/
 playwright-report/
 *.lcov
+
+# Agent 本地任务笔记
+.agent/
