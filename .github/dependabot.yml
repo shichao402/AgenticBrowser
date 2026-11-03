@@ -21,8 +21,27 @@ updates:
         patterns:
           - vitest
           - '@vitest/*'
+      # Dependabot 判定按 dependency-type 分的组比按名字分的组“更具体”，
+      # 不显式排除的话 electron、vitest 会被吸进这个组，上面两个分组就形同虚设。
       dev-dependencies:
         dependency-type: development
+        exclude-patterns:
+          - electron
+          - electron-builder
+          - electron-vite
+          - vitest
+          - '@vitest/*'
+    ignore:
+      # TS 7.0 不提供编译器 JS API，typescript-eslint（peer <6.1.0）和
+      # scripts/api-docs 的类型源解析都依赖它。等 7.1 稳定 API 发布且
+      # typescript-eslint 正式支持后再移除这条。
+      - dependency-name: typescript
+        versions: ['>=7']
+      # main 进程跑在 Electron 自带的 Node 上（Electron 44/45 均为 Node 24），
+      # 类型大版本要跟它对齐，否则类型检查会放行运行时没有的 API。
+      # Electron 升级换了 Node 大版本时手动升级。
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
 
   # Actions 版本也需要跟进，否则会因运行时弃用而突然失败。
   - package-ecosystem: github-actions
