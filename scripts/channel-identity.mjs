@@ -42,7 +42,8 @@ export function readVersionManifest(root) {
     return JSON.parse(raw)
   } catch (error) {
     throw new Error(
-      `VERSION.json 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`
+      `VERSION.json 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     )
   }
 }

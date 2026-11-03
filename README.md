@@ -43,7 +43,7 @@ MVP 不包含 Widevine DRM、Chrome Sync、Google 浏览器私有 API或完整 C
 
 ## 开发
 
-要求 Node.js 22 LTS（仓库内 `.nvmrc` 已锁定，`engines` 要求 `>=22`）。
+要求 Node.js 22 LTS（仓库内 `.nvmrc` 已锁定，`engines` 要求 `^22.13.0 || >=24`，下限来自 ESLint 10）。
 
 ```bash
 npm install

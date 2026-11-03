@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-Node.js 需要 22 或更高版本，`package.json` 的 `engines` 写明 `>=22`。
+Node.js 版本需满足 `package.json` 的 `engines`：`^22.13.0 || >=24`。
 
 安装与构建是两件事，顺序不能颠倒：
 

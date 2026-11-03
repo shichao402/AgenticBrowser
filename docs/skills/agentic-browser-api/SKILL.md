@@ -53,7 +53,7 @@ Console 里访问 `agenticStrategy` 也会失败。
 
 ## 最小上手步骤
 
-1. 确认 Node.js 22 或更高版本，`package.json` 的 `engines` 要求 `>=22`。
+1. 确认 Node.js 版本满足 `engines`：`^22.13.0 || >=24`。
 2. 安装依赖：`npm install`。
 3. 启动开发模式：`npm run dev`。该命令带热重载，修改源码后自动重建。
 4. 在应用窗口按 `Cmd+Option+I` 或 `Ctrl+Shift+I` 打开 DevTools，切到
