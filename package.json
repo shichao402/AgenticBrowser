@@ -104,6 +104,6 @@
     }
   },
   "allowScripts": {
-    "electron@44.7.2": true
+    "electron@45.2.1": true
   }
 }
