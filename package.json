@@ -48,7 +48,7 @@
     "deploy:dev": "node scripts/deploy-channel.mjs dev"
   },
   "engines": {
-    "node": ">=22"
+    "node": "^22.13.0 || >=24"
   },
   "dependencies": {
     "react": "19.3.1",
