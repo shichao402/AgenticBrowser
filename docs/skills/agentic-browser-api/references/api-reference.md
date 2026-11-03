@@ -11,7 +11,7 @@
 - `src/preload/strategy-bootstrap.ts`
 - `src/main/strategy-runtime.ts`
 
-生成器使用的 TypeScript 版本：5.9.3
+生成器使用的 TypeScript 版本：6.0.3
 
 ## 渲染进程桥 `window.agenticBrowser`
 
