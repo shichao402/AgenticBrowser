@@ -82,6 +82,9 @@ export function stageRelkit({ target }) {
   if (!target.startsWith('windows')) {
     chmodSync(updaterPath, 0o755)
   }
+  if (target.startsWith('darwin')) {
+    ensureMacSignature(updaterPath)
+  }
   console.log(`✓ relkit updater：${updaterPath}`)
 
   if (target === hostTarget()) {
@@ -119,6 +122,34 @@ export function checkProtoDrift(updaterPath) {
     )
   }
   console.log('✓ updater proto 副本与引擎一致')
+}
+
+/**
+ * electron-builder 签主程序时要求 Contents/MacOS 下的嵌套代码都已签名。
+ * arm64 链接器会自动给引擎加 ad-hoc 签名，amd64 产物则完全未签名，
+ * 所以只在“未签名”时补一个 ad-hoc 签名，已签名的保持原字节不动。
+ * @param {string} updaterPath
+ */
+export function ensureMacSignature(updaterPath) {
+  if (process.platform !== 'darwin') {
+    throw new Error('macOS 目标只能在 macOS 上暂存（需要 codesign）')
+  }
+  const verify = spawnSync('codesign', ['--verify', updaterPath], {
+    encoding: 'utf8'
+  })
+  if (verify.status === 0) {
+    return
+  }
+  const sign = spawnSync('codesign', ['--sign', '-', '--force', updaterPath], {
+    encoding: 'utf8'
+  })
+  if (sign.error) {
+    throw sign.error
+  }
+  if (sign.status !== 0) {
+    throw new Error(`relkit-updater ad-hoc 签名失败：${sign.stderr.trim()}`)
+  }
+  console.log('✓ relkit-updater 原本未签名，已补 ad-hoc 签名')
 }
 
 /**
