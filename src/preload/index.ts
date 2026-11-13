@@ -15,7 +15,8 @@ import {
   type ReloadOptions,
   type StrategyDraft,
   type StrategyWorkspaceSnapshot,
-  type StartupSettings
+  type StartupSettings,
+  type UpdateStatus
 } from '../shared/contracts'
 
 const api: BrowserShellApi = {
@@ -70,6 +71,27 @@ const api: BrowserShellApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getStartupSettings),
   setOpenAtLogin: (enabled: boolean): Promise<StartupSettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.setOpenAtLogin, enabled),
+  getUpdateStatus: (): Promise<UpdateStatus> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getUpdateStatus),
+  checkForUpdates: (): Promise<UpdateStatus> =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
+  downloadUpdate: (): Promise<UpdateStatus> =>
+    ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate),
+  installUpdate: (): Promise<UpdateStatus> =>
+    ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
+  onUpdateStatus: (listener: (status: UpdateStatus) => void) => {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      status: UpdateStatus
+    ): void => {
+      listener(status)
+    }
+
+    ipcRenderer.on(IPC_CHANNELS.updateStatusChanged, wrapped)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.updateStatusChanged, wrapped)
+    }
+  },
   getStrategyWorkspace: (): Promise<StrategyWorkspaceSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.getStrategyWorkspace),
   saveStrategy: (draft: StrategyDraft): Promise<StrategyWorkspaceSnapshot> =>

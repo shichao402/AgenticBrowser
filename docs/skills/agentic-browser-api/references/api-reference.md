@@ -20,7 +20,7 @@
 通过 `contextBridge.exposeInMainWorld` 暴露到渲染进程主 world，在 renderer
 DevTools Console 中可直接调用。
 
-共 32 个成员，按源码声明顺序排列。
+共 37 个成员，按源码声明顺序排列。
 
 #### `getSnapshot`
 
@@ -28,7 +28,7 @@ DevTools Console 中可直接调用。
 getSnapshot(): Promise<BrowserSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:588`
+源码位置：`src/shared/contracts.ts:646`
 
 无参数。
 
@@ -51,7 +51,7 @@ getSnapshot(): Promise<BrowserSnapshot>
 getMonitorSnapshot(): Promise<MonitorSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:589`
+源码位置：`src/shared/contracts.ts:647`
 
 无参数。
 
@@ -81,7 +81,7 @@ getMonitorSnapshot(): Promise<MonitorSnapshot>
 getCapabilityPolicy(): Promise<CapabilityPolicySnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:590`
+源码位置：`src/shared/contracts.ts:648`
 
 无参数。
 
@@ -99,7 +99,7 @@ getCapabilityPolicy(): Promise<CapabilityPolicySnapshot>
 setCapabilityPolicy(policy: CapabilityPolicy): Promise<CapabilityPolicySnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:591`
+源码位置：`src/shared/contracts.ts:649`
 
 | 参数     | 类型               | 可选 |
 | -------- | ------------------ | ---- |
@@ -111,7 +111,7 @@ setCapabilityPolicy(policy: CapabilityPolicy): Promise<CapabilityPolicySnapshot>
 listTabs(): Promise<BrowserTab[]>
 ```
 
-源码位置：`src/shared/contracts.ts:594`
+源码位置：`src/shared/contracts.ts:652`
 
 无参数。
 
@@ -121,7 +121,7 @@ listTabs(): Promise<BrowserTab[]>
 createTab(url?: string): Promise<BrowserTab[]>
 ```
 
-源码位置：`src/shared/contracts.ts:595`
+源码位置：`src/shared/contracts.ts:653`
 
 | 参数  | 类型     | 可选 |
 | ----- | -------- | ---- |
@@ -133,7 +133,7 @@ createTab(url?: string): Promise<BrowserTab[]>
 switchTab(tabId: string): Promise<BrowserTab[]>
 ```
 
-源码位置：`src/shared/contracts.ts:596`
+源码位置：`src/shared/contracts.ts:654`
 
 | 参数    | 类型     | 可选 |
 | ------- | -------- | ---- |
@@ -145,7 +145,7 @@ switchTab(tabId: string): Promise<BrowserTab[]>
 closeTab(tabId: string): Promise<BrowserTab[]>
 ```
 
-源码位置：`src/shared/contracts.ts:597`
+源码位置：`src/shared/contracts.ts:655`
 
 | 参数    | 类型     | 可选 |
 | ------- | -------- | ---- |
@@ -157,7 +157,7 @@ closeTab(tabId: string): Promise<BrowserTab[]>
 listProfiles(): Promise<ProfileSummary[]>
 ```
 
-源码位置：`src/shared/contracts.ts:598`
+源码位置：`src/shared/contracts.ts:656`
 
 无参数。
 
@@ -167,7 +167,7 @@ listProfiles(): Promise<ProfileSummary[]>
 createProfile(name: string): Promise<ProfileSummary[]>
 ```
 
-源码位置：`src/shared/contracts.ts:599`
+源码位置：`src/shared/contracts.ts:657`
 
 | 参数   | 类型     | 可选 |
 | ------ | -------- | ---- |
@@ -179,7 +179,7 @@ createProfile(name: string): Promise<ProfileSummary[]>
 activateProfile(profileId: string): Promise<ProfileSummary[]>
 ```
 
-源码位置：`src/shared/contracts.ts:600`
+源码位置：`src/shared/contracts.ts:658`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -191,7 +191,7 @@ activateProfile(profileId: string): Promise<ProfileSummary[]>
 deleteProfile(profileId: string): Promise<ProfileSummary[]>
 ```
 
-源码位置：`src/shared/contracts.ts:601`
+源码位置：`src/shared/contracts.ts:659`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -203,7 +203,7 @@ deleteProfile(profileId: string): Promise<ProfileSummary[]>
 getProjectWorkspace(): Promise<ProjectWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:602`
+源码位置：`src/shared/contracts.ts:660`
 
 无参数。
 
@@ -222,7 +222,7 @@ getProjectWorkspace(): Promise<ProjectWorkspaceSnapshot>
 installAutomationPlayground(profileId: string): Promise<AutomationPlaygroundInstallResult>
 ```
 
-源码位置：`src/shared/contracts.ts:603`
+源码位置：`src/shared/contracts.ts:661`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -241,7 +241,7 @@ installAutomationPlayground(profileId: string): Promise<AutomationPlaygroundInst
 saveProject(draft: ProjectDraft): Promise<ProjectWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:606`
+源码位置：`src/shared/contracts.ts:664`
 
 | 参数    | 类型           | 可选 |
 | ------- | -------------- | ---- |
@@ -253,7 +253,7 @@ saveProject(draft: ProjectDraft): Promise<ProjectWorkspaceSnapshot>
 setActiveProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:607`
+源码位置：`src/shared/contracts.ts:665`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -265,7 +265,7 @@ setActiveProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
 deleteProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:608`
+源码位置：`src/shared/contracts.ts:666`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -277,7 +277,7 @@ deleteProject(projectId: string): Promise<ProjectWorkspaceSnapshot>
 startProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:609`
+源码位置：`src/shared/contracts.ts:667`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -289,7 +289,7 @@ startProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
 pauseProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:610`
+源码位置：`src/shared/contracts.ts:668`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -301,7 +301,7 @@ pauseProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
 resumeProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:611`
+源码位置：`src/shared/contracts.ts:669`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -313,7 +313,7 @@ resumeProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
 stopProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:612`
+源码位置：`src/shared/contracts.ts:670`
 
 | 参数        | 类型     | 可选 |
 | ----------- | -------- | ---- |
@@ -325,7 +325,7 @@ stopProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
 getStartupSettings(): Promise<StartupSettings>
 ```
 
-源码位置：`src/shared/contracts.ts:613`
+源码位置：`src/shared/contracts.ts:671`
 
 无参数。
 
@@ -343,11 +343,78 @@ getStartupSettings(): Promise<StartupSettings>
 setOpenAtLogin(enabled: boolean): Promise<StartupSettings>
 ```
 
-源码位置：`src/shared/contracts.ts:614`
+源码位置：`src/shared/contracts.ts:672`
 
 | 参数      | 类型      | 可选 |
 | --------- | --------- | ---- |
 | `enabled` | `boolean` | 否   |
+
+#### `getUpdateStatus`
+
+```typescript
+getUpdateStatus(): Promise<UpdateStatus>
+```
+
+源码位置：`src/shared/contracts.ts:673`
+
+无参数。
+
+##### 字段表 `UpdateStatus`
+
+| 字段             | 类型                     | 可选 |
+| ---------------- | ------------------------ | ---- |
+| `enabled`        | `boolean`                | 否   |
+| `channel`        | `string \| null`         | 否   |
+| `currentVersion` | `string`                 | 否   |
+| `currentCode`    | `number \| null`         | 否   |
+| `phase`          | `UpdatePhase`            | 否   |
+| `message`        | `string \| null`         | 否   |
+| `available`      | `UpdateOffer \| null`    | 否   |
+| `progress`       | `UpdateProgress \| null` | 否   |
+| `manualUrl`      | `string \| null`         | 否   |
+| `checkedAt`      | `string \| null`         | 否   |
+
+#### `checkForUpdates`
+
+```typescript
+checkForUpdates(): Promise<UpdateStatus>
+```
+
+源码位置：`src/shared/contracts.ts:674`
+
+无参数。
+
+#### `downloadUpdate`
+
+```typescript
+downloadUpdate(): Promise<UpdateStatus>
+```
+
+源码位置：`src/shared/contracts.ts:675`
+
+无参数。
+
+#### `installUpdate`
+
+```typescript
+installUpdate(): Promise<UpdateStatus>
+```
+
+源码位置：`src/shared/contracts.ts:676`
+
+无参数。
+
+#### `onUpdateStatus`
+
+```typescript
+onUpdateStatus(listener: (status: UpdateStatus) => void): () => void
+```
+
+源码位置：`src/shared/contracts.ts:677`
+
+| 参数       | 类型                             | 可选 |
+| ---------- | -------------------------------- | ---- |
+| `listener` | `(status: UpdateStatus) => void` | 否   |
 
 #### `getStrategyWorkspace`
 
@@ -355,7 +422,7 @@ setOpenAtLogin(enabled: boolean): Promise<StartupSettings>
 getStrategyWorkspace(): Promise<StrategyWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:615`
+源码位置：`src/shared/contracts.ts:678`
 
 无参数。
 
@@ -372,7 +439,7 @@ getStrategyWorkspace(): Promise<StrategyWorkspaceSnapshot>
 saveStrategy(draft: StrategyDraft): Promise<StrategyWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:616`
+源码位置：`src/shared/contracts.ts:679`
 
 | 参数    | 类型            | 可选 |
 | ------- | --------------- | ---- |
@@ -384,7 +451,7 @@ saveStrategy(draft: StrategyDraft): Promise<StrategyWorkspaceSnapshot>
 setStrategyEnabled(strategyId: string, enabled: boolean): Promise<StrategyWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:617`
+源码位置：`src/shared/contracts.ts:680`
 
 | 参数         | 类型      | 可选 |
 | ------------ | --------- | ---- |
@@ -397,7 +464,7 @@ setStrategyEnabled(strategyId: string, enabled: boolean): Promise<StrategyWorksp
 setStrategyAllowed(strategyId: string, allowed: boolean): Promise<StrategyWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:621`
+源码位置：`src/shared/contracts.ts:684`
 
 | 参数         | 类型      | 可选 |
 | ------------ | --------- | ---- |
@@ -410,7 +477,7 @@ setStrategyAllowed(strategyId: string, allowed: boolean): Promise<StrategyWorksp
 deleteStrategy(strategyId: string): Promise<StrategyWorkspaceSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:625`
+源码位置：`src/shared/contracts.ts:688`
 
 | 参数         | 类型     | 可选 |
 | ------------ | -------- | ---- |
@@ -422,7 +489,7 @@ deleteStrategy(strategyId: string): Promise<StrategyWorkspaceSnapshot>
 navigate(url: string): Promise<BrowserSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:626`
+源码位置：`src/shared/contracts.ts:689`
 
 | 参数  | 类型     | 可选 |
 | ----- | -------- | ---- |
@@ -434,7 +501,7 @@ navigate(url: string): Promise<BrowserSnapshot>
 reload(options: ReloadOptions): Promise<BrowserSnapshot>
 ```
 
-源码位置：`src/shared/contracts.ts:627`
+源码位置：`src/shared/contracts.ts:690`
 
 | 参数      | 类型            | 可选 |
 | --------- | --------------- | ---- |
@@ -446,7 +513,7 @@ reload(options: ReloadOptions): Promise<BrowserSnapshot>
 setPageViewsVisible(visible: boolean): Promise<void>
 ```
 
-源码位置：`src/shared/contracts.ts:628`
+源码位置：`src/shared/contracts.ts:691`
 
 | 参数      | 类型      | 可选 |
 | --------- | --------- | ---- |
@@ -458,7 +525,7 @@ setPageViewsVisible(visible: boolean): Promise<void>
 onBrowserEvent(listener: (event: BrowserEvent) => void): () => void
 ```
 
-源码位置：`src/shared/contracts.ts:629`
+源码位置：`src/shared/contracts.ts:692`
 
 | 参数       | 类型                            | 可选 |
 | ---------- | ------------------------------- | ---- |
@@ -479,7 +546,7 @@ onBrowserEvent(listener: (event: BrowserEvent) => void): () => void
 readonly config: Record<string, JsonValue>
 ```
 
-源码位置：`src/shared/contracts.ts:574`
+源码位置：`src/shared/contracts.ts:632`
 
 #### `log`
 
@@ -487,7 +554,7 @@ readonly config: Record<string, JsonValue>
 log(message: string, data?: JsonValue): Promise<void>
 ```
 
-源码位置：`src/shared/contracts.ts:575`
+源码位置：`src/shared/contracts.ts:633`
 
 | 参数      | 类型        | 可选 |
 | --------- | ----------- | ---- |
@@ -500,7 +567,7 @@ log(message: string, data?: JsonValue): Promise<void>
 debug(message: string, data?: JsonValue): Promise<void>
 ```
 
-源码位置：`src/shared/contracts.ts:576`
+源码位置：`src/shared/contracts.ts:634`
 
 | 参数      | 类型        | 可选 |
 | --------- | ----------- | ---- |
@@ -513,7 +580,7 @@ debug(message: string, data?: JsonValue): Promise<void>
 warn(message: string, data?: JsonValue): Promise<void>
 ```
 
-源码位置：`src/shared/contracts.ts:577`
+源码位置：`src/shared/contracts.ts:635`
 
 | 参数      | 类型        | 可选 |
 | --------- | ----------- | ---- |
@@ -526,7 +593,7 @@ warn(message: string, data?: JsonValue): Promise<void>
 error(message: string, data?: JsonValue): Promise<void>
 ```
 
-源码位置：`src/shared/contracts.ts:578`
+源码位置：`src/shared/contracts.ts:636`
 
 | 参数      | 类型        | 可选 |
 | --------- | ----------- | ---- |
@@ -539,7 +606,7 @@ error(message: string, data?: JsonValue): Promise<void>
 emit(name: string, payload?: JsonValue): Promise<void>
 ```
 
-源码位置：`src/shared/contracts.ts:579`
+源码位置：`src/shared/contracts.ts:637`
 
 | 参数      | 类型        | 可选 |
 | --------- | ----------- | ---- |
@@ -552,7 +619,7 @@ emit(name: string, payload?: JsonValue): Promise<void>
 request(request: StrategyNetworkRequest): Promise<StrategyNetworkResponse>
 ```
 
-源码位置：`src/shared/contracts.ts:580`
+源码位置：`src/shared/contracts.ts:638`
 
 | 参数      | 类型                     | 可选 |
 | --------- | ------------------------ | ---- |
@@ -573,7 +640,7 @@ request(request: StrategyNetworkRequest): Promise<StrategyNetworkResponse>
 evaluateMainWorld(source: string): Promise<unknown>
 ```
 
-源码位置：`src/shared/contracts.ts:581`
+源码位置：`src/shared/contracts.ts:639`
 
 | 参数     | 类型     | 可选 |
 | -------- | -------- | ---- |
@@ -583,224 +650,224 @@ evaluateMainWorld(source: string): Promise<unknown>
 
 ### `BrowserEventType` 事件
 
-源码位置：`src/shared/contracts.ts:42`
+源码位置：`src/shared/contracts.ts:47`
 
 | 事件名                        | 源码行 |
 | ----------------------------- | ------ |
-| `'created'`                   | 43     |
-| `'navigation-started'`        | 44     |
-| `'navigation-finished'`       | 45     |
-| `'load-started'`              | 46     |
-| `'load-finished'`             | 47     |
-| `'load-failed'`               | 48     |
-| `'unresponsive'`              | 49     |
-| `'responsive'`                | 50     |
-| `'renderer-gone'`             | 51     |
-| `'recreated'`                 | 52     |
-| `'checkpoint-saved'`          | 53     |
-| `'checkpoint-failed'`         | 54     |
-| `'health-changed'`            | 55     |
-| `'recovery-scheduled'`        | 56     |
-| `'recovery-started'`          | 57     |
-| `'recovery-succeeded'`        | 58     |
-| `'circuit-open'`              | 59     |
-| `'popup-blocked'`             | 60     |
-| `'popup-routed'`              | 61     |
-| `'download-blocked'`          | 62     |
-| `'download-started'`          | 63     |
-| `'download-progress'`         | 64     |
-| `'download-completed'`        | 65     |
-| `'download-failed'`           | 66     |
-| `'strategy-started'`          | 67     |
-| `'strategy-ready'`            | 68     |
-| `'strategy-log'`              | 69     |
-| `'strategy-event'`            | 70     |
-| `'strategy-failed'`           | 71     |
-| `'strategy-heartbeat-missed'` | 72     |
-| `'strategy-quarantined'`      | 73     |
-| `'strategy-reloaded'`         | 74     |
-| `'project-runtime-started'`   | 75     |
-| `'project-runtime-paused'`    | 76     |
-| `'project-runtime-resumed'`   | 77     |
-| `'project-runtime-stopped'`   | 78     |
-| `'project-runtime-failed'`    | 79     |
-| `'filter-hit'`                | 80     |
-| `'filter-css-applied'`        | 81     |
+| `'created'`                   | 48     |
+| `'navigation-started'`        | 49     |
+| `'navigation-finished'`       | 50     |
+| `'load-started'`              | 51     |
+| `'load-finished'`             | 52     |
+| `'load-failed'`               | 53     |
+| `'unresponsive'`              | 54     |
+| `'responsive'`                | 55     |
+| `'renderer-gone'`             | 56     |
+| `'recreated'`                 | 57     |
+| `'checkpoint-saved'`          | 58     |
+| `'checkpoint-failed'`         | 59     |
+| `'health-changed'`            | 60     |
+| `'recovery-scheduled'`        | 61     |
+| `'recovery-started'`          | 62     |
+| `'recovery-succeeded'`        | 63     |
+| `'circuit-open'`              | 64     |
+| `'popup-blocked'`             | 65     |
+| `'popup-routed'`              | 66     |
+| `'download-blocked'`          | 67     |
+| `'download-started'`          | 68     |
+| `'download-progress'`         | 69     |
+| `'download-completed'`        | 70     |
+| `'download-failed'`           | 71     |
+| `'strategy-started'`          | 72     |
+| `'strategy-ready'`            | 73     |
+| `'strategy-log'`              | 74     |
+| `'strategy-event'`            | 75     |
+| `'strategy-failed'`           | 76     |
+| `'strategy-heartbeat-missed'` | 77     |
+| `'strategy-quarantined'`      | 78     |
+| `'strategy-reloaded'`         | 79     |
+| `'project-runtime-started'`   | 80     |
+| `'project-runtime-paused'`    | 81     |
+| `'project-runtime-resumed'`   | 82     |
+| `'project-runtime-stopped'`   | 83     |
+| `'project-runtime-failed'`    | 84     |
+| `'filter-hit'`                | 85     |
+| `'filter-css-applied'`        | 86     |
 
 ### 联合类型与字面量
 
 #### `StrategyRunAt`
 
-源码位置：`src/shared/contracts.ts:435`
+源码位置：`src/shared/contracts.ts:493`
 
 | 字面量             | 源码行 |
 | ------------------ | ------ |
-| `'document-start'` | 435    |
-| `'document-end'`   | 435    |
-| `'document-idle'`  | 435    |
+| `'document-start'` | 493    |
+| `'document-end'`   | 493    |
+| `'document-idle'`  | 493    |
 
 #### `StrategyFrameScope`
 
-源码位置：`src/shared/contracts.ts:437`
+源码位置：`src/shared/contracts.ts:495`
 
 | 字面量  | 源码行 |
 | ------- | ------ |
-| `'top'` | 437    |
-| `'all'` | 437    |
+| `'top'` | 495    |
+| `'all'` | 495    |
 
 #### `StrategyPermission`
 
-源码位置：`src/shared/contracts.ts:439`
+源码位置：`src/shared/contracts.ts:497`
 
 | 字面量                 | 源码行 |
 | ---------------------- | ------ |
-| `'dom.read'`           | 440    |
-| `'dom.write'`          | 441    |
-| `'dom.click'`          | 442    |
-| `'config.read'`        | 443    |
-| `'log'`                | 444    |
-| `'project.emit-event'` | 445    |
-| `'network.request'`    | 446    |
-| `'main-world'`         | 447    |
+| `'dom.read'`           | 498    |
+| `'dom.write'`          | 499    |
+| `'dom.click'`          | 500    |
+| `'config.read'`        | 501    |
+| `'log'`                | 502    |
+| `'project.emit-event'` | 503    |
+| `'network.request'`    | 504    |
+| `'main-world'`         | 505    |
 
 #### `StrategyLogLevel`
 
-源码位置：`src/shared/contracts.ts:541`
+源码位置：`src/shared/contracts.ts:599`
 
 | 字面量    | 源码行 |
 | --------- | ------ |
-| `'debug'` | 541    |
-| `'info'`  | 541    |
-| `'warn'`  | 541    |
-| `'error'` | 541    |
+| `'debug'` | 599    |
+| `'info'`  | 599    |
+| `'warn'`  | 599    |
+| `'error'` | 599    |
 
 #### `StrategyHostMethod`
 
-源码位置：`src/shared/contracts.ts:557`
+源码位置：`src/shared/contracts.ts:615`
 
 | 字面量              | 源码行 |
 | ------------------- | ------ |
-| `'log'`             | 558    |
-| `'emit-event'`      | 558    |
-| `'network-request'` | 558    |
-| `'main-world-eval'` | 558    |
+| `'log'`             | 616    |
+| `'emit-event'`      | 616    |
+| `'network-request'` | 616    |
+| `'main-world-eval'` | 616    |
 
 #### `StrategyRuntimeStatus`
 
-源码位置：`src/shared/contracts.ts:489`
+源码位置：`src/shared/contracts.ts:547`
 
 | 字面量        | 源码行 |
 | ------------- | ------ |
-| `'issued'`    | 490    |
-| `'scheduled'` | 490    |
-| `'starting'`  | 490    |
-| `'running'`   | 490    |
-| `'failed'`    | 490    |
+| `'issued'`    | 548    |
+| `'scheduled'` | 548    |
+| `'starting'`  | 548    |
+| `'running'`   | 548    |
+| `'failed'`    | 548    |
 
 #### `StrategyRuntimeSignalType`
 
-源码位置：`src/shared/contracts.ts:532`
+源码位置：`src/shared/contracts.ts:590`
 
 | 字面量        | 源码行 |
 | ------------- | ------ |
-| `'installed'` | 533    |
-| `'started'`   | 533    |
-| `'ready'`     | 533    |
-| `'heartbeat'` | 533    |
-| `'failed'`    | 533    |
+| `'installed'` | 591    |
+| `'started'`   | 591    |
+| `'ready'`     | 591    |
+| `'heartbeat'` | 591    |
+| `'failed'`    | 591    |
 
 #### `WorkflowFailureCategory`
 
-源码位置：`src/shared/contracts.ts:242`
+源码位置：`src/shared/contracts.ts:247`
 
 | 字面量             | 源码行 |
 | ------------------ | ------ |
-| `'network'`        | 243    |
-| `'timeout'`        | 244    |
-| `'authentication'` | 245    |
-| `'page-changed'`   | 246    |
-| `'renderer'`       | 247    |
-| `'disk'`           | 248    |
-| `'cancelled'`      | 249    |
-| `'unknown'`        | 250    |
+| `'network'`        | 248    |
+| `'timeout'`        | 249    |
+| `'authentication'` | 250    |
+| `'page-changed'`   | 251    |
+| `'renderer'`       | 252    |
+| `'disk'`           | 253    |
+| `'cancelled'`      | 254    |
+| `'unknown'`        | 255    |
 
 #### `ProjectRuntimeMode`
 
-源码位置：`src/shared/contracts.ts:202`
+源码位置：`src/shared/contracts.ts:207`
 
 | 字面量        | 源码行 |
 | ------------- | ------ |
-| `'manual'`    | 203    |
-| `'autostart'` | 203    |
-| `'resident'`  | 203    |
-| `'schedule'`  | 203    |
+| `'manual'`    | 208    |
+| `'autostart'` | 208    |
+| `'resident'`  | 208    |
+| `'schedule'`  | 208    |
 
 #### `ProjectRuntimeStatus`
 
-源码位置：`src/shared/contracts.ts:358`
+源码位置：`src/shared/contracts.ts:363`
 
 | 字面量         | 源码行 |
 | -------------- | ------ |
-| `'queued'`     | 359    |
-| `'starting'`   | 360    |
-| `'running'`    | 361    |
-| `'waiting'`    | 362    |
-| `'recovering'` | 363    |
-| `'paused'`     | 364    |
-| `'failed'`     | 365    |
-| `'completed'`  | 366    |
-| `'cancelled'`  | 367    |
+| `'queued'`     | 364    |
+| `'starting'`   | 365    |
+| `'running'`    | 366    |
+| `'waiting'`    | 367    |
+| `'recovering'` | 368    |
+| `'paused'`     | 369    |
+| `'failed'`     | 370    |
+| `'completed'`  | 371    |
+| `'cancelled'`  | 372    |
 
 #### `DownloadRecordStatus`
 
-源码位置：`src/shared/contracts.ts:400`
+源码位置：`src/shared/contracts.ts:405`
 
 | 字面量          | 源码行 |
 | --------------- | ------ |
-| `'reserved'`    | 401    |
-| `'downloading'` | 401    |
-| `'completed'`   | 401    |
-| `'failed'`      | 401    |
-| `'cancelled'`   | 401    |
+| `'reserved'`    | 406    |
+| `'downloading'` | 406    |
+| `'completed'`   | 406    |
+| `'failed'`      | 406    |
+| `'cancelled'`   | 406    |
 
 #### `PageHealthStatus`
 
-源码位置：`src/shared/contracts.ts:105`
+源码位置：`src/shared/contracts.ts:110`
 
 | 字面量           | 源码行 |
 | ---------------- | ------ |
-| `'starting'`     | 106    |
-| `'healthy'`      | 106    |
-| `'degraded'`     | 106    |
-| `'unresponsive'` | 106    |
-| `'stopped'`      | 106    |
+| `'starting'`     | 111    |
+| `'healthy'`      | 111    |
+| `'degraded'`     | 111    |
+| `'unresponsive'` | 111    |
+| `'stopped'`      | 111    |
 
 #### `ContentFilterResourceType`
 
-源码位置：`src/shared/contracts.ts:220`
+源码位置：`src/shared/contracts.ts:225`
 
 | 字面量         | 源码行 |
 | -------------- | ------ |
-| `'stylesheet'` | 221    |
-| `'image'`      | 221    |
-| `'media'`      | 221    |
-| `'font'`       | 221    |
-| `'script'`     | 221    |
-| `'xhr'`        | 221    |
-| `'other'`      | 221    |
+| `'stylesheet'` | 226    |
+| `'image'`      | 226    |
+| `'media'`      | 226    |
+| `'font'`       | 226    |
+| `'script'`     | 226    |
+| `'xhr'`        | 226    |
+| `'other'`      | 226    |
 
 #### `WorkflowNode` 的 kind 取值
 
 工作流节点类型由可辨识联合的 `kind` 字段表达，没有独立的联合类型别名。
 
-源码位置：`src/shared/contracts.ts:261`
+源码位置：`src/shared/contracts.ts:266`
 
 | kind             | 源码行 |
 | ---------------- | ------ |
-| `navigate`       | 263    |
-| `wait-for-event` | 268    |
-| `delay`          | 273    |
-| `complete`       | 278    |
+| `navigate`       | 268    |
+| `wait-for-event` | 273    |
+| `delay`          | 278    |
+| `complete`       | 283    |
 
 ### 宿主方法所需权限
 
@@ -861,12 +928,12 @@ allowlist：」开头，中间含动态值
 
 | 项目                    | 数量 | 真源                      |
 | ----------------------- | ---- | ------------------------- |
-| `BrowserShellApi` 方法  | 32   | `src/shared/contracts.ts` |
+| `BrowserShellApi` 方法  | 37   | `src/shared/contracts.ts` |
 | `StrategyHostApi` 成员  | 8    | `src/shared/contracts.ts` |
-| `IPC_CHANNELS` 通道     | 32   | `src/shared/contracts.ts` |
+| `IPC_CHANNELS` 通道     | 37   | `src/shared/contracts.ts` |
 | `BrowserEventType` 事件 | 39   | `src/shared/contracts.ts` |
 
-渲染进程桥方法数与 IPC 通道数应相等，当前分别为 32 与 32。
+渲染进程桥方法数与 IPC 通道数应相等，当前分别为 37 与 37。
 
 ### 注入对象交叉校验
 

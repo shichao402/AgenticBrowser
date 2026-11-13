@@ -12,7 +12,9 @@ export default tseslint.config(
       'release/**',
       'coverage/**',
       'node_modules/**',
-      '.agentic-browser/**'
+      '.agentic-browser/**',
+      '.relkit/**',
+      'src/main/updater/gen/**'
     ]
   },
   js.configs.recommended,

@@ -23,6 +23,11 @@ export const IPC_CHANNELS = {
   stopProjectRuntime: 'projects:stop-runtime',
   getStartupSettings: 'startup:get',
   setOpenAtLogin: 'startup:set-open-at-login',
+  getUpdateStatus: 'updates:get-status',
+  checkForUpdates: 'updates:check',
+  downloadUpdate: 'updates:download',
+  installUpdate: 'updates:install',
+  updateStatusChanged: 'updates:status-changed',
   getStrategyWorkspace: 'strategies:get-workspace',
   saveStrategy: 'strategies:save',
   setStrategyEnabled: 'strategies:set-enabled',
@@ -432,6 +437,59 @@ export interface StartupSettings {
   managedByWatchdog: boolean
 }
 
+/**
+ * 应用内更新的阶段。版本判断、验签与安装全在 relkit-updater 引擎里，
+ * 这里只是把引擎结果收敛成界面能画的形状。
+ */
+export type UpdatePhase =
+  | 'disabled'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'applying'
+  | 'fallback'
+  | 'error'
+
+export interface UpdateOffer {
+  version: string
+  code: number
+  mandatory: boolean
+  /**
+   * 能否在应用内下载并安装。原地替换与整包安装程序交接都由引擎完成，
+   * 只有引擎没给出交付方式（契约之外）时为 false，只能去发布页手动更新。
+   */
+  inApp: boolean
+  /** 引擎会运行整包安装程序（而不是原地替换目录树）。 */
+  fullInstall: boolean
+  releaseNotes: string
+  releaseNotesUrl: string | null
+  sizeBytes: number
+}
+
+export interface UpdateProgress {
+  received: number
+  total: number
+  bytesPerSecond: number
+}
+
+export interface UpdateStatus {
+  enabled: boolean
+  /** 服务器渠道：stable 或 dev；未接入的构建为 null。 */
+  channel: string | null
+  currentVersion: string
+  currentCode: number | null
+  phase: UpdatePhase
+  /** 给人看的一句话，禁用原因、错误或提示都放这里。 */
+  message: string | null
+  available: UpdateOffer | null
+  progress: UpdateProgress | null
+  manualUrl: string | null
+  checkedAt: string | null
+}
+
 export type StrategyRunAt = 'document-start' | 'document-end' | 'document-idle'
 
 export type StrategyFrameScope = 'top' | 'all'
@@ -612,6 +670,11 @@ export interface BrowserShellApi {
   stopProjectRuntime(projectId: string): Promise<ProjectWorkspaceSnapshot>
   getStartupSettings(): Promise<StartupSettings>
   setOpenAtLogin(enabled: boolean): Promise<StartupSettings>
+  getUpdateStatus(): Promise<UpdateStatus>
+  checkForUpdates(): Promise<UpdateStatus>
+  downloadUpdate(): Promise<UpdateStatus>
+  installUpdate(): Promise<UpdateStatus>
+  onUpdateStatus(listener: (status: UpdateStatus) => void): () => void
   getStrategyWorkspace(): Promise<StrategyWorkspaceSnapshot>
   saveStrategy(draft: StrategyDraft): Promise<StrategyWorkspaceSnapshot>
   setStrategyEnabled(

@@ -1,0 +1,51 @@
+{
+  "schema": "relkit.project/1",
+  "product": "AgenticBrowser",
+  "server": "https://publish.firoyang.com",
+  "rootPublicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK9ShFFAsO8EesLm05hZn3xuPCvVnp0JGJWYo/C7VK8C",
+  "selectorDimensions": ["os-arch"],
+  "site": {
+    "title": "AgenticBrowser",
+    "description": "AgenticBrowser 桌面浏览器的更新源。程序内置自动更新；Windows 与 macOS 也可以从这里手动下载完整安装包。",
+    "homepage": "https://github.com/shichao402/AgenticBrowser"
+  },
+  "artifactProducer": {
+    "command": ["node", "scripts/relkit_producer.mjs"],
+    "extensionSchema": "relkit.extension/1",
+    "timeoutSeconds": 7200,
+    "envAllowlist": [
+      "PATH",
+      "PATHEXT",
+      "CI",
+      "HOME",
+      "USER",
+      "USERNAME",
+      "LANG",
+      "USERPROFILE",
+      "TEMP",
+      "TMP",
+      "TMPDIR",
+      "LOCALAPPDATA",
+      "APPDATA",
+      "PROGRAMFILES",
+      "PROGRAMFILES(X86)",
+      "ProgramW6432",
+      "PROGRAMDATA",
+      "SYSTEMROOT",
+      "SYSTEMDRIVE",
+      "WINDIR",
+      "COMSPEC",
+      "COMMONPROGRAMFILES",
+      "COMMONPROGRAMFILES(X86)",
+      "PROCESSOR_ARCHITECTURE",
+      "NUMBER_OF_PROCESSORS",
+      "PYTHON",
+      "RELKIT_CLI",
+      "CSC_IDENTITY_AUTO_DISCOVERY",
+      "ELECTRON_CACHE",
+      "ELECTRON_BUILDER_CACHE",
+      "npm_config_cache"
+    ],
+    "permissions": ["read-workspace", "write-out-dir", "exec-self"]
+  }
+}

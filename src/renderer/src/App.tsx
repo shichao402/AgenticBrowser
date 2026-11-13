@@ -18,6 +18,7 @@ import { CapabilityPanel, EventPanel } from './app-panels'
 import { ProjectPanel, StrategyPanel } from './app-sections'
 import { SettingsPage } from './settings/settings-page'
 import type { SettingsTarget } from './settings/settings-page'
+import { UpdatePanel } from './update-panel'
 
 export function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null)
@@ -670,6 +671,7 @@ export function App(): React.JSX.Element {
               onChange={() => void toggleOpenAtLogin()}
             />
           </label>
+          <UpdatePanel />
         </section>
 
         <section className="project-card">

@@ -58,6 +58,7 @@ export const VALIDATED_UNION_TYPES = [
   'PageHealthStatus',
   'ContentFilterResourceType',
   'ProjectStrategyResolutionStatus',
+  'UpdatePhase',
   'JsonValue'
 ]
 
@@ -104,7 +105,10 @@ export const FIELD_INTERFACES = [
   'ContentFilterDefinition',
   'ContentFilterNetworkRule',
   'ContentFilterCssRule',
-  'AutomationPlaygroundInstallResult'
+  'AutomationPlaygroundInstallResult',
+  'UpdateStatus',
+  'UpdateOffer',
+  'UpdateProgress'
 ]
 
 /**

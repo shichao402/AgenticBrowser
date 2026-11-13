@@ -6,6 +6,10 @@ declare global {
   // 构建期一定会注入，缺省值由 resolveChannelName/resolveProfile 兜底。
   const __AGENTIC_CHANNEL__: string
   const __AGENTIC_PROFILE__: ChannelProfile
+  // 只注入主进程；CI 发布构建才非空，见 scripts/relkit_producer.mjs。
+  const __AGENTIC_RELKIT_BOOTSTRAP__: string
+  const __AGENTIC_RELEASE_CODE__: string
+  const __AGENTIC_RELEASE_VERSION__: string
 }
 
 export {}

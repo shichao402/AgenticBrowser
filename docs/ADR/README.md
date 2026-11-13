@@ -9,6 +9,7 @@
 | [0005](0005-isolated-strategy-runtime.md) | Accepted | Strategy 使用独立 world、宿主能力门与 renderer 级故障终止 |
 | [0006](0006-persistent-project-runtime-and-download-intent.md) | Accepted | 持久化 Project Runtime、双槽/Profile 互斥调度与下载意图协议 |
 | [0007](0007-manual-takeover-pauses-automation.md) | Accepted | 人工接管时暂停自动化并保留 Runtime、Profile 与执行槽 |
+| [0008](0008-relkit-in-app-updates.md) | Accepted | 使用 Relkit 引擎实现应用内更新，release/dev 两档对应 stable/dev 发布 |
 
 ## 模板
 

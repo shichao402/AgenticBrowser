@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import react from '@vitejs/plugin-react'
@@ -16,9 +17,24 @@ const channelDefinition = {
   __AGENTIC_PROFILE__: JSON.stringify(profile)
 }
 
+// relkit 发布身份只在 CI 发布构建里由 producer 注入；本地构建全为空，
+// 主进程据此显示"此构建未接入更新"，不会去碰服务器。
+const bootstrapPath = process.env.AGENTIC_RELKIT_BOOTSTRAP
+const releaseDefinition = {
+  __AGENTIC_RELKIT_BOOTSTRAP__: JSON.stringify(
+    bootstrapPath ? readFileSync(bootstrapPath, 'utf8') : ''
+  ),
+  __AGENTIC_RELEASE_CODE__: JSON.stringify(
+    process.env.AGENTIC_RELEASE_CODE ?? ''
+  ),
+  __AGENTIC_RELEASE_VERSION__: JSON.stringify(
+    process.env.AGENTIC_RELEASE_VERSION ?? ''
+  )
+}
+
 export default defineConfig({
   main: {
-    define: channelDefinition,
+    define: { ...channelDefinition, ...releaseDefinition },
     build: {
       rollupOptions: {
         input: {

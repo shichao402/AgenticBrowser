@@ -136,6 +136,8 @@ import {
   launchPackagedWatchdog,
   WATCHDOG_AUTOSTART_ARGUMENT
 } from './watchdog-launcher'
+import { createUpdateService } from './updater/runtime'
+import type { UpdateService } from './updater/service'
 
 // 档位身份在构建期注入，这里只读结果。应用名必须在设置 userData
 // 之前定好：Electron 用应用名推导默认数据目录，两档共用同一个名字
@@ -165,10 +167,37 @@ const MIN_PAGE_SIZE = 240
 let mainWindow: BaseWindow | null = null
 let phaseZeroProbe: PhaseZeroProbeServer | null = null
 let automatedDownloadDirectory: string | null = null
+let updateService: UpdateService | null = null
 initMainProcessHeartbeat()
 const runApplication = await prepareApplicationLaunch()
 
+/** 懒加载：入口测试替身里没有 getVersion，只有真正用到时才装配。 */
+function getUpdateService(): UpdateService {
+  updateService ??= createUpdateService({
+    executablePath: process.execPath,
+    platform: process.platform,
+    arch: process.arch,
+    userDataPath: app.getPath('userData'),
+    appVersion: app.getVersion(),
+    // 正常退出码 0：watchdog 随之退出，引擎等本进程退出后开始替换。
+    quit: () => app.quit(),
+    log: (message) => console.log(message)
+  })
+  return updateService
+}
+
 async function prepareApplicationLaunch(): Promise<boolean> {
+  // 启动交接（relkit ADR 0026）：更新程序还握着安装目录时，新起的这一份
+  // 必须让位。放在拉起 watchdog 之前，免得 watchdog 反复拉起被挡住的实例。
+  if (
+    app.isPackaged &&
+    process.env.AGENTIC_WATCHDOG_MANAGED !== '1' &&
+    (await getUpdateService().hostMustExit())
+  ) {
+    app.exit(0)
+    return false
+  }
+
   if (app.isPackaged && process.env.AGENTIC_WATCHDOG_MANAGED !== '1') {
     await launchPackagedWatchdog(
       {
@@ -2024,6 +2053,34 @@ async function createMainWindow(
     return setOpenAtLogin(enabled)
   })
 
+  ipcMain.handle(IPC_CHANNELS.getUpdateStatus, (event) => {
+    assertTrustedSender(event.sender.id)
+    return getUpdateService().getStatus()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.checkForUpdates, (event) => {
+    assertTrustedSender(event.sender.id)
+    return getUpdateService().check({ manual: true })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.downloadUpdate, (event) => {
+    assertTrustedSender(event.sender.id)
+    return getUpdateService().download()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.installUpdate, (event) => {
+    assertTrustedSender(event.sender.id)
+    return getUpdateService().install()
+  })
+
+  const unsubscribeUpdateStatus = app.isPackaged
+    ? getUpdateService().subscribe((status) => {
+        if (!shellWebContents.isDestroyed()) {
+          shellWebContents.send(IPC_CHANNELS.updateStatusChanged, status)
+        }
+      })
+    : (): void => undefined
+
   ipcMain.handle(IPC_CHANNELS.getStrategyWorkspace, (event) => {
     assertTrustedSender(event.sender.id)
     return getStrategyWorkspaceSnapshot()
@@ -2207,6 +2264,11 @@ async function createMainWindow(
       ipcMain.removeHandler(IPC_CHANNELS.stopProjectRuntime)
       ipcMain.removeHandler(IPC_CHANNELS.getStartupSettings)
       ipcMain.removeHandler(IPC_CHANNELS.setOpenAtLogin)
+      ipcMain.removeHandler(IPC_CHANNELS.getUpdateStatus)
+      ipcMain.removeHandler(IPC_CHANNELS.checkForUpdates)
+      ipcMain.removeHandler(IPC_CHANNELS.downloadUpdate)
+      ipcMain.removeHandler(IPC_CHANNELS.installUpdate)
+      unsubscribeUpdateStatus()
       ipcMain.removeHandler(IPC_CHANNELS.getStrategyWorkspace)
       ipcMain.removeHandler(IPC_CHANNELS.saveStrategy)
       ipcMain.removeHandler(IPC_CHANNELS.setStrategyEnabled)
@@ -2844,6 +2906,10 @@ if (runApplication) {
           void createMainWindow()
         }
       })
+
+      if (app.isPackaged && !automatedTestRun) {
+        getUpdateService().start()
+      }
     })
     .catch((error: unknown) => {
       const result = {

@@ -19,12 +19,17 @@
     "electron.vite.config.ts",
     "vitest.config.ts",
     "scripts/channel-identity.mjs",
+    "scripts/package-channel.mjs",
+    "scripts/relkit-version.mjs",
+    "scripts/relkit_producer.mjs",
+    "scripts/stage-relkit.mjs",
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "src/renderer/src/settings/settings-model.ts",
     "src/renderer/src/settings/settings-validation.ts",
     "src/renderer/src/app-format.ts",
+    "src/renderer/src/update-view.ts",
     "tests/**/*.ts"
   ]
 }

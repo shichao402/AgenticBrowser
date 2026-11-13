@@ -6,6 +6,9 @@ release/
 coverage/
 .agentic-browser/
 
+# protoc-gen-es 生成物，由 npm run proto:gen 维护
+src/main/updater/gen/
+
 # 锁文件由 npm 维护，不做格式化
 package-lock.json
 

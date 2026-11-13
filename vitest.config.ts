@@ -16,7 +16,9 @@ export default defineConfig({
         'src/main/smoke-flags.ts',
         'src/renderer/**',
         'src/shared/contracts.ts',
-        'src/preload/**'
+        'src/preload/**',
+        // protoc-gen-es 生成的协议描述，没有可测逻辑
+        'src/main/updater/gen/**'
       ],
       // 阈值取当前实测值的下沿，用于防止覆盖率回退。实测约
       // 54.3 / 63.11 / 61.1 / 54.37。

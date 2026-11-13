@@ -55,20 +55,31 @@ export function buildChannel(channel) {
 
 /**
  * 开发档的打包覆盖。字段与 package.json 里的正式档一一对应，
- * 只是取值为开发档。不写回文件。
+ * 只是取值为开发档。键是 electron-builder 配置的点号路径，CLI 与
+ * relkit producer（编程 API）共用这一份。不写回文件。
+ * @param {import('./channel-identity.mjs').ChannelProfile} profile
+ * @returns {Record<string, string>}
+ */
+export function devConfigOverrides(profile) {
+  return {
+    appId: profile.appId,
+    productName: profile.displayName,
+    'directories.output': `release/${profile.installDirectoryName}`,
+    'nsis.shortcutName': profile.displayName,
+    'nsis.artifactName': `${profile.artifactPrefix}-\${version}-win-\${arch}.\${ext}`,
+    'win.artifactName': `${profile.artifactPrefix}-\${version}-win-\${arch}.\${ext}`,
+    'mac.artifactName': `${profile.artifactPrefix}-\${version}-mac-\${arch}.\${ext}`
+  }
+}
+
+/**
  * @param {import('./channel-identity.mjs').ChannelProfile} profile
  * @returns {string[]}
  */
 function devOverrides(profile) {
-  return [
-    `-c.appId=${profile.appId}`,
-    `-c.productName=${profile.displayName}`,
-    `-c.directories.output=release/${profile.installDirectoryName}`,
-    `-c.nsis.shortcutName=${profile.displayName}`,
-    `-c.nsis.artifactName=${profile.artifactPrefix}-\${version}-win-\${arch}.\${ext}`,
-    `-c.win.artifactName=${profile.artifactPrefix}-\${version}-win-\${arch}.\${ext}`,
-    `-c.mac.artifactName=${profile.artifactPrefix}-\${version}-mac-\${arch}.\${ext}`
-  ]
+  return Object.entries(devConfigOverrides(profile)).map(
+    ([key, value]) => `-c.${key}=${value}`
+  )
 }
 
 /**

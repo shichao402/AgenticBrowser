@@ -53,3 +53,6 @@ playwright-report/
 
 # Agent 本地任务笔记
 .agent/
+
+# Relkit 本地工具、暂存引擎与发布中间产物（宿主仓不记录二进制）
+.relkit/
